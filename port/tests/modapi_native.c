@@ -35,6 +35,8 @@
  *     online <active> <host> <dedicated> <slot>   the network as this machine sees it
  *     netrecv <mod> <from> <channel> <text> | netoff <mod> <from> | peerready <slot>
  *     frame                        a frame in play (gevrModScriptFrame: the held messages go out)
+ *     slotid|slottaken|slotfreed <kind> <slot>   gevr_modgame.c: a runtime pickup named (SLOTID id),
+ *                                  taken by this player, freed (propobj.c objFree)
  *     panel <0|1>                  this build has the in-game screen (input.c gevrPanelAvailable)
  *     ui                           the pages the in-game screen shows now (UIPAGE, UIROW, UIBUTTON, UIASKED)
  *     uiset <page> <row> <value> | uiclick <page> <button> | uiopened   the screen's side
@@ -246,13 +248,15 @@ int gevrModGameTake(int item)
     return had;
 }
 int gevrModGameAmmo(int type) { return s_ammo[type]; }
-/* the game's drops: a weapon slot's id or a box slot's, none from guard 999 */
+/* the game's drops: a weapon slot's id or a box slot's (as gevr_modgame.c
+ * names them), none from guard 999 */
 static int s_dropWeapons, s_dropBoxes;
 int gevrModGameDrop(int item, int ammo, int from)
 {
     printf("DROP %d %d %d\n", item, ammo, from);
     if (from == 999) return -1;
-    return item ? GEVR_MODAPI_PICKUP_WEAPONS + s_dropWeapons++ : GEVR_MODAPI_PICKUP_BOXES + s_dropBoxes++;
+    return item ? gevrModApiPickupSlotId(GEVR_MODAPI_PICKUP_WEAPON, s_dropWeapons++)
+                : gevrModApiPickupSlotId(GEVR_MODAPI_PICKUP_BOX, s_dropBoxes++);
 }
 void gevrModGameSetAmmo(int type, int rounds) { s_ammo[type] = rounds; }
 int gevrModGameAmmoMax(int type) { return type >= 1 && type <= GEVR_MODAPI_AMMO_TYPES ? s_ammoMax[type] : 0; }
@@ -637,6 +641,15 @@ int main(int argc, char **argv)
             gevrModApiItemPickup(&got);
         } else if (!strcmp(cmd, "campaign") && i + 1 < argc) {
             s_modCampaign = atoi(argv[++i]);   /* a mod campaign runs (its own save) */
+        } else if (!strcmp(cmd, "slotid") && i + 2 < argc) {
+            printf("SLOTID %d\n", gevrModApiPickupSlotId(atoi(argv[i + 1]), atoi(argv[i + 2])));
+            i += 2;
+        } else if (!strcmp(cmd, "slottaken") && i + 2 < argc) {
+            gevrModApiPickupSlotTaken(atoi(argv[i + 1]), atoi(argv[i + 2]));
+            i += 2;
+        } else if (!strcmp(cmd, "slotfreed") && i + 2 < argc) {
+            gevrModApiPickupSlotFreed(atoi(argv[i + 1]), atoi(argv[i + 2]));
+            i += 2;
         } else if (!strcmp(cmd, "dropped") && i + 3 < argc) {
             /* propobjSetDropped: a chr's weapon falls */
             gevrModApiWeaponDropped(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));

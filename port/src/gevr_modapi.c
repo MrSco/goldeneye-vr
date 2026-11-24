@@ -571,6 +571,85 @@ static const luaL_Reg s_ammoFuncs[] = {
 /* ---- mod.pickups ---- */
 
 /*
+ * Runtime pickups' ids (gevr_modapi.h): the game recycles its weapon and ammo
+ * box slots (and frees the oldest dropped gun when the weapon slots are full),
+ * so a slot's number names a different pickup over a mission. Each is given
+ * the next id as it's first named (item_pickup, weapon_dropped, drop) and
+ * keeps it until its slot is freed; the id is never given again this mission.
+ * One freed that this headset's player didn't take is told as pickup_removed
+ * at the next frame in play, outside whatever call freed it.
+ */
+static int s_pickupId[GEVR_MODAPI_PICKUP_KINDS][GEVR_MODAPI_PICKUP_SLOTS];
+static unsigned char s_pickupTaken[GEVR_MODAPI_PICKUP_KINDS][GEVR_MODAPI_PICKUP_SLOTS];
+static int s_pickupNext = GEVR_MODAPI_PICKUP_RUNTIME;
+static int s_removed[GEVR_MODAPI_PICKUP_QUEUE], s_removedQueued, s_removedDropped;
+
+static int pickupSlotOk(int kind, int slot)
+{
+    return kind >= 0 && kind < GEVR_MODAPI_PICKUP_KINDS && slot >= 0 && slot < GEVR_MODAPI_PICKUP_SLOTS;
+}
+
+int gevrModApiPickupSlotId(int kind, int slot)
+{
+    if (!pickupSlotOk(kind, slot)) return -1;
+    if (s_pickupId[kind][slot] == 0) {
+        if (s_pickupNext > GEVR_MODAPI_PICKUP_LAST) return -1;
+        s_pickupId[kind][slot] = s_pickupNext++;
+        s_pickupTaken[kind][slot] = 0;
+    }
+    return s_pickupId[kind][slot];
+}
+
+void gevrModApiPickupSlotTaken(int kind, int slot)
+{
+    if (pickupSlotOk(kind, slot) && s_pickupId[kind][slot] != 0) s_pickupTaken[kind][slot] = 1;
+}
+
+void gevrModApiPickupSlotFreed(int kind, int slot)
+{
+    int id;
+
+    if (!pickupSlotOk(kind, slot) || (id = s_pickupId[kind][slot]) == 0) return;
+    s_pickupId[kind][slot] = 0;
+    if (!s_pickupTaken[kind][slot] && gevrModScriptRunning()) {
+        if (s_removedQueued < GEVR_MODAPI_PICKUP_QUEUE) s_removed[s_removedQueued++] = id;
+        else s_removedDropped++;
+    }
+    s_pickupTaken[kind][slot] = 0;
+}
+
+void gevrModApiPickupFlush(void)
+{
+    int q, n = s_removedQueued;
+    int taken[GEVR_MODAPI_PICKUP_QUEUE];
+
+    if (s_removedDropped) {
+        sysLogPrintf(LOG_WARNING, "mods: %d pickup_removed dropped: more than %d in a frame", s_removedDropped,
+                     GEVR_MODAPI_PICKUP_QUEUE);
+        s_removedDropped = 0;
+    }
+    /* taken first: a handler's own calls can free more, told next frame */
+    memcpy(taken, s_removed, sizeof(taken[0]) * (size_t)n);
+    s_removedQueued = 0;
+    for (q = 0; q < n; q++) {
+        GevrModArg a[1];
+
+        a[0].kind = GEVR_MODARG_INTEGER;
+        a[0].n = taken[q];
+        gevrModScriptEvent("pickup_removed", a, 1, 0);
+    }
+}
+
+void gevrModApiPickupClear(void)
+{
+    memset(s_pickupId, 0, sizeof(s_pickupId));
+    memset(s_pickupTaken, 0, sizeof(s_pickupTaken));
+    s_pickupNext = GEVR_MODAPI_PICKUP_RUNTIME;
+    s_removedQueued = 0;
+    s_removedDropped = 0;
+}
+
+/*
  * drop{ item = gun, from = "player" | guard } or drop{ ammo = type, from = ... }:
  * the game's own drop of a gun or thrown weapon (as a player's inventory is
  * dropped, drop_inventory) or of an ammo box of that type (as a shot crate

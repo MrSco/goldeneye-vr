@@ -51,6 +51,8 @@ void gevrModApiNetFlush(void) {}
 void gevrModApiNetClear(void) {}
 void gevrModApiUiFlush(void) {}   /* mod.ui */
 void gevrModApiUiClear(void) {}
+void gevrModApiPickupFlush(void) {}   /* pickup_removed */
+void gevrModApiPickupClear(void) {}
 
 const char *fsFullPath(const char *rel)
 {

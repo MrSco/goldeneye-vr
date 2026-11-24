@@ -1210,6 +1210,14 @@ void objFree(ObjectRecord* obj, s32 freeprop, s32 canregen)
 {
     PropRecord *child;
 
+#ifdef GEVR
+    {
+        extern void gevrModPickupFreed(ObjectRecord *obj);   /* gevr_modgame.c: a mod's pickup_removed */
+
+        gevrModPickupFreed(obj);
+    }
+#endif
+
     if (obj->type == PROPDEF_AUTOGUN)
     {
         AutogunRecord* record = (AutogunRecord*)obj;

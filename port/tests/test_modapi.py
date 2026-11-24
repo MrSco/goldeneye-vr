@@ -178,6 +178,50 @@ def reload_placement(gun, view):
           "a drawn gun closes the last one's reload")
 
 
+def pickup_ids(exe, temp):
+    """runtime pickups' ids never given twice in a mission; pickup_removed for one freed untaken, at the next
+    frame in play and only then; a new mission's ids afresh"""
+    lua = r"""
+mod.on("pickup_removed", function(pickup) print("removed", pickup, math.type(pickup)) end)
+mod.on("tick", function() print("tick") end)
+"""
+    play = ("start", "prepare", 9, "begin", 9)
+    out = run(exe, temp, "pickupids", lua, *play,
+              "slotid", 0, 3, "slotid", 0, 3, "slotid", 1, 3,
+              "slotfreed", 0, 3, "slotid", 0, 3,
+              "slotid", 1, 5, "slottaken", 1, 5, "slotfreed", 1, 5,
+              "slotfreed", 0, 9, "slotid", 0, 64, "slotid", 9, 0, "slotid", -1, 0,
+              "frame", "slotfreed", 1, 3, "frame", "frame",
+              "prepare", 10, "begin", 10, "slotid", 0, 3)
+    check(answers(out, "SLOTID") == ["SLOTID 65536", "SLOTID 65536", "SLOTID 65537", "SLOTID 65538", "SLOTID 65539",
+                                     "SLOTID -1", "SLOTID -1", "SLOTID -1", "SLOTID 65536"],
+          "a slot keeps its id until freed, then its next pickup a new one; none past the pools; afresh next mission: "
+          + str(answers(out, "SLOTID")))
+    check(logs(out) == ["removed 65536 integer", "tick", "removed 65537 integer", "tick", "tick"],
+          "freed untaken: told at the next frame before tick; taken, or never named: not told: " + str(logs(out)))
+    out = run(exe, temp, "pickupwait", lua, "start", "prepare", 9, "slotid", 0, 1, "slotfreed", 0, 1,
+              "begin", 9, "slotid", 0, 2, "slotfreed", 0, 2)
+    check(logs(out) == [], "none told outside play, nor before the next frame: " + str(logs(out)))
+    many = []
+    for slot in range(40):
+        many += ["slotid", 0, slot, "slotid", 1, slot]
+    for slot in range(40):
+        many += ["slotfreed", 0, slot, "slotfreed", 1, slot]
+    lua = r"""
+local n = 0
+mod.on("pickup_removed", function() n = n + 1 end)
+mod.on("tick", function() print("count", n) end)
+"""
+    out = run(exe, temp, "pickupmany", lua, *play, *many, "frame", "frame")
+    check(logs(out) == ["count 64", "count 64"] and "mods: 16 pickup_removed dropped: more than 64 in a frame" in out,
+          "at most 64 a frame, the rest logged: " + str(logs(out)))
+    script = (ROOT / "port/src/gevr_modscript.c").read_bytes().decode()
+    frame = function(script, "void gevrModScriptFrame(int ticks)")
+    check(frame.index("gevrModApiPickupFlush();") < frame.index('fire("tick", &a, 1, 0, 0);'), "told before tick")
+    check(script.index("gevrModApiUiClear();    /* and its clicks") < script.index("gevrModApiPickupClear();"),
+          "a mission's load clears the last one's ids")
+
+
 def drops_placement():
     """weapon_dropped at the game's drop; a mod's drop through the game's own; ids as co-op numbers them"""
     obj = (ROOT / "src/game/propobj.c").read_bytes().decode().replace("\r\n", "\n")
@@ -186,13 +230,20 @@ def drops_placement():
           "weapon_dropped as a held weapon is set to fall, still in its chr's hand")
     game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
     ids = function(game, "static int pickupId(ObjectRecord *target)")
-    net = (ROOT / "port/src/net/net_core.c").read_bytes().decode()
-    check("return 0x9000 + slot;" in function(net, "static int netObjectIndex(ObjectRecord *target)")
-          and "return 0x8000 + slot;" in function(net, "static int netObjectIndex(ObjectRecord *target)")
-          and ids.index("g_AmmoCrates[slot]") < ids.index("g_WeaponSlots[slot]") < ids.index("sizepropdef(def)"),
-          "pickup ids numbered as co-op's object messages number them (boxes, weapons, then the setup)")
-    check("got.pickup = pickupId((ObjectRecord *)rec);" in function(game, "void gevrModPickupTaken("),
-          "item_pickup carries the pickup's id")
+    check(ids.index("if (runtimeSlot(target, &kind, &slot)) return gevrModApiPickupSlotId(kind, slot);")
+          < ids.index("sizepropdef(def)"),
+          "a runtime pickup's id from the mod API's table, the stage's own by its setup index")
+    slots = function(game, "static s32 runtimeSlot(ObjectRecord *obj, s32 *kind, s32 *slot)")
+    check("sizeof(WeaponObjRecord) * MAX_WEAPON_SLOTS" in slots and "sizeof(AmmoCrateRecord) * MAX_AMMO_CRATES" in slots,
+          "the game's two runtime pools")
+    taken = function(game, "void gevrModPickupTaken(")
+    check(taken.index("got.pickup = pickupId((ObjectRecord *)rec);") < taken.index("gevrModApiPickupSlotTaken(pool, slot);"),
+          "item_pickup carries the pickup's id, and a runtime one is marked taken before it's freed")
+    check("gevrModApiPickupSlotFreed(kind, slot);" in function(game, "void gevrModPickupFreed(ObjectRecord *obj)"),
+          "a freed runtime pickup's id goes")
+    free = function(obj, "void objFree(ObjectRecord* obj, s32 freeprop, s32 canregen)")
+    check(free.index("gevrModPickupFreed(obj);") < free.index("if (obj->type == PROPDEF_AUTOGUN)"),
+          "every free of an object asks first, while it's whole")
     drop = function(game, "int gevrModGameDrop(int item, int ammo, int from)")
     check(drop.index("s_modDropping = TRUE;") < drop.index("something_with_generating_object(chr, propid, (ITEM_IDS)item, 0x20000000")
           < drop.index("ammocrateAllocate()") < drop.index("chrpropReparent(crate->prop, chr->prop);")
@@ -345,7 +396,7 @@ mod.on("weapon_dropped", function(pickup, item, from) print("dropped", pickup, i
 """
     out = run(exe, temp, "drop", lua, "start", "prepare", 9, "dropped", 32770, 8, 1005, "begin", 9,
               "dropped", 32770, 8, 1005, "dropped", -1, 4, -1, "dropped", 5, 26, -2)
-    check(logs(out) == ["bad 7", "drops 32768 36864 nil", "dropped 32770 8 1005", "dropped nil 4 player",
+    check(logs(out) == ["bad 7", "drops 65536 65537 nil", "dropped 32770 8 1005", "dropped nil 4 player",
                         "dropped 5 26 nil"],
           "drop's answers and refusals; weapon_dropped's id, item and who (a guard, a player, none), in play: "
           + str(logs(out)))
@@ -1729,6 +1780,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
               "an error: the shot happens, the mod stops, its stats go back: " + str(answers(out, "STATS", "FIRED", "DECLINED")))
 
         items(exe, temp)
+        pickup_ids(exe, temp)
         hands(exe, temp)
         guards(exe, temp)
         guards2(exe, temp)
@@ -1750,7 +1802,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
     print("PASS: mods' weapons area: fire attempts declined or not, weapon_fire, reloads asked and declined, an "
           "empty gun kept in hand, draws, the local player only, "
           "mod.weapon's calls and limits, mod.items, the stats put back; the hooks' places in the gun code. "
-          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, mod.pickups.drop, "
+          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, ids never reused and pickup_removed, mod.pickups.drop, "
           "weapon_dropped, mod.inventory, mod.ammo; "
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "

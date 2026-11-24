@@ -355,7 +355,7 @@ is the proposal to refine with mod authors (Tactical first).
 | Lifecycle | `campaign_enter`, `mission_prepare`, `mission_start`, `mission_end`, `tick(dt)` (capped) | `mod.log`, `mod.setting`, `mod.capabilities` |
 | Weapons | `weapon_fire_attempt`, `weapon_fire`, `reload_attempt`, `reload_start/end`, `weapon_drawn`, `weapon_dropped` | read and set loaded ammo, magazine size, fire rate, damage (within limits) |
 | Hands (VR) | `grip`, `release`, `hand_near(anchor)` | hand pose, body anchors (body slots), haptics |
-| Items | `pickup_spawning` (can swap a weapon, ammo or armour pickup at its existing pad), `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
+| Items | `pickup_spawning` (can swap a weapon, ammo or armour pickup at its existing pad), `item_pickup`, `pickup_removed`, `item_spawned` | spawn a pickup, take or give an item |
 | Guards | `guard_spawning`, `guard_spawned`, `guard_alerted`, `guard_shot`, `guard_killed`, `corpse_retiring` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
 | Damage and player | `before_damage`, `damage_applied` (a player's too: no separate `player_damaged`), `player_downed`, `player_revived`, `player_died` | health and armour |
 | Assets | — | the pack's model files in the cartridge's place and its textures over the HD pack (no call: they're there); `mod.weapon.model` (a gun's model per hand), `mod.attach` (a model on the gun, a hand or a body slot); `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
@@ -545,17 +545,27 @@ in-game screen). We maintain the adapters, not the mods.
     multiplier applied); `"armour", amount`; `"key"`; `"object"` for
     anything else (a mission document, say). It reports; it can't refuse.
     `pickup` is the pickup's id: the setup record's index for the stage's
-    own (`pickup_spawning`'s `index`), or for one the game made while
-    playing, `0x8000` plus its weapon slot or `0x9000` plus its ammo box
-    slot, as co-op's object messages number them (`net_core.c`
-    `netObjectIndex`). A runtime slot is reused once its pickup is gone,
-    so an id names a pickup until it's taken. A gun the player already
-    has still reports: its rounds go to the reserve first.
+    own (`pickup_spawning`'s `index`, below `0x10000`), or for one the
+    game made while playing (a dropped gun, a thrown weapon, a box), an
+    id from `0x10000` up given as it's first named, never given again in
+    the mission. The game recycles its weapon and box slots, so the id is
+    the mod API's, not the slot's. Each headset numbers its own. A gun
+    the player already has still reports: its rounds go to the reserve
+    first.
+  - `pickup_removed(pickup)` when a pickup the game made while playing,
+    one a mod has had an id for, is freed without this headset's player
+    taking it: the game freed the oldest dropped gun for room (its 30
+    weapon slots full), another player took it in multiplayer, a thrown
+    weapon was used up. Told at the next frame in play, before `tick`,
+    never inside the call that freed it (a `mod.pickups.drop` can free
+    the oldest gun); at most 64 a frame (more are logged and dropped).
+    The stage's own pickups keep their ids and aren't told.
   - `weapon_dropped(pickup, item, from)` when a weapon a chr held is
     dropped to the floor (`propobjSetDropped()`): a dead or disarmed
     guard's gun, a player's in multiplayer. `from` is the guard's id,
     `"player"`, or nil. Each headset drops its own copy of what happens
-    there, so ids are this headset's. Not for a mod's own drop.
+    there, so ids are this headset's (never reused in the mission). Not
+    for a mod's own drop.
   - `mod.pickups.drop{ item = gun }` or `{ ammo = type }`, with `from =
     "player"` or a guard's id (a corpse too): the game's own drop, a gun
     or thrown weapon as a player's inventory is dropped

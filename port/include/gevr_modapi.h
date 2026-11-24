@@ -106,11 +106,24 @@ void gevrModApiItemPickup(const GevrModPickup *p);
 #define GEVR_MODAPI_FROM_NONE (-2)
 void gevrModApiWeaponDropped(int pickup, int item, int from);
 
-/* A pickup's id: the setup record's index (pickup_spawning's), or one of the
- * game's runtime slots, as co-op's object messages number them (net_core.c
- * netObjectIndex): a weapon's 0x8000 + its slot, an ammo box's 0x9000 + its */
-#define GEVR_MODAPI_PICKUP_WEAPONS 0x8000
-#define GEVR_MODAPI_PICKUP_BOXES 0x9000
+/* A pickup's id: the setup record's index (pickup_spawning's) for the
+ * stage's own, below GEVR_MODAPI_PICKUP_RUNTIME. One the game makes while
+ * playing (in a weapon slot or an ammo box slot, pools it recycles) is
+ * numbered from GEVR_MODAPI_PICKUP_RUNTIME as it's first named, and that id
+ * is never given again in the mission. Each headset numbers its own. */
+#define GEVR_MODAPI_PICKUP_RUNTIME 0x10000
+#define GEVR_MODAPI_PICKUP_LAST 0x3FFFFFFF
+enum { GEVR_MODAPI_PICKUP_WEAPON, GEVR_MODAPI_PICKUP_BOX, GEVR_MODAPI_PICKUP_KINDS };
+#define GEVR_MODAPI_PICKUP_SLOTS 64   /* a pool's slots at most (the game's: 30 weapons, 20 boxes) */
+#define GEVR_MODAPI_PICKUP_QUEUE 64   /* pickup_removed's waiting for the next frame */
+/* the game's side: a runtime slot's id, named now if it has none (-1 past
+ * the pools or the ids); this headset's player took it (item_pickup); it's
+ * freed: pickup_removed at the next frame in play unless it was taken */
+int gevrModApiPickupSlotId(int kind, int slot);
+void gevrModApiPickupSlotTaken(int kind, int slot);
+void gevrModApiPickupSlotFreed(int kind, int slot);
+void gevrModApiPickupFlush(void);   /* gevr_modscript.c: each frame in play, before tick */
+void gevrModApiPickupClear(void);   /* and as a mission loads: no ids, none waiting */
 /* mod.pickups.drop: the game's own drop (drop_inventory's, a shot crate's box)
  * of a gun or thrown weapon (item, ammo 0) or an ammo box of a type (item 0,
  * ammo 1 to 13), from the local player (from GEVR_MODAPI_FROM_PLAYER) or a

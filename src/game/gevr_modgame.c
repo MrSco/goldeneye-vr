@@ -446,23 +446,44 @@ int gevrModPickupSpawn(PropDefHeaderRecord *rec, int index)
     return 0;
 }
 
-/* A pickup's id (gevr_modapi.h): numbered as net_core.c's netObjectIndex
- * numbers objects for co-op, so the same pickup has the same id there */
+typedef char pickupPoolsFit[MAX_WEAPON_SLOTS <= GEVR_MODAPI_PICKUP_SLOTS && MAX_AMMO_CRATES <= GEVR_MODAPI_PICKUP_SLOTS ? 1 : -1];
+
+/* A pickup the game made while playing: its pool (GEVR_MODAPI_PICKUP_*) and
+ * slot, or FALSE for the stage's own */
+static s32 runtimeSlot(ObjectRecord *obj, s32 *kind, s32 *slot)
+{
+    const uintptr_t at = (uintptr_t)obj;
+    const uintptr_t weapons = (uintptr_t)&g_WeaponSlots[0], crates = (uintptr_t)&g_AmmoCrates[0];
+
+    (void)sizeof(pickupPoolsFit);
+    if (at >= weapons && at < weapons + sizeof(WeaponObjRecord) * MAX_WEAPON_SLOTS
+        && (at - weapons) % sizeof(WeaponObjRecord) == 0)
+    {
+        *kind = GEVR_MODAPI_PICKUP_WEAPON;
+        *slot = (s32)((at - weapons) / sizeof(WeaponObjRecord));
+        return TRUE;
+    }
+    if (at >= crates && at < crates + sizeof(AmmoCrateRecord) * MAX_AMMO_CRATES
+        && (at - crates) % sizeof(AmmoCrateRecord) == 0)
+    {
+        *kind = GEVR_MODAPI_PICKUP_BOX;
+        *slot = (s32)((at - crates) / sizeof(AmmoCrateRecord));
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/* A pickup's id (gevr_modapi.h): the setup record's index for the stage's
+ * own; a runtime one's from the mod API's table, never reused in a mission
+ * (the game's slots are) */
 static int pickupId(ObjectRecord *target)
 {
     PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
-    s32 slot, index;
+    s32 kind, slot, index;
 
     if (target == NULL) return -1;
-    for (slot = 0; slot < MAX_AMMO_CRATES; slot++)
-    {
-        if ((ObjectRecord *)&g_AmmoCrates[slot] == target) return GEVR_MODAPI_PICKUP_BOXES + slot;
-    }
-    for (slot = 0; slot < MAX_WEAPON_SLOTS; slot++)
-    {
-        if ((ObjectRecord *)&g_WeaponSlots[slot] == target) return GEVR_MODAPI_PICKUP_WEAPONS + slot;
-    }
-    for (index = 0; def != NULL && def->type != PROPDEF_END && index < GEVR_MODAPI_PICKUP_WEAPONS; index++)
+    if (runtimeSlot(target, &kind, &slot)) return gevrModApiPickupSlotId(kind, slot);
+    for (index = 0; def != NULL && def->type != PROPDEF_END && index < GEVR_MODAPI_PICKUP_RUNTIME; index++)
     {
         if ((ObjectRecord *)def == target) return index;
         def += sizepropdef(def);
@@ -470,14 +491,24 @@ static int pickupId(ObjectRecord *target)
     return -1;
 }
 
+/* propobj.c objFree: an object freed; a runtime pickup's id goes with it,
+ * and pickup_removed is told unless this headset's player took it */
+void gevrModPickupFreed(ObjectRecord *obj)
+{
+    s32 kind, slot;
+
+    if (obj != NULL && runtimeSlot(obj, &kind, &slot)) gevrModApiPickupSlotFreed(kind, slot);
+}
+
 void gevrModPickupTaken(PropDefHeaderRecord *rec)
 {
     GevrModPickup got;
-    s32 k;
+    s32 k, pool, slot;
 
     if (!gevrModScriptRunning() || !gevrModGameLocal()) return;
     memset(&got, 0, sizeof(got));
     got.pickup = pickupId((ObjectRecord *)rec);
+    if (runtimeSlot((ObjectRecord *)rec, &pool, &slot)) gevrModApiPickupSlotTaken(pool, slot);   /* freed next: not removed */
     switch (rec->type)
     {
         case PROPDEF_COLLECTABLE:

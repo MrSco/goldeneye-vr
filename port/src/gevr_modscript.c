@@ -51,6 +51,8 @@ extern void gevrModApiNetFlush(void);            /* mod.net: the held messages, 
 extern void gevrModApiNetClear(void);            /* and the last mission's, as one loads */
 extern void gevrModApiUiFlush(void);             /* mod.ui: the screen's clicks and changes, each frame in play */
 extern void gevrModApiUiClear(void);             /* and the last mission's, as one loads */
+extern void gevrModApiPickupFlush(void);         /* pickup_removed: the runtime pickups freed, each frame in play */
+extern void gevrModApiPickupClear(void);         /* and the last mission's ids, as one loads */
 
 #define MAX_MODS 4
 #define PATH_CAP (FS_MAXPATH * 2)
@@ -93,7 +95,7 @@ static const char *const s_events[] = {
     "weapon_fire_attempt", "weapon_fire", "reload_start", "reload_end", "weapon_drawn",
     "reload_attempt", "out_of_ammo", "weapon_dropped",
     /* the items area */
-    "pickup_spawning", "item_pickup",
+    "pickup_spawning", "item_pickup", "pickup_removed",
     /* the hands area */
     "grip", "release", "hand_near",
     /* the guards area */
@@ -950,6 +952,7 @@ void gevrModScriptStageLoad(int stage, int mission, int done)
         }
         gevrModApiNetClear();   /* the last mission's messages */
         gevrModApiUiClear();    /* and its clicks and changes (the pages stay) */
+        gevrModApiPickupClear();   /* and its pickups' ids */
         if (!mission) return;
         s_inMission = 1;
         s_playing = 0;
@@ -1042,6 +1045,7 @@ void gevrModScriptFrame(int ticks)
     if (!s_count || !s_inMission || !s_playing) return;
     gevrModApiNetFlush();   /* mod.net's messages, held while the mission loaded */
     gevrModApiUiFlush();    /* mod.ui's clicks and changes on the in-game screen */
+    gevrModApiPickupFlush();   /* pickup_removed: the runtime pickups freed since */
     a.kind = 1;
     a.n = ticks > 0 ? ticks / 60.0 : 0.0;
     if (a.n > GEVR_MODSCRIPT_TICK_CAP) a.n = GEVR_MODSCRIPT_TICK_CAP;
