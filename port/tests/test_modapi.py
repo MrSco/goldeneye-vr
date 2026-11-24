@@ -245,7 +245,7 @@ mod.on("tick", function() print("count", n) end)
 
 def shared_drops(exe, temp):
     """drop's shared: the host's id from 0x40000000, sent; a player's refused; the host's drop made on a player's
-    headset from the same chr with that id; the first take sent, and the others' copies removed"""
+    headset from the same chr with that id; the host deciding who takes it; a recycled one gone everywhere"""
     play = ("start", "prepare", 9, "begin", 9)
     lua = r"""
 mod.on("mission_start", function()
@@ -263,20 +263,38 @@ mod.on("mission_start", function()
   print("host", mod.pickups.drop({ item = "ak47", from = 1005, shared = true }),
         mod.pickups.drop({ armour = 0.5, from = "player", shared = true }),
         mod.pickups.drop({ ammo = "rifle", from = "player" }),
+        mod.pickups.drop({ item = "ak47", from = "player", shared = true }),
         (pcall(mod.pickups.drop, { item = "ak47", from = 40000, shared = true })))
 end)
 mod.on("pickup_removed", function(p) print("removed", p) end)
 """
-    out = run(exe, temp, "sharedhost", lua, "online", 1, 1, 0, 0, *play, "slottaken", 0, 0, "slottaken", 1, 0,
-              "netpickup", "tactical", 1, 3, "0900000001000040", "frame")
-    check(logs(out) == ["host 1073741824 1073741825 65536 false", "removed 1073741825"],
-          "the host: shared ids, a local one beside them; a player's take removes the host's copy: " + str(logs(out)))
+    # the host: another player's pickup held back, its own awarded at once and told; two claims for the armour in
+    # one frame (the first wins, the second and a late claim for the gun get gone); a shared gun recycled
+    out = run(exe, temp, "sharedhost", lua, "online", 1, 1, 0, 0, *play,
+              "pickuptry", 0, 1, 0, "pickuptry", 0, 0, 1, "slottaken", 0, 0, "slotfreed", 0, 0, "pickuptry", 1, 0, 1,
+              "netpickup", "tactical", 1, 3, "0900000001000040", "netpickup", "tactical", 3, 3, "0900000001000040",
+              "netpickup", "tactical", 3, 3, "0900000000000040", "frame",
+              "slotfreed", 0, 1, "frame", "slotid", 0, 1)
+    check(logs(out) == ["host 1073741824 1073741825 65536 1073741826 false", "removed 1073741825", "removed 1073741826"],
+          "the host: shared ids, a local one beside them; the armour awarded away and the recycled gun gone here: "
+          + str(logs(out)))
+    check(answers(out, "TRY") == ["TRY 1", "TRY 0", "TRY 0"],
+          "another player's pickup of a shared one held back here; the host's own and a box not: "
+          + str(answers(out, "TRY")))
     check(answers(out, "NETSEND") == ["NETSEND 2 255 tactical - 12 09 08 00 00 00 00 00 40 ed 03 00 00",
                                       "NETSEND 2 255 tactical - 12 09 00 00 00 01 00 00 40 ff ff 00 80",
-                                      "NETSEND 3 255 tactical - 8 09 00 00 00 00 00 00 40"],
-          "sent: the gun from guard 1005, half armour from the host's player (slot 0), the host's own take of the "
-          "gun; the box isn't shared: " + str(answers(out, "NETSEND")))
-    check(answers(out, "REMOVE") == ["REMOVE 2 0"], "the armour's copy freed here: " + str(answers(out, "REMOVE")))
+                                      "NETSEND 2 255 tactical - 12 09 08 00 00 02 00 00 40 ff ff 00 00",
+                                      "NETSEND 4 255 tactical - 8 09 00 00 00 00 00 00 40",
+                                      "NETSEND 4 255 tactical - 8 09 01 00 00 01 00 00 40",
+                                      "NETSEND 5 3 tactical - 8 09 00 00 00 01 00 00 40",
+                                      "NETSEND 5 3 tactical - 8 09 00 00 00 00 00 00 40",
+                                      "NETSEND 5 255 tactical - 8 09 00 00 00 02 00 00 40"],
+          "sent: three drops (the box isn't shared); the gun awarded to the host's player (slot 0) as it walked over "
+          "it; the armour to slot 1's claim; slot 3's claim for it, and its late one for the gun, answered gone; the "
+          "recycled gun gone everywhere: " + str(answers(out, "NETSEND")))
+    check(answers(out, "REMOVE") == ["REMOVE 2 0"] and answers(out, "SLOTID") == ["SLOTID 65537"],
+          "the armour's copy freed here once; the recycled slot's next pickup a new id: "
+          + str(answers(out, "REMOVE", "SLOTID")))
 
     lua = r"""
 mod.on("mission_start", function()
@@ -284,26 +302,47 @@ mod.on("mission_start", function()
 end)
 mod.on("pickup_removed", function(p) print("removed", p) end)
 """
+    # a player (slot 2): the host's drops made here; its walk-over claims once (not again within half a second),
+    # another's held back; the gun awarded to it taken through the game's pickup, the armour awarded to slot 3
+    # removed; a shared gun recycled here sent gone; a gone for none, and a claim, ignored
     out = run(exe, temp, "sharedclient", lua, "online", 1, 0, 0, 2, *play,
               "netpickup", "tactical", 0, 2, "0908000000000040ffff0000",
-              "netpickup", "tactical", 0, 2, "0708000002000040ffff0000",
+              "netpickup", "tactical", 0, 2, "0708000009000040ffff0000",
               "netpickup", "tactical", 0, 2, "0908000003000040ffff00",
               "netpickup", "tactical", 0, 2, "0900000001000040ed030040",
+              "netpickup", "tactical", 0, 2, "0908000002000040ffff0000",
               "frame",
-              "slotid", 0, 0, "slotid", 2, 0, "slottaken", 0, 0,
-              "netpickup", "tactical", 3, 3, "0900000001000040", "frame",
-              "netpickup", "tactical", 3, 3, "0900000001000040", "frame")
-    check(logs(out) == ["client false", "removed 1073741825"],
-          "a player's shared drop refused; the host's armour removed when another took it, once: " + str(logs(out)))
-    check(answers(out, "DROP") == ["DROP 8 0 0.00 -16", "DROP 0 0 0.25 1005"],
+              "slotid", 0, 0, "slotid", 2, 0, "slotid", 0, 1,
+              "pickuptry", 0, 0, 1, "pickuptry", 0, 0, 1, "pickuptry", 2, 0, 0,
+              "netpickup", "tactical", 0, 4, "0902000000000040", "netpickup", "tactical", 0, 4, "0903000001000040",
+              "frame", "slotfreed", 0, 1,
+              "netpickup", "tactical", 0, 5, "0900000007000040", "netpickup", "tactical", 0, 3, "0900000002000040",
+              "frame")
+    check(logs(out) == ["client false", "removed 1073741825", "removed 1073741826"],
+          "a player's shared drop refused; the armour another won and the recycled gun removed here: "
+          + str(logs(out)))
+    check(answers(out, "DROP") == ["DROP 8 0 0.00 -16", "DROP 0 0 0.25 1005", "DROP 8 0 0.00 -16"],
           "the host's drops made here at the next frame, from the host's player (slot 0) and the guard; another "
           "mission's and a short one not: " + str(answers(out, "DROP")))
-    check(answers(out, "SLOTID") == ["SLOTID 1073741824", "SLOTID 1073741825"],
+    check(answers(out, "SLOTID") == ["SLOTID 1073741824", "SLOTID 1073741825", "SLOTID 1073741826"],
           "bound to the host's ids: " + str(answers(out, "SLOTID")))
-    check(answers(out, "NETSEND") == ["NETSEND 3 255 tactical - 8 09 00 00 00 00 00 00 40"]
-          and answers(out, "REMOVE") == ["REMOVE 2 0"],
-          "this player's take sent; another's removes the copy here: " + str(answers(out, "NETSEND", "REMOVE")))
-
+    check(answers(out, "TRY") == ["TRY 1", "TRY 1", "TRY 1"]
+          and answers(out, "NETSEND") == ["NETSEND 3 0 tactical - 8 09 00 00 00 00 00 00 40",
+                                          "NETSEND 5 255 tactical - 8 09 00 00 00 02 00 00 40"],
+          "held back for the host: one claim to it; the recycled gun sent gone: "
+          + str(answers(out, "TRY", "NETSEND")))
+    check(answers(out, "GRANTED") == ["GRANTED 0 0 0"] and answers(out, "REMOVE") == ["REMOVE 2 0"],
+          "the award taken through the game's own pickup, not held back; another's award removes the copy: "
+          + str(answers(out, "GRANTED", "REMOVE")))
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    grant = function(game, "int gevrModGamePickupGrant(int kind, int slot)")
+    check(grant.index("set_cur_player(localSlot());") < grant.index("op = propPickupByPlayer(prop, TRUE);")
+          < grant.index("propExecuteTickOperation(prop, op);") < grant.index("set_cur_player(was);"),
+          "an award taken by the game's own pickup, as the local player, as AI_BondCollectObject takes one")
+    obj = (ROOT / "src/game/propobj.c").read_bytes().decode().replace("\r\n", "\n")
+    pick = obj[obj.index("TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)"):]
+    check(pick.index("if (g_CurrentPlayer->bonddead || g_ClockTimer == 0)") < pick.index("if (gevrModPickupHold(prop))")
+          < pick.index("switch (obj->type)"), "held back before the pickup changes anything")
 
 def drops_placement():
     """weapon_dropped at the game's drop; a mod's drop through the game's own; ids as co-op numbers them"""
@@ -1942,7 +1981,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
     print("PASS: mods' weapons area: fire attempts declined or not, weapon_fire, reloads asked and declined, an "
           "empty gun kept in hand, draws, the local player only, "
           "mod.weapon's calls and limits, mod.items, the stats put back; the hooks' places in the gun code. "
-          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, ids never reused and pickup_removed, mod.pickups.drop (armour too, and shared), "
+          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, ids never reused and pickup_removed, mod.pickups.drop (armour too, and shared, the host deciding who takes one), "
           "weapon_dropped, mod.inventory, mod.ammo; "
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "
