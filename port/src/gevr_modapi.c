@@ -1009,10 +1009,34 @@ static int l_missionDay(lua_State *L)
     return 1;
 }
 
+/*
+ * complete(mission, difficulty[, seconds]): the mission (1 Dam to 20 Egypt, the
+ * folder screen's order) marked complete at that difficulty, and those below
+ * it, in the run's save folder, with its time in seconds if given. Only in a
+ * mod campaign, which saves to its own file, never the base game's; true when
+ * written, false outside one or with no folder chosen.
+ */
+static int l_missionComplete(lua_State *L)
+{
+    static const char *const names[] = { "agent", "secretagent", "00agent", "007", NULL };
+    const lua_Integer mission = luaL_checkinteger(L, 1);
+    const int difficulty = luaL_checkoption(L, 2, NULL, names);
+    lua_Integer seconds = 0;
+
+    if (mission < 1 || mission > GEVR_MODAPI_MISSIONS) return luaL_argerror(L, 1, "a mission is 1 (Dam) to 20 (Egypt)");
+    if (!lua_isnoneornil(L, 3)) {
+        seconds = luaL_checkinteger(L, 3);
+        if (seconds < 1 || seconds >= GEVR_MODAPI_NO_TIME) return luaL_argerror(L, 3, "a time is 1 to 99999998 seconds");
+    }
+    lua_pushboolean(L, gevrModGameComplete((int)mission - 1, difficulty, (int)seconds));
+    return 1;
+}
+
 static const luaL_Reg s_missionFuncs[] = {
     { "difficulty", l_missionDifficulty },
     { "folder", l_missionFolder },
     { "day", l_missionDay },
+    { "complete", l_missionComplete },
     { NULL, NULL },
 };
 

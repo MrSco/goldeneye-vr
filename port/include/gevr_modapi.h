@@ -490,6 +490,14 @@ int gevrModGameGiveHat(int id, int hat);
  * multiplayer) and the save folder the run plays from (0 to 3, -1 none) */
 int gevrModGameDifficulty(void);
 int gevrModGameFolder(void);
+/* mod.mission.complete: mission (0 Dam to 19 Egypt, the folder screen's
+ * order) marked complete at a difficulty (and those below it) in the run's
+ * save folder, through the game's own fileUnlockStageInFolderAtDifficulty;
+ * seconds its time, or 0 for none. Only in a mod campaign, whose save is its
+ * own file (eeprom-mod-<id>.bin), never the base game's. 1 when written */
+#define GEVR_MODAPI_MISSIONS 20
+#define GEVR_MODAPI_NO_TIME 99999999   /* the game's own "no time" (cheat.c's unlocks) */
+int gevrModGameComplete(int mission, int difficulty, int seconds);
 /* This machine's player's health and armour, 0 to 1; 0 when no player is in a stage */
 int gevrModGamePlayerHealth(float *health, float *armour);
 /* Set them: health more than 0 to 1, armour 0 to 1; 0 when the player is

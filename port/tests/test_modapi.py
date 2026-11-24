@@ -785,7 +785,25 @@ def mission(exe, temp):
     got = logs(out)
     check(len(got) == 1 and got[0].split()[:3] == ["mission", "00agent", "4"]
           and before <= int(got[0].split()[3]) <= after, "difficulty's name, the folder from 1, today's number: " + str(got))
+    lua = r"""
+mod.on("mission_start", function()
+  local bad = 0
+  for _, a in ipairs({ { 0, "agent" }, { 21, "agent" }, { 1, "hard" }, { 1, "agent", -5 }, { 1.5, "agent" },
+                       { 1, "agent", 99999999 } }) do
+    if not pcall(mod.mission.complete, a[1], a[2], a[3]) then bad = bad + 1 end
+  end
+  print("complete", bad, mod.mission.complete(1, "agent"), mod.mission.complete(20, "007", 300))
+end)
+"""
+    out = run(exe, temp, "complete", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["complete 6 true true"] and answers(out, "COMPLETE") == ["COMPLETE 0 0 0", "COMPLETE 19 3 300"],
+          "complete: 6 refused; Dam at Agent with no time, Egypt at 007 in 300 s: " + str(logs(out)) + str(answers(out, "COMPLETE")))
+    out = run(exe, temp, "completebase", lua, "campaign", 0, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["complete 6 false false"], "outside a mod campaign: false: " + str(logs(out)))
     game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    done = function(game, "int gevrModGameComplete(int mission, int difficulty, int seconds)")
+    check(done.index("gevrModActive() == NULL") < done.index("fileUnlockStageInFolderAtDifficulty(selected_folder_num"),
+          "the save is written only in a mod campaign (its own file), through the game's own unlock")
     check("selected_difficulty <= DIFFICULTY_007" in function(game, "int gevrModGameDifficulty(void)")
           and "selected_folder_num < 4" in function(game, "int gevrModGameFolder(void)"),
           "the game's own chosen difficulty and folder, none outside their ranges")
@@ -1674,7 +1692,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "
           "refusals, alerts, kills and corpses told once on the host, mod.guards' reads; the hooks' places. Guards, part 2: "
-          "spawn, giveWeapon, patrol, paths, goTo, face, giveHat, mod.pads, mod.mission, guard_spawned, guard_killed's player. Damage and player: before_damage's "
+          "spawn, giveWeapon, patrol, paths, goTo, face, giveHat, mod.pads, mod.mission (and complete in a mod campaign's own save), guard_spawned, guard_killed's player. Damage and player: before_damage's "
           "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places. "
           "Sound and smoke: mod.audio's ids, volumes and places, mod.effect's smokes and places. Network: mod.net's sends, "
           "limits and rate, held messages by channel and mod, peer_ready, a stop told to the others and taken from them. "

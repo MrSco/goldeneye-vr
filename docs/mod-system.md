@@ -163,7 +163,9 @@ files.sha256        checksum list of every other file
 
 ## Saves and records
 
-- A campaign mod saves to `eeprom-mod-<id>.bin`.
+- A campaign mod saves to `eeprom-mod-<id>.bin`. Its script can mark a
+  mission complete there (`mod.mission.complete`); the base game's save
+  is never written by a mod.
 - Mod settings and data the script stores: `$S/mod-data/<id>/` through the
   API (`mod.save`, `mod.setting`), at most 1 MB. It sits outside the mod's
   install folder, so an update, which replaces that folder, keeps it.
@@ -292,8 +294,15 @@ files.sha256        checksum list of every other file
     or nil, so a mod can keep its progress per folder in its data.
     `mod.mission.day()`: today's number, whole days since 1 January 1970
     (UTC), for daily challenges; each headset reads its own clock, so a
-    co-op mod sends the host's. Marking a mission complete in the mod
-    campaign's save isn't built.
+    co-op mod sends the host's. `mod.mission.complete(mission, difficulty[,
+    seconds])` marks a mission (1 Dam to 20 Egypt, the folder screen's
+    order) complete at that difficulty and those below it, in the run's
+    save folder, through the game's own `fileUnlockStageInFolderAtDifficulty()`
+    (as the unlock cheats write it), with its time if given (else none).
+    Only in a mod campaign, whose save is its own file
+    (`eeprom-mod-<id>.bin`), never the base game's: true when written,
+    false outside one or with no folder chosen. It's this headset's save;
+    in co-op each headset that should have it calls it.
   - `mod.random([m [, n]])`, also `math.random`: seeded each mission, in
     co-op from the seed every headset shares.
   - `mod.save.read/write/remove(name)`: files in its data folder; names are

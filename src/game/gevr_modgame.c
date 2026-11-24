@@ -1074,6 +1074,24 @@ int gevrModGameFolder(void)
     return selected_folder_num >= 0 && selected_folder_num < 4 ? selected_folder_num : -1;
 }
 
+#include "gevr_modpack.h"   /* gevrModActive: the run's mod campaign */
+extern void fileUnlockStageInFolderAtDifficulty(s32 foldernum, LEVEL_SOLO_SEQUENCE stage, DIFFICULTY difficulty, s32 newtime);
+typedef char missionsAreTwenty[SP_LEVEL_MAX == GEVR_MODAPI_MISSIONS ? 1 : -1];
+
+int gevrModGameComplete(int mission, int difficulty, int seconds)
+{
+    (void)sizeof(missionsAreTwenty);
+    /* a mod campaign's save is its own file (libultra.c osEepromSetPath): the base game's is never written */
+    if (gevrModActive() == NULL || gevrModGameFolder() < 0 || mission < SP_LEVEL_DAM || mission >= SP_LEVEL_MAX
+        || difficulty < DIFFICULTY_AGENT || difficulty > DIFFICULTY_007)
+    {
+        return 0;
+    }
+    fileUnlockStageInFolderAtDifficulty(selected_folder_num, (LEVEL_SOLO_SEQUENCE)mission, (DIFFICULTY)difficulty,
+                                        seconds > 0 ? seconds : GEVR_MODAPI_NO_TIME);
+    return 1;
+}
+
 extern PropRecord *hatCreateForChr(ChrRecord *chr, s32 modelnum, u32 flags);   /* propobj.c */
 
 /* the hats in mod.guards.giveHat's order */

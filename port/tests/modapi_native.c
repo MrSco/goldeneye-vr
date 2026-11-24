@@ -401,6 +401,12 @@ int gevrModGameGoTo(int id, int pad, int speed)
 }
 int gevrModGameDifficulty(void) { return 2; }   /* 00 Agent */
 int gevrModGameFolder(void) { return 3; }       /* the fourth folder */
+static int s_modCampaign = 1;
+int gevrModGameComplete(int mission, int difficulty, int seconds)
+{
+    printf("COMPLETE %d %d %d\n", mission, difficulty, seconds);
+    return s_modCampaign;
+}
 int gevrModGameGiveHat(int id, int hat)
 {
     printf("HAT %d %d\n", id, hat);
@@ -615,6 +621,8 @@ int main(int argc, char **argv)
                 got.kind = !strcmp(kind, "key") ? GEVR_MODPICKUP_KEY : GEVR_MODPICKUP_OBJECT;
             }
             gevrModApiItemPickup(&got);
+        } else if (!strcmp(cmd, "campaign") && i + 1 < argc) {
+            s_modCampaign = atoi(argv[++i]);   /* a mod campaign runs (its own save) */
         } else if (!strcmp(cmd, "dropped") && i + 3 < argc) {
             /* propobjSetDropped: a chr's weapon falls */
             gevrModApiWeaponDropped(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));
