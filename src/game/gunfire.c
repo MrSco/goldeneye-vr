@@ -1758,6 +1758,20 @@ void gunCreateBeamForHand(enum GUNHAND hand)
 }
 
 
+#ifdef GEVR
+/* A beam in a look of its own (gevrThrowGuideDraw: a pack's throw guide): its
+ * radius in the beam's vertex units (a tenth of a world unit; the tracer's
+ * 30), its colour over the game's own image and alpha, and fading to nothing
+ * at its far end. NULL: the game's own looks. */
+typedef struct
+{
+    f32 radius;
+    u8 rgb[3];
+    s32 fade;
+} GevrBeamStyle;
+static const GevrBeamStyle *s_gevrBeamStyle;
+#endif
+
 Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)
 {
     f32 posz;
@@ -1820,6 +1834,15 @@ Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)
         {
             radius = 30.0f;
         }
+#ifdef GEVR
+        if (s_gevrBeamStyle != NULL)
+        {
+            radius = s_gevrBeamStyle->radius;
+            templatevtx.v.cn[0] = s_gevrBeamStyle->rgb[0];
+            templatevtx.v.cn[1] = s_gevrBeamStyle->rgb[1];
+            templatevtx.v.cn[2] = s_gevrBeamStyle->rgb[2];
+        }
+#endif
 
         pos.f[0] = flash->pos.f[0];
         pos.f[1] = flash->pos.f[1];
@@ -1959,6 +1982,13 @@ Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)
         vtx[3].v.ob[2] = flareoffset.f[2] - (right.f[2] * 0.9f);
         vtx[3].v.tc[0] = 0;
         vtx[3].v.tc[1] = image->height << 5;
+#ifdef GEVR
+        if (s_gevrBeamStyle != NULL && s_gevrBeamStyle->fade)
+        {
+            vtx[2].v.cn[3] = 0;   /* the far end: faded to nothing */
+            vtx[3].v.cn[3] = 0;
+        }
+#endif
 
         if (flash->item_id == ITEM_LASER)
         {
@@ -2073,9 +2103,11 @@ static void gevrAimNoSpread(coord3d *origin, coord3d *dir, s32 hand)
  * the hand along the way it would leave now, drawn as the game draws a
  * tracer (sub_GAME_7F061E18), from the throw's own calculation (gun.c
  * gevrThrowTrigger and gevrThrowAddMotion) less the item's random spread.
- * For a thrown weapon or gadget in the hand, when the Throw guide setting is
- * on or a mod turned it on for the item (setStats' throwGuide), and not while
- * the grip winds up a motion throw.
+ * For a thrown weapon or gadget ready in the hand (idle, or the trigger
+ * pressed: not while a throw leaves or the next one comes up), when the Throw
+ * guide setting is on or a mod turned it on for the item (setStats'
+ * throwGuide, in its look if the mod gave one), and not while the grip winds
+ * up a motion throw.
  */
 Gfx *gevrThrowGuideDraw(Gfx *gdl, s32 hand, s32 item)
 {
@@ -2086,16 +2118,25 @@ Gfx *gevrThrowGuideDraw(Gfx *gdl, s32 hand, s32 item)
     extern f32 gevrThrowBaseSpeed(s32 item);          /* gun.c */
     extern void gevrThrowTrigger(s32 hand, f32 speed, const coord3d *aim, coord3d *out);
     extern void gevrThrowAddMotion(coord3d *v);
+    extern s32 gevrModThrowGuideLook(s32 item, f32 *length, f32 *width, u8 rgb[3], s32 *fade);   /* gevr_modgame.c */
     BeamRecord guide;
+    GevrBeamStyle style;
     coord3d origin, aim, v;
-    f32 len;
-    s32 k;
+    f32 len, length = GEVR_THROW_GUIDE_LENGTH, width = 0.0f;
+    s32 k, styled;
 
     if (g_CurrentPlayer == NULL || !gevrIsThrowable(item) || gevrMotionThrowOwnsHand(hand)
         || !(VrThrowGuide || gevrModThrowGuide(item)))
     {
         return gdl;
     }
+    if (g_CurrentPlayer->hands[hand].weapon_action_state != GUN_ANIM_STATE_IDLE
+        && g_CurrentPlayer->hands[hand].weapon_action_state != GUN_ANIM_STATE_TRIGGER_PRESS)
+    {
+        return gdl;   /* nothing ready in the hand: a throw leaving, the next coming up */
+    }
+    styled = gevrModThrowGuideLook(item, &length, &width, style.rgb, &style.fade);
+    style.radius = width * 5.0f;   /* half the width, in the beam's tenths */
     gevrAimNoSpread(&origin, &aim, hand);
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32 *)&aim);
     gevrThrowTrigger(hand, gevrThrowBaseSpeed(item), &aim, &v);
@@ -2113,11 +2154,14 @@ Gfx *gevrThrowGuideDraw(Gfx *gdl, s32 hand, s32 item)
     }
     guide.unk00 = 0;             /* drawn */
     guide.item_id = (s8)item;    /* a tracer's look: not a laser's */
-    guide.unk1c = GEVR_THROW_GUIDE_LENGTH;
-    guide.unk20 = GEVR_THROW_GUIDE_LENGTH;
-    guide.unk24 = GEVR_THROW_GUIDE_LENGTH;
+    guide.unk1c = length;
+    guide.unk20 = length;
+    guide.unk24 = length;
     guide.unk28 = 0.0f;          /* from its start */
-    return sub_GAME_7F061E18(gdl, &guide, 0);
+    s_gevrBeamStyle = styled ? &style : NULL;
+    gdl = sub_GAME_7F061E18(gdl, &guide, 0);
+    s_gevrBeamStyle = NULL;
+    return gdl;
 }
 #endif
 

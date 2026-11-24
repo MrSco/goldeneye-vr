@@ -180,6 +180,10 @@ extern s32 gevrIsThrowable(s32 item);        /* input.c */
 extern f32 gevrThrowBaseSpeed(s32 item);     /* gun.c */
 static f32 s_modThrowSpeed[ITEM_IDS_MAX], s_modThrowLift[ITEM_IDS_MAX];
 static s8 s_modThrowLiftSet[ITEM_IDS_MAX], s_modThrowGuide[ITEM_IDS_MAX];
+/* and its guide's look, when a mod gave one (else the game's tracer) */
+static s8 s_modGuideStyled[ITEM_IDS_MAX], s_modGuideFade[ITEM_IDS_MAX];
+static f32 s_modGuideLength[ITEM_IDS_MAX], s_modGuideWidth[ITEM_IDS_MAX];
+static u8 s_modGuideColour[ITEM_IDS_MAX][3];
 
 void gevrModThrowStats(s32 item, f32 *speed, f32 *lift)
 {
@@ -191,6 +195,19 @@ void gevrModThrowStats(s32 item, f32 *speed, f32 *lift)
 s32 gevrModThrowGuide(s32 item)
 {
     return item >= 0 && item < ITEM_IDS_MAX && s_modThrowGuide[item];
+}
+
+/* gunfire.c gevrThrowGuideDraw: the look a mod gave the item's guide; 0 the game's tracer */
+s32 gevrModThrowGuideLook(s32 item, f32 *length, f32 *width, u8 rgb[3], s32 *fade)
+{
+    if (item < 0 || item >= ITEM_IDS_MAX || !s_modThrowGuide[item] || !s_modGuideStyled[item]) return FALSE;
+    *length = s_modGuideLength[item];
+    *width = s_modGuideWidth[item];
+    rgb[0] = s_modGuideColour[item][0];
+    rgb[1] = s_modGuideColour[item][1];
+    rgb[2] = s_modGuideColour[item][2];
+    *fade = s_modGuideFade[item];
+    return TRUE;
 }
 
 /* gunfire.c: the firing switch's case for the item: an automatic's (the
@@ -223,12 +240,22 @@ int gevrModGameStats(int item, GevrModWeaponStats *out)
         out->throwSpeed = s_modThrowSpeed[item] > 0.0f ? s_modThrowSpeed[item] : gevrThrowBaseSpeed(item);
         out->throwLift = s_modThrowLiftSet[item] ? s_modThrowLift[item] : GAME_THROW_LIFT;
         out->throwGuide = s_modThrowGuide[item];
+        out->guideLength = s_modGuideStyled[item] ? s_modGuideLength[item] : GEVR_MODAPI_GUIDE_LENGTH;
+        out->guideWidth = s_modGuideStyled[item] ? s_modGuideWidth[item] : GEVR_MODAPI_GUIDE_WIDTH;
+        out->guideColour[0] = s_modGuideStyled[item] ? s_modGuideColour[item][0] : 255;
+        out->guideColour[1] = s_modGuideStyled[item] ? s_modGuideColour[item][1] : 255;
+        out->guideColour[2] = s_modGuideStyled[item] ? s_modGuideColour[item][2] : 255;
+        out->guideFade = s_modGuideStyled[item] ? s_modGuideFade[item] : 0;
     }
     else
     {
         out->throwSpeed = 0.0f;
         out->throwLift = 0.0f;
         out->throwGuide = 0;
+        out->guideLength = 0.0f;
+        out->guideWidth = 0.0f;
+        out->guideColour[0] = out->guideColour[1] = out->guideColour[2] = 0;
+        out->guideFade = 0;
     }
     return 1;
 }
@@ -250,6 +277,14 @@ void gevrModGameSetStats(int item, const GevrModWeaponStats *in)
         s_modThrowLiftSet[item] = in->throwLift != GAME_THROW_LIFT;
         s_modThrowLift[item] = in->throwLift;
         s_modThrowGuide[item] = in->throwGuide != 0;
+        s_modGuideLength[item] = in->guideLength;
+        s_modGuideWidth[item] = in->guideWidth;
+        s_modGuideColour[item][0] = (u8)in->guideColour[0];
+        s_modGuideColour[item][1] = (u8)in->guideColour[1];
+        s_modGuideColour[item][2] = (u8)in->guideColour[2];
+        s_modGuideFade[item] = in->guideFade != 0;
+        s_modGuideStyled[item] = in->guideLength != GEVR_MODAPI_GUIDE_LENGTH || in->guideWidth != GEVR_MODAPI_GUIDE_WIDTH
+            || in->guideColour[0] != 255 || in->guideColour[1] != 255 || in->guideColour[2] != 255 || in->guideFade;
     }
     st->DestructionAmount = in->damage;
     st->Inaccuracy = in->inaccuracy;

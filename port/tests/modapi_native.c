@@ -542,8 +542,11 @@ int main(int argc, char **argv)
     stats(4, 7, -1, 1.0f);     /* wppk: single shot */
     stats(8, 30, 3, 1.5f);     /* ak47: automatic */
     stats(26, 1, -1, 4.0f);    /* grenade */
-    s_stats[26].throwSpeed = 16.666666f;   /* thrown: the game's own speed and lift */
+    s_stats[26].throwSpeed = 16.666666f;   /* thrown: the game's own speed and lift, the tracer's look */
     s_stats[26].throwLift = 5.0f;
+    s_stats[26].guideLength = GEVR_MODAPI_GUIDE_LENGTH;
+    s_stats[26].guideWidth = GEVR_MODAPI_GUIDE_WIDTH;
+    s_stats[26].guideColour[0] = s_stats[26].guideColour[1] = s_stats[26].guideColour[2] = 255;
     for (i = 1; i < argc; i++) {
         const char *cmd = argv[i];
 
@@ -616,7 +619,8 @@ int main(int argc, char **argv)
         } else if (!strcmp(cmd, "show3") && i + 1 < argc) {
             const GevrModWeaponStats *s = &s_stats[atoi(argv[++i])];
 
-            printf("STATS3 %.2f %.2f %d\n", s->throwSpeed, s->throwLift, s->throwGuide);
+            printf("STATS3 %.2f %.2f %d %.1f %.1f %d %d %d %d\n", s->throwSpeed, s->throwLift, s->throwGuide,
+                   s->guideLength, s->guideWidth, s->guideColour[0], s->guideColour[1], s->guideColour[2], s->guideFade);
         } else if (!strcmp(cmd, "show2") && i + 1 < argc) {
             const GevrModWeaponStats *s = &s_stats[atoi(argv[++i])];
 

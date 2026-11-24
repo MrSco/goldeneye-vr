@@ -249,6 +249,20 @@ static int l_stats(lua_State *L)
         lua_setfield(L, -2, "throwLift");
         lua_pushboolean(L, st.throwGuide);
         lua_setfield(L, -2, "throwGuide");
+        lua_createtable(L, 0, 4);   /* its look */
+        lua_pushnumber(L, st.guideLength);
+        lua_setfield(L, -2, "length");
+        lua_pushnumber(L, st.guideWidth);
+        lua_setfield(L, -2, "width");
+        lua_createtable(L, 3, 0);
+        for (int c = 0; c < 3; c++) {
+            lua_pushinteger(L, st.guideColour[c]);
+            lua_rawseti(L, -2, c + 1);
+        }
+        lua_setfield(L, -2, "colour");
+        lua_pushboolean(L, st.guideFade);
+        lua_setfield(L, -2, "fade");
+        lua_setfield(L, -2, "throwGuideStyle");
     }
     return 1;
 }
@@ -384,9 +398,61 @@ static int l_setStats(lua_State *L)
                                       (int)GEVR_MODAPI_THROW_LIFT_MAX);
                 }
                 next.throwLift = (float)v;
-            } else if (there) {
-                if (!lua_isboolean(L, -1)) return luaL_error(L, "mod.weapon.setStats: throwGuide is true or false");
+            } else if (there && lua_isboolean(L, -1)) {
                 next.throwGuide = lua_toboolean(L, -1);
+            } else if (there && lua_istable(L, -1)) {
+                /* on, in a look of the pack's: what it leaves out is the game's tracer's */
+                const int t = lua_gettop(L);
+
+                next.throwGuide = 1;
+                next.guideLength = GEVR_MODAPI_GUIDE_LENGTH;
+                next.guideWidth = GEVR_MODAPI_GUIDE_WIDTH;
+                next.guideColour[0] = next.guideColour[1] = next.guideColour[2] = 255;
+                next.guideFade = 0;
+                if (lua_getfield(L, t, "length") != LUA_TNIL) {
+                    v = lua_tonumberx(L, -1, &ok);
+                    if (!ok || !(v >= GEVR_MODAPI_GUIDE_LENGTH_MIN && v <= GEVR_MODAPI_GUIDE_LENGTH_MAX)) {
+                        return luaL_error(L, "mod.weapon.setStats: throwGuide's length is %d to %d", (int)GEVR_MODAPI_GUIDE_LENGTH_MIN,
+                                          (int)GEVR_MODAPI_GUIDE_LENGTH_MAX);
+                    }
+                    next.guideLength = (float)v;
+                }
+                lua_pop(L, 1);
+                if (lua_getfield(L, t, "width") != LUA_TNIL) {
+                    v = lua_tonumberx(L, -1, &ok);
+                    if (!ok || !(v >= GEVR_MODAPI_GUIDE_WIDTH_MIN && v <= GEVR_MODAPI_GUIDE_WIDTH_MAX)) {
+                        return luaL_error(L, "mod.weapon.setStats: throwGuide's width is 0.5 to %d", (int)GEVR_MODAPI_GUIDE_WIDTH_MAX);
+                    }
+                    next.guideWidth = (float)v;
+                }
+                lua_pop(L, 1);
+                if (lua_getfield(L, t, "colour") != LUA_TNIL) {
+                    int c;
+
+                    if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 3) {
+                        return luaL_error(L, "mod.weapon.setStats: throwGuide's colour is { r, g, b }, 0 to 255 each");
+                    }
+                    for (c = 0; c < 3; c++) {
+                        int whole;
+                        lua_Integer n;
+
+                        lua_rawgeti(L, -1, c + 1);
+                        n = lua_tointegerx(L, -1, &whole);
+                        lua_pop(L, 1);
+                        if (!whole || n < 0 || n > 255) {
+                            return luaL_error(L, "mod.weapon.setStats: throwGuide's colour is { r, g, b }, 0 to 255 each");
+                        }
+                        next.guideColour[c] = (int)n;
+                    }
+                }
+                lua_pop(L, 1);
+                if (lua_getfield(L, t, "fade") != LUA_TNIL) {
+                    if (!lua_isboolean(L, -1)) return luaL_error(L, "mod.weapon.setStats: throwGuide's fade is true or false");
+                    next.guideFade = lua_toboolean(L, -1);
+                }
+                lua_pop(L, 1);
+            } else if (there) {
+                return luaL_error(L, "mod.weapon.setStats: throwGuide is true, false or a look { length, width, colour, fade }");
             }
             lua_pop(L, 1);
         }

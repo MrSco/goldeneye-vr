@@ -134,13 +134,24 @@ mod.on("mission_start", function()
   print("bad", bad, (pcall(w.setStats, "ak47", { throwSpeed = 10 })), (pcall(w.setStats, "ak47", { throwGuide = true })))
   assert(w.setStats("grenade", { throwSpeed = 30, throwLift = -2.5, throwGuide = true }))
   g = w.stats("grenade")
-  print("now", g.throwSpeed, g.throwLift, g.throwGuide)
+  print("now", g.throwSpeed, g.throwLift, g.throwGuide, g.throwGuideStyle.length, g.throwGuideStyle.fade)
+  local looks = 0
+  for _, t in ipairs({ { length = 5 }, { length = 501 }, { width = 0.4 }, { width = 31 }, { colour = { 256, 0, 0 } },
+                       { colour = { 1, 2 } }, { colour = { 1, 2, 3.5 } }, { colour = "cyan" }, { fade = 1 } }) do
+    if not pcall(w.setStats, "grenade", { throwGuide = t }) then looks = looks + 1 end
+  end
+  print("looks", looks, (pcall(w.setStats, "grenade", { throwGuide = "cyan" })))
+  assert(w.setStats("grenade", { throwGuide = { length = 60, width = 1.5, colour = { 0, 255, 255 }, fade = true } }))
+  local s = w.stats("grenade").throwGuideStyle
+  print("look", w.stats("grenade").throwGuide, s.length, s.width, s.colour[1], s.colour[2], s.colour[3], s.fade)
 end)
 """
     out = run(exe, temp, "throws", lua, "start", "prepare", 9, "begin", 9, "show3", 26, "title", "show3", 26)
-    check(logs(out) == ["own 16.67 5.0 false nil", "bad 6 false false", "now 30.0 -2.5 true"],
-          "a grenade's throw, the refusals, an AK47's none: " + str(logs(out)))
-    check(answers(out, "STATS3") == ["STATS3 30.00 -2.50 1", "STATS3 16.67 5.00 0"],
+    check(logs(out) == ["own 16.67 5.0 false nil", "bad 6 false false", "now 30.0 -2.5 true 100.0 false",
+                        "looks 9 false", "look true 60.0 1.5 0 255 255 true"],
+          "a grenade's throw, the refusals, an AK47's none; a guide's look, its refusals, read back: " + str(logs(out)))
+    check(answers(out, "STATS3") == ["STATS3 30.00 -2.50 1 60.0 1.5 0 255 255 1",
+                                     "STATS3 16.67 5.00 0 100.0 6.0 255 255 255 0"],
           "set, then the game's own at the mission's end: " + str(answers(out, "STATS3")))
 
 
@@ -165,9 +176,19 @@ def throws_placement(gun, fire):
           "the guide's aim draws no random numbers")
     guide = function(fire, "Gfx *gevrThrowGuideDraw(Gfx *gdl, s32 hand, s32 item)")
     check(guide.index("gevrAimNoSpread(&origin, &aim, hand);") < guide.index("gevrThrowTrigger(hand, gevrThrowBaseSpeed(item), &aim, &v);")
-          < guide.index("gevrThrowAddMotion(&v);") < guide.index("return sub_GAME_7F061E18(gdl, &guide, 0);")
+          < guide.index("gevrThrowAddMotion(&v);") < guide.index("gdl = sub_GAME_7F061E18(gdl, &guide, 0);")
           and "gevrMotionThrowOwnsHand(hand)" in guide and "VrThrowGuide || gevrModThrowGuide(item)" in guide,
           "the guide: the throw's own calculation, drawn as a tracer, by the setting or a mod, not in a motion throw")
+    check(guide.index("weapon_action_state != GUN_ANIM_STATE_IDLE") < guide.index("gevrAimNoSpread(&origin, &aim, hand);")
+          and "weapon_action_state != GUN_ANIM_STATE_TRIGGER_PRESS" in guide,
+          "only while an item's ready in the hand")
+    check(guide.index("s_gevrBeamStyle = styled ? &style : NULL;") < guide.index("gdl = sub_GAME_7F061E18(gdl, &guide, 0);")
+          < guide.index("s_gevrBeamStyle = NULL;") and "style.radius = width * 5.0f;" in guide,
+          "a pack's look for this one beam only")
+    beam = function(fire, "Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)")
+    check(beam.index("radius = 30.0f;") < beam.index("radius = s_gevrBeamStyle->radius;")
+          < beam.index("vtx[3].v.tc[1] = image->height << 5;") < beam.index("vtx[2].v.cn[3] = 0;")
+          < beam.index("gSPVertex("), "the beam's radius and colour, and its far end's fade, before it's drawn")
     render = function(fire, "void gunRenderFirstPersonGunModels(Gfx **gdlptr)")
     check(render.index("gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);")
           < render.index("gdl = gevrThrowGuideDraw(gdl, handnum, item);"), "drawn with the hand, after its beam")

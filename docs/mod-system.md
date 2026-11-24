@@ -486,9 +486,17 @@ in-game screen). We maintain the adapters, not the mods.
     would leave now, from the same calculation less the item's random
     spread, as the game draws a tracer (`gunfire.c` `gevrThrowGuideDraw`),
     for the local player; the base game's Throw guide setting draws it
-    for every thrown item. Not while the grip winds up a motion throw,
-    which is separate. `stats` reads them back for a thrown item; an
-    item that isn't thrown refuses them.
+    for every thrown item. It shows only while an item is ready in the
+    hand (idle, or the trigger pressed), not while a throw leaves or the
+    next comes up, and not while the grip winds up a motion throw, which
+    is separate. `throwGuide` can also be a look, `{ length, width,
+    colour, fade }`: length 10 to 500 and width 0.5 to 30 in world units,
+    colour `{ r, g, b }` 0 to 255 each, and fade (to nothing at its far
+    end), what's left out the game's tracer's (100 long, 6 wide, white,
+    not fading); the engine still places and draws it, as a tracer with
+    that radius and colour. `stats` reads them back for a thrown item,
+    the look as `throwGuideStyle`; an item that isn't thrown refuses
+    them.
     Stats are per weapon type, guards' too, and go back to the game's own
     at a mission's end and when a mod stops.
   - Scopes (VR): `mod.weapon.scope(hand, t)` puts the game's per-hand

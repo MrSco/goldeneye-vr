@@ -418,7 +418,20 @@ typedef struct GevrModWeaponStats {
     float throwSpeed;
     float throwLift;
     int throwGuide;
+    /* the guide's look (gunfire.c gevrThrowGuideDraw): its length and width in
+     * world units, colour and whether it fades to nothing at its far end; the
+     * GEVR_MODAPI_GUIDE_* defaults are the game's tracer */
+    float guideLength;
+    float guideWidth;
+    int guideColour[3];
+    int guideFade;
 } GevrModWeaponStats;
+#define GEVR_MODAPI_GUIDE_LENGTH 100.0f
+#define GEVR_MODAPI_GUIDE_WIDTH 6.0f
+#define GEVR_MODAPI_GUIDE_LENGTH_MIN 10.0
+#define GEVR_MODAPI_GUIDE_LENGTH_MAX 500.0
+#define GEVR_MODAPI_GUIDE_WIDTH_MIN 0.5
+#define GEVR_MODAPI_GUIDE_WIDTH_MAX 30.0
 #define GEVR_MODAPI_THROW_SPEED_MAX 100.0
 #define GEVR_MODAPI_THROW_LIFT_MAX 50.0
 
