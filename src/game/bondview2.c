@@ -17327,6 +17327,15 @@ Gfx *gevrRenderRadarGauges(Gfx *gdl, s32 x, s32 y, s32 radius)
     gSPDisplayList(gdl++, osVirtualToPhysical(health));
     gSPDisplayList(gdl++, osVirtualToPhysical(armor));
     gDPPipeSync(gdl++);
+    /*
+     * Depth back on, as the HUD's other screen-space draws leave it (gunfire.c
+     * crosshair). The frame turns it on once, before the first view
+     * (lv.c dlZBufferGeometry), so with it left off here every later view of
+     * an online split screen drew its level without depth: rooms drawn later
+     * painted over nearer ones, and at a Bunker II spawn the corridor's ceiling
+     * and upper walls vanished under them.
+     */
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);
     gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
     gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
     return gdl;
@@ -22282,6 +22291,7 @@ static Gfx *gevrWheelDrawSegments(Gfx *gdl, s32 cx, s32 cy, s32 active, s32 coun
     gSPClearGeometryMode(gdl++, G_CULL_BOTH|G_LIGHTING|G_ZBUFFER);
     gSPDisplayList(gdl++, osVirtualToPhysical(ring));
     gDPPipeSync(gdl++);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);   /* back on for the next view, as gevrRenderRadarGauges */
     gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
     gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
     return gdl;
