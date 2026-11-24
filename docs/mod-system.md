@@ -473,6 +473,22 @@ in-game screen). We maintain the adapters, not the mods.
     the same call; `fireRate` is refused on a gun that isn't automatic.
     `stats` reads it back. Guards holding that weapon fire it the same
     way.
+    A thrown weapon or gadget (a grenade, knife, mine, plastique, the bug,
+    the camera, the GoldenEye key) has its trigger throw's `throwSpeed`
+    (1 to 100 units a tick; the game's 16.7, a knife's 25, the key's 6.7),
+    `throwLift` (-50 to 50 upward; the game's 5) and `throwGuide` (true
+    or false). The trigger throw is the game's own: along the hand's aim
+    (the crosshair's, flat), at that speed with that lift, plus the
+    player's own motion (`gun.c` `gevrThrowTrigger`, which the thrown
+    grenades, knives and objects all launch through); the next one
+    readies, or the detonator, as the game does. `throwGuide` draws a
+    short line from where the throw leaves the hand along the way it
+    would leave now, from the same calculation less the item's random
+    spread, as the game draws a tracer (`gunfire.c` `gevrThrowGuideDraw`),
+    for the local player; the base game's Throw guide setting draws it
+    for every thrown item. Not while the grip winds up a motion throw,
+    which is separate. `stats` reads them back for a thrown item; an
+    item that isn't thrown refuses them.
     Stats are per weapon type, guards' too, and go back to the game's own
     at a mission's end and when a mod stops.
   - Scopes (VR): `mod.weapon.scope(hand, t)` puts the game's per-hand

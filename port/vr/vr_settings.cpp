@@ -334,6 +334,7 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "MotionThrowPitch=%.1f\n", VrMotionThrowPitch);
     iniPrintf(f, "MotionThrowGazeAssist=%.2f\n", VrMotionThrowGazeAssist);
     iniPrintf(f, "MotionThrowStrength=%.2f\n", VrMotionThrowStrength);
+    iniPrintf(f, "ThrowGuide=%d\n", VrThrowGuide ? 1 : 0);
     iniPrintf(f, "Vibration=%.4f\n", inputRumbleGetStrength(g_ExtMenuPlayer));
     iniPrintf(f, "PadDefaults=2\n");   // #269: Vibration's default is 30%; an older ini's 0.5 was the old default
     iniPrintf(f, "PadLookSpeed=%.2f\nPadLookDeadzone=%.4f\nPadLookInvert=%d\n", inputPadLookSpeed(),
@@ -1031,6 +1032,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "LaserDotForAll") == 0) VrlaserDotForALL = ival != 0;
             else if (strcmp(key, "SeatedMode") == 0) VrSeatedMode = ival != 0;
             else if (strcmp(key, "MotionThrowing") == 0) VrMotionThrowing = ival != 0;
+            else if (strcmp(key, "ThrowGuide") == 0) VrThrowGuide = ival != 0;
             else if (strcmp(key, "WeaponRecoil") == 0) VrWeaponRecoil = (ival != 0);
             else if (strcmp(key, "StickClickToCrouch") == 0) VrStickClickToCrouch = (ival != 0);
             else if (strcmp(key, "AimNoLean") == 0) VrAimNoLean = (ival != 0);

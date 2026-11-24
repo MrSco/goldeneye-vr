@@ -33,6 +33,7 @@ extern int VrTouchModel;
 extern int VrAimNoLean, VrAimSight;
 extern int VrMotionThrowing;
 extern float VrMotionThrowStrength, VrMotionThrowPitch, VrMotionThrowGazeAssist;
+extern int VrThrowGuide;
 extern int VrGestureGripUse, VrGestureMineGrab;
 extern int VrForcePull;
 extern int VrBodySlots, VrBodySlotSize;
@@ -992,6 +993,7 @@ static const Row s_rows[] = {
     { .label = "Throw gaze", .headset = 1, .tooltip = "How much throws bend toward where you look.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .fvar = &VrMotionThrowGazeAssist,
       .lo = 0, .hi = 1, .step = 0.1f, .scale = 100, .fmt = "%.0f%%", .def = 0.5f, .blocked = blockedThrow },
+    TOGGLE(GEVR_SEC_WEAPONS, "Throw guide", VrThrowGuide, "A short line shows where a trigger throw leaves your hand."),
 
     /* Display */
     { .label = "Play mode", .headset = 1, .tooltip = "Stereo VR: you are Bond. Flat screen: the game on a big screen.", .kind = GEVR_SET_CHOICE,

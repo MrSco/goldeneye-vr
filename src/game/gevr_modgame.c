@@ -172,6 +172,27 @@ static s32 nativeAutomatic(s32 item)
     }
 }
 
+/* A thrown item's trigger throw (setStats' throwSpeed, throwLift and
+ * throwGuide; gun.c gevrThrowTrigger, gunfire.c gevrThrowGuideDraw): a speed
+ * of 0 and no lift set are the game's own. Put back with the stats */
+#define GAME_THROW_LIFT 5.0f   /* gun.c's throws' own */
+extern s32 gevrIsThrowable(s32 item);        /* input.c */
+extern f32 gevrThrowBaseSpeed(s32 item);     /* gun.c */
+static f32 s_modThrowSpeed[ITEM_IDS_MAX], s_modThrowLift[ITEM_IDS_MAX];
+static s8 s_modThrowLiftSet[ITEM_IDS_MAX], s_modThrowGuide[ITEM_IDS_MAX];
+
+void gevrModThrowStats(s32 item, f32 *speed, f32 *lift)
+{
+    if (item < 0 || item >= ITEM_IDS_MAX) return;
+    if (s_modThrowSpeed[item] > 0.0f) *speed = s_modThrowSpeed[item];
+    if (s_modThrowLiftSet[item]) *lift = s_modThrowLift[item];
+}
+
+s32 gevrModThrowGuide(s32 item)
+{
+    return item >= 0 && item < ITEM_IDS_MAX && s_modThrowGuide[item];
+}
+
 /* gunfire.c: the firing switch's case for the item: an automatic's (the
  * AK47's) or a shot a press (the PP7's) when a mod chose, else as */
 s32 gevrModFireAs(s32 item, s32 as)
@@ -197,6 +218,18 @@ int gevrModGameStats(int item, GevrModWeaponStats *out)
     out->loudnessMin = st->LoudnessMin;
     out->loudnessMax = st->LoudnessMax;
     out->automatic = s_modFireMode[item] ? s_modFireMode[item] == 1 : nativeAutomatic(item);
+    if (gevrIsThrowable(item))
+    {
+        out->throwSpeed = s_modThrowSpeed[item] > 0.0f ? s_modThrowSpeed[item] : gevrThrowBaseSpeed(item);
+        out->throwLift = s_modThrowLiftSet[item] ? s_modThrowLift[item] : GAME_THROW_LIFT;
+        out->throwGuide = s_modThrowGuide[item];
+    }
+    else
+    {
+        out->throwSpeed = 0.0f;
+        out->throwLift = 0.0f;
+        out->throwGuide = 0;
+    }
     return 1;
 }
 
@@ -211,6 +244,13 @@ void gevrModGameSetStats(int item, const GevrModWeaponStats *in)
     /* -1 is the game's own "none" (0xFF), so a gun made automatic gets it back */
     st->AutomaticFiringRate = in->fireRate >= 0 ? (u8)in->fireRate : 0xFF;
     s_modFireMode[item] = (in->automatic != 0) == (nativeAutomatic(item) != 0) ? 0 : in->automatic ? 1 : 2;
+    if (gevrIsThrowable(item))
+    {
+        s_modThrowSpeed[item] = in->throwSpeed > 0.0f && in->throwSpeed != gevrThrowBaseSpeed(item) ? in->throwSpeed : 0.0f;
+        s_modThrowLiftSet[item] = in->throwLift != GAME_THROW_LIFT;
+        s_modThrowLift[item] = in->throwLift;
+        s_modThrowGuide[item] = in->throwGuide != 0;
+    }
     st->DestructionAmount = in->damage;
     st->Inaccuracy = in->inaccuracy;
     st->RecoilBack = in->recoilBack;

@@ -241,6 +241,14 @@ static int l_stats(lua_State *L)
     lua_setfield(L, -2, "loudnessMin");
     lua_pushnumber(L, st.loudnessMax);
     lua_setfield(L, -2, "loudnessMax");
+    if (st.throwSpeed > 0.0f) {
+        lua_pushnumber(L, st.throwSpeed);
+        lua_setfield(L, -2, "throwSpeed");
+        lua_pushnumber(L, st.throwLift);
+        lua_setfield(L, -2, "throwLift");
+        lua_pushboolean(L, st.throwGuide);
+        lua_setfield(L, -2, "throwGuide");
+    }
     return 1;
 }
 
@@ -349,6 +357,39 @@ static int l_setStats(lua_State *L)
         next.sound = (int)v;
     }
     lua_pop(L, 1);
+    {
+        /* a thrown weapon or gadget's trigger throw: its speed, lift and guide */
+        static const char *const throws[] = { "throwSpeed", "throwLift", "throwGuide" };
+        int k;
+
+        for (k = 0; k < 3; k++) {
+            const int there = lua_getfield(L, 2, throws[k]) != LUA_TNIL;
+            lua_Number v = 0;
+            int ok = 0;
+
+            if (there && cur.throwSpeed <= 0.0f) {
+                return luaL_error(L, "mod.weapon.setStats: %s isn't thrown; it has no %s", s_itemNames[item], throws[k]);
+            }
+            if (there && k == 0) {
+                v = lua_tonumberx(L, -1, &ok);
+                if (!ok || !(v >= 1.0 && v <= GEVR_MODAPI_THROW_SPEED_MAX)) {
+                    return luaL_error(L, "mod.weapon.setStats: throwSpeed is 1 to %d", (int)GEVR_MODAPI_THROW_SPEED_MAX);
+                }
+                next.throwSpeed = (float)v;
+            } else if (there && k == 1) {
+                v = lua_tonumberx(L, -1, &ok);
+                if (!ok || !(v >= -GEVR_MODAPI_THROW_LIFT_MAX && v <= GEVR_MODAPI_THROW_LIFT_MAX)) {
+                    return luaL_error(L, "mod.weapon.setStats: throwLift is -%d to %d", (int)GEVR_MODAPI_THROW_LIFT_MAX,
+                                      (int)GEVR_MODAPI_THROW_LIFT_MAX);
+                }
+                next.throwLift = (float)v;
+            } else if (there) {
+                if (!lua_isboolean(L, -1)) return luaL_error(L, "mod.weapon.setStats: throwGuide is true or false");
+                next.throwGuide = lua_toboolean(L, -1);
+            }
+            lua_pop(L, 1);
+        }
+    }
     if (i == s_savedCount && s_savedCount < GEVR_MODAPI_ITEMS) {
         s_saved[s_savedCount].item = item;
         s_saved[s_savedCount].own = cur;

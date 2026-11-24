@@ -17,6 +17,7 @@ extern int VrMotionThrowing;
 extern float VrMotionThrowPitch;
 extern float VrMotionThrowGazeAssist;
 extern float VrMotionThrowStrength;
+extern int VrThrowGuide;
 extern bool VrWeaponRecoil;
 #define WORLDSCALE_MIN    0.50f
 #define WORLDSCALE_MAX    1.50f

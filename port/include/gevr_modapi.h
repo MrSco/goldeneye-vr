@@ -397,7 +397,16 @@ typedef struct GevrModWeaponStats {
     float loudnessMin;   /* LoudnessMin, LoudnessMax: how far guards hear a shot */
     float loudnessMax;
     int automatic;    /* fired automatically while the trigger's held (gunfire.c's firing switch) */
+    /* a thrown weapon or gadget's trigger throw (gun.c gevrThrowTrigger): its
+     * speed (units a tick: the game's 16.7, a knife's 25) and lift upward
+     * (the game's 5), and its guide drawn for the local player; speed 0 for
+     * an item that isn't thrown */
+    float throwSpeed;
+    float throwLift;
+    int throwGuide;
 } GevrModWeaponStats;
+#define GEVR_MODAPI_THROW_SPEED_MAX 100.0
+#define GEVR_MODAPI_THROW_LIFT_MAX 50.0
 
 /* The current player is this machine's human (not a copy, not a bot) */
 int gevrModGameLocal(void);

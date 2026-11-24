@@ -2044,6 +2044,84 @@ Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)
 }
 
 
+#ifdef GEVR
+/* The aim a shot or throw leaves along (bullet_path_from_screen_center's)
+ * without the item's random spread, which draws random numbers: for what's
+ * drawn every frame, the throw guide. The cartridge's thrown items' own
+ * spread is the only difference from a throw's aim. */
+static void gevrAimNoSpread(coord3d *origin, coord3d *dir, s32 hand)
+{
+    extern s32 gevrStereoShotFromEye(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+    coord2d crosspos;
+
+    crosspos.x = g_CurrentPlayer->crosshair_angle.f[0];
+    crosspos.y = g_CurrentPlayer->crosshair_angle.f[1];
+    if (gevrStereoShotFromEye(hand, &crosspos, origin, dir))
+    {
+        return;
+    }
+    origin->x = 0.0f;
+    origin->y = 0.0f;
+    origin->z = 0.0f;
+    transformAndNormalizeByLength2Dto3D(&crosspos, dir, 1.0f);
+}
+
+#define GEVR_THROW_GUIDE_LENGTH 100.0f   /* world units: the launch's first stretch */
+
+/*
+ * The trigger throw's guide (#291): a short line from where a throw leaves
+ * the hand along the way it would leave now, drawn as the game draws a
+ * tracer (sub_GAME_7F061E18), from the throw's own calculation (gun.c
+ * gevrThrowTrigger and gevrThrowAddMotion) less the item's random spread.
+ * For a thrown weapon or gadget in the hand, when the Throw guide setting is
+ * on or a mod turned it on for the item (setStats' throwGuide), and not while
+ * the grip winds up a motion throw.
+ */
+Gfx *gevrThrowGuideDraw(Gfx *gdl, s32 hand, s32 item)
+{
+    extern int VrThrowGuide;                          /* vr_settings_defaults.c */
+    extern s32 gevrIsThrowable(s32 item);             /* input.c */
+    extern s32 gevrMotionThrowOwnsHand(s32 hand);     /* bondview2.c */
+    extern s32 gevrModThrowGuide(s32 item);           /* gevr_modgame.c */
+    extern f32 gevrThrowBaseSpeed(s32 item);          /* gun.c */
+    extern void gevrThrowTrigger(s32 hand, f32 speed, const coord3d *aim, coord3d *out);
+    extern void gevrThrowAddMotion(coord3d *v);
+    BeamRecord guide;
+    coord3d origin, aim, v;
+    f32 len;
+    s32 k;
+
+    if (g_CurrentPlayer == NULL || !gevrIsThrowable(item) || gevrMotionThrowOwnsHand(hand)
+        || !(VrThrowGuide || gevrModThrowGuide(item)))
+    {
+        return gdl;
+    }
+    gevrAimNoSpread(&origin, &aim, hand);
+    mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32 *)&aim);
+    gevrThrowTrigger(hand, gevrThrowBaseSpeed(item), &aim, &v);
+    gevrThrowAddMotion(&v);
+    len = sqrtf((v.f[0] * v.f[0]) + (v.f[1] * v.f[1]) + (v.f[2] * v.f[2]));
+    if (!(len > 0.0f))
+    {
+        return gdl;
+    }
+    memset(&guide, 0, sizeof(guide));
+    for (k = 0; k < 3; k++)
+    {
+        guide.pos.f[k] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][k];   /* where a throw leaves */
+        guide.delta.f[k] = v.f[k] / len;
+    }
+    guide.unk00 = 0;             /* drawn */
+    guide.item_id = (s8)item;    /* a tracer's look: not a laser's */
+    guide.unk1c = GEVR_THROW_GUIDE_LENGTH;
+    guide.unk20 = GEVR_THROW_GUIDE_LENGTH;
+    guide.unk24 = GEVR_THROW_GUIDE_LENGTH;
+    guide.unk28 = 0.0f;          /* from its start */
+    return sub_GAME_7F061E18(gdl, &guide, 0);
+}
+#endif
+
+
 /*
 * Address: 0x7F062B00
 */
@@ -3121,6 +3199,14 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
         }
+#ifdef GEVR
+        {
+            /* a trigger throw's guide from this hand, with the hand's own draws */
+            extern Gfx *gevrThrowGuideDraw(Gfx *gdl, s32 hand, s32 item);
+
+            gdl = gevrThrowGuideDraw(gdl, handnum, item);
+        }
+#endif
  
         if (item == ITEM_GOLDENGUN || item == ITEM_RUGER || item == ITEM_KNIFE || item == ITEM_THROWKNIFE || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK) 
         {

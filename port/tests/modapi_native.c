@@ -528,6 +528,8 @@ int main(int argc, char **argv)
     stats(4, 7, -1, 1.0f);     /* wppk: single shot */
     stats(8, 30, 3, 1.5f);     /* ak47: automatic */
     stats(26, 1, -1, 4.0f);    /* grenade */
+    s_stats[26].throwSpeed = 16.666666f;   /* thrown: the game's own speed and lift */
+    s_stats[26].throwLift = 5.0f;
     for (i = 1; i < argc; i++) {
         const char *cmd = argv[i];
 
@@ -597,6 +599,10 @@ int main(int argc, char **argv)
             const int item = atoi(argv[++i]);
 
             printf("STATS %d %d %d %.2f\n", item, s_stats[item].magazine, s_stats[item].fireRate, s_stats[item].damage);
+        } else if (!strcmp(cmd, "show3") && i + 1 < argc) {
+            const GevrModWeaponStats *s = &s_stats[atoi(argv[++i])];
+
+            printf("STATS3 %.2f %.2f %d\n", s->throwSpeed, s->throwLift, s->throwGuide);
         } else if (!strcmp(cmd, "show2") && i + 1 < argc) {
             const GevrModWeaponStats *s = &s_stats[atoi(argv[++i])];
 

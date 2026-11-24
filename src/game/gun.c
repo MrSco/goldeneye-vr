@@ -6838,6 +6838,55 @@ void gunInitProjectileFromPlayer(ObjectRecord *obj, coord3d *targetpos, Mtxf *ar
 }
 
 
+#ifdef GEVR
+/*
+ * The trigger throw (one the motion throw didn't make), as the game launches
+ * it: along the aim (world), at the item's speed with a lift upward, then the
+ * player's own motion added. The speed and lift are a mod's for that item if
+ * set (setStats' throwSpeed and throwLift), else the game's own. The thrown
+ * grenades, knives and objects below launch with these, and the throw guide
+ * (gunfire.c gevrThrowGuideDraw) is drawn from the same.
+ */
+extern void gevrModThrowStats(s32 item, f32 *speed, f32 *lift);   /* gevr_modgame.c */
+
+/* the game's own speed for an item's trigger throw (base_velocity below) */
+f32 gevrThrowBaseSpeed(s32 item)
+{
+    if (item == ITEM_THROWKNIFE)
+    {
+        return 25.0f;   /* generate_player_thrown_knife */
+    }
+    if (item == ITEM_GOLDENEYEKEY)
+    {
+        return 6.6666665f;   /* generate_player_thrown_object's key */
+    }
+    return 16.666666f;
+}
+
+void gevrThrowTrigger(s32 hand, f32 speed, const struct coord3d *aim, struct coord3d *out)
+{
+    f32 lift = 5.0f;
+
+    gevrModThrowStats(getCurrentPlayerWeaponId(hand), &speed, &lift);
+    out->f[0] = (aim->f[0] * speed);
+    out->f[1] = (aim->f[1] * speed) + lift;
+    out->f[2] = (aim->f[2] * speed);
+}
+
+void gevrThrowAddMotion(struct coord3d *v)
+{
+    struct PropRecord *me = getCurrentPlayerProp();
+    struct coord3d *prev = getCurrentPlayerPrevPos();
+
+    if (g_ClockTimer > 0)
+    {
+        v->f[0] = ((me->pos.f[0] - prev->f[0]) / g_GlobalTimerDelta) + v->f[0];
+        v->f[1] = ((me->pos.f[1] - prev->f[1]) / g_GlobalTimerDelta) + v->f[1];
+        v->f[2] = ((me->pos.f[2] - prev->f[2]) / g_GlobalTimerDelta) + v->f[2];
+    }
+}
+#endif
+
 /**
  * Address 0x7F05EE24 (NTSC)
  * Address 0x7F05F2DC (PAL)
@@ -6883,17 +6932,26 @@ void generate_player_thrown_grenade(s32 hand)
     else
 #endif
     {
+#ifdef GEVR
+        /* the trigger throw: the item's speed and lift, a mod's if set (the guide's own calculation) */
+        gevrThrowTrigger(hand, base_velocity, &base_speed_vec, &throw_speed_vec);
+#else
         throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
         throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
         throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#endif
     }
 
+#ifdef GEVR
+    gevrThrowAddMotion(&throw_speed_vec);   /* the player's own motion */
+#else
     if (g_ClockTimer > 0)
     {
         throw_speed_vec.f[0] = ((player_prop->pos.f[0] - bondprevpos->f[0]) / g_GlobalTimerDelta) + throw_speed_vec.f[0];
         throw_speed_vec.f[1] = ((player_prop->pos.f[1] - bondprevpos->f[1]) / g_GlobalTimerDelta) + throw_speed_vec.f[1];
         throw_speed_vec.f[2] = ((player_prop->pos.f[2] - bondprevpos->f[2]) / g_GlobalTimerDelta) + throw_speed_vec.f[2];
     }
+#endif
 
     spE0.f[0] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][0];
     spE0.f[1] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][1];
@@ -6986,17 +7044,26 @@ void generate_player_thrown_knife(s32 hand)
     else
 #endif
     {
+#ifdef GEVR
+        /* the trigger throw: the item's speed and lift, a mod's if set (the guide's own calculation) */
+        gevrThrowTrigger(hand, base_velocity, &base_speed_vec, &throw_speed_vec);
+#else
         throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
         throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
         throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#endif
     }
 
+#ifdef GEVR
+    gevrThrowAddMotion(&throw_speed_vec);   /* the player's own motion */
+#else
     if (g_ClockTimer > 0)
     {
         throw_speed_vec.f[0] = ((player_prop->pos.f[0] - bondprevpos->f[0]) / g_GlobalTimerDelta) + throw_speed_vec.f[0];
         throw_speed_vec.f[1] = ((player_prop->pos.f[1] - bondprevpos->f[1]) / g_GlobalTimerDelta) + throw_speed_vec.f[1];
         throw_speed_vec.f[2] = ((player_prop->pos.f[2] - bondprevpos->f[2]) / g_GlobalTimerDelta) + throw_speed_vec.f[2];
     }
+#endif
 
     spE0.f[0] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][0];
     spE0.f[1] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][1];
@@ -7105,17 +7172,26 @@ void generate_player_thrown_object(s32 hand)
     else
 #endif
     {
+#ifdef GEVR
+        /* the trigger throw: the item's speed and lift, a mod's if set (the guide's own calculation) */
+        gevrThrowTrigger(hand, base_velocity, &base_speed_vec, &throw_speed_vec);
+#else
         throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
         throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
         throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#endif
     }
 
+#ifdef GEVR
+    gevrThrowAddMotion(&throw_speed_vec);   /* the player's own motion */
+#else
     if (g_ClockTimer > 0)
     {
         throw_speed_vec.f[0] = ((player_prop->pos.f[0] - bondprevpos->f[0]) / g_GlobalTimerDelta) + throw_speed_vec.f[0];
         throw_speed_vec.f[1] = ((player_prop->pos.f[1] - bondprevpos->f[1]) / g_GlobalTimerDelta) + throw_speed_vec.f[1];
         throw_speed_vec.f[2] = ((player_prop->pos.f[2] - bondprevpos->f[2]) / g_GlobalTimerDelta) + throw_speed_vec.f[2];
     }
+#endif
 
     spE0.f[0] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][0];
     spE0.f[1] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][1];

@@ -104,6 +104,7 @@ def placement():
     empty_placement(gun, view)
     speed_placement(view)
     automatic_placement(gun)
+    throws_placement((ROOT / "src/game/gun.c").read_bytes().decode(), gun)
 
 
 def automatic_placement(gun):
@@ -116,6 +117,66 @@ def automatic_placement(gun):
     check("s_modFireMode[item] == 1 ? ITEM_AK47 : ITEM_WPPK" in function(game, "s32 gevrModFireAs(s32 item, s32 as)")
           and "in->fireRate >= 0 ? (u8)in->fireRate : 0xFF" in function(game, "void gevrModGameSetStats("),
           "an automatic's branch or a pistol's; a rate of none put back as the game's 0xFF")
+
+
+def throws(exe, temp):
+    """setStats' throwSpeed, throwLift and throwGuide for a thrown item, read back, refused elsewhere, put back"""
+    lua = r"""
+mod.on("mission_start", function()
+  local w = mod.weapon
+  local g = w.stats("grenade")
+  print("own", string.format("%.2f", g.throwSpeed), g.throwLift, g.throwGuide, w.stats("ak47").throwSpeed)
+  local bad = 0
+  for _, t in ipairs({ { throwSpeed = 0 }, { throwSpeed = 101 }, { throwLift = 51 }, { throwLift = -51 },
+                       { throwGuide = 1 }, { throwSpeed = "x" } }) do
+    if not pcall(w.setStats, "grenade", t) then bad = bad + 1 end
+  end
+  print("bad", bad, (pcall(w.setStats, "ak47", { throwSpeed = 10 })), (pcall(w.setStats, "ak47", { throwGuide = true })))
+  assert(w.setStats("grenade", { throwSpeed = 30, throwLift = -2.5, throwGuide = true }))
+  g = w.stats("grenade")
+  print("now", g.throwSpeed, g.throwLift, g.throwGuide)
+end)
+"""
+    out = run(exe, temp, "throws", lua, "start", "prepare", 9, "begin", 9, "show3", 26, "title", "show3", 26)
+    check(logs(out) == ["own 16.67 5.0 false nil", "bad 6 false false", "now 30.0 -2.5 true"],
+          "a grenade's throw, the refusals, an AK47's none: " + str(logs(out)))
+    check(answers(out, "STATS3") == ["STATS3 30.00 -2.50 1", "STATS3 16.67 5.00 0"],
+          "set, then the game's own at the mission's end: " + str(answers(out, "STATS3")))
+
+
+def throws_placement(gun, fire):
+    """the three throws launch through the shared helpers; the guide draws from them, without spread"""
+    for name, speed in (("void generate_player_thrown_grenade(s32 hand)", "base_velocity = 16.666666f;"),
+                        ("void generate_player_thrown_knife(s32 hand)", "base_velocity = 25.0f;"),
+                        ("void generate_player_thrown_object(s32 hand)", "base_velocity = 6.6666665f;")):
+        body = function(gun, name)
+        check(speed in body and body.index("gevrThrowTrigger(hand, base_velocity, &base_speed_vec, &throw_speed_vec);")
+              < body.index("gevrThrowAddMotion(&throw_speed_vec);")
+              < body.index("throw_item_pos_related.m[3][0]"), name + ": launched through the shared helpers")
+    base = function(gun, "f32 gevrThrowBaseSpeed(s32 item)")
+    check("return 25.0f;" in base and "return 6.6666665f;" in base and "return 16.666666f;" in base,
+          "the guide's base speeds are the throws' own")
+    trigger = function(gun, "void gevrThrowTrigger(")
+    check("f32 lift = 5.0f;" in trigger and "(aim->f[1] * speed) + lift" in trigger
+          and "gevrModThrowStats(getCurrentPlayerWeaponId(hand), &speed, &lift);" in trigger,
+          "the game's formula, a mod's speed and lift for the item")
+    aim = function(fire, "static void gevrAimNoSpread(")
+    check("RANDOM" not in aim and "randomGetNext" not in aim and "gevrStereoShotFromEye(hand, &crosspos, origin, dir)" in aim,
+          "the guide's aim draws no random numbers")
+    guide = function(fire, "Gfx *gevrThrowGuideDraw(Gfx *gdl, s32 hand, s32 item)")
+    check(guide.index("gevrAimNoSpread(&origin, &aim, hand);") < guide.index("gevrThrowTrigger(hand, gevrThrowBaseSpeed(item), &aim, &v);")
+          < guide.index("gevrThrowAddMotion(&v);") < guide.index("return sub_GAME_7F061E18(gdl, &guide, 0);")
+          and "gevrMotionThrowOwnsHand(hand)" in guide and "VrThrowGuide || gevrModThrowGuide(item)" in guide,
+          "the guide: the throw's own calculation, drawn as a tracer, by the setting or a mod, not in a motion throw")
+    render = function(fire, "void gunRenderFirstPersonGunModels(Gfx **gdlptr)")
+    check(render.index("gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);")
+          < render.index("gdl = gevrThrowGuideDraw(gdl, handnum, item);"), "drawn with the hand, after its beam")
+    settings = (ROOT / "port/src/gevr_settings.c").read_bytes().decode()
+    ini = (ROOT / "port/vr/vr_settings.cpp").read_bytes().decode()
+    check('TOGGLE(GEVR_SEC_WEAPONS, "Throw guide", VrThrowGuide,' in settings
+          and 'iniPrintf(f, "ThrowGuide=%d\\n", VrThrowGuide ? 1 : 0);' in ini
+          and 'strcmp(key, "ThrowGuide") == 0' in ini,
+          "the base game's Throw guide: flat and VR, kept in the ini")
 
 
 def speed_placement(view):
@@ -1920,6 +1981,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
 
         items(exe, temp)
         pickup_ids(exe, temp)
+        throws(exe, temp)
         shared_drops(exe, temp)
         hands(exe, temp)
         guards(exe, temp)
