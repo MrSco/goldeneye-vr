@@ -5614,8 +5614,8 @@ void gevrModelTraceNextDraw(void)
 #endif
 
 #ifdef GEVR
-/* GoldenEye's first-person hand and sleeve are under switches 8 through 13.
- * Keep the carrier's fitted matrices and active cuff, but skip its gun and flash. */
+/* Keep the carrier's hand and sleeve switches, as in sub_GAME_7F05E978.
+ * Keep the fitted matrices and active cuff, but skip its gun and flash. */
 static int modelInGunHand(const ModelFileHeader *obj, const ModelNode *node)
 {
     for (; node != NULL; node = node->Parent) {
@@ -5623,6 +5623,7 @@ static int modelInGunHand(const ModelFileHeader *obj, const ModelNode *node)
         for (i = 8; i <= 13 && i < obj->numSwitches; ++i) {
             if (node == obj->Switches[i]) return TRUE;
         }
+        if (obj->numSwitches >= 36 && node == obj->Switches[35]) return TRUE;
     }
     return FALSE;
 }

@@ -1537,6 +1537,23 @@ end)
     check(answers(out, "GUNMODEL") == ["GUNMODEL reset", "GUNMODEL 0 8 GtacAk74Z", "GUNMODEL 1 8 GnoneZ", "GUNMODEL 0 8 -"],
           "the game side: a mission's reset, then each call: " + str(answers(out, "GUNMODEL")))
 
+def pack_names(exe, temp):
+    """The Lua binding forwards flat pack filenames and an omitted legacy header."""
+    lua = r"""
+mod.on("mission_start", function()
+  print("held", mod.weapon.model("right", "ak47", "pack-body.bin"))
+  print("attached", mod.attach.add({ model = "pack-part.bin", on = "gun", hand = "right" }))
+  print("legacy", mod.attach.add({ model = "legacy.bin", on = "gun", hand = "right" }))
+  print("header", mod.attach.add({ model = "legacy.bin", like = "PcartonZ", on = "gun", hand = "right" }))
+  local ok = pcall(mod.attach.add, { model = "part/pack-part.bin", on = "gun", hand = "right" })
+  print("nested", ok)
+end)
+"""
+    out = run(exe, temp, "packnames", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["held true", "attached 1", "legacy nil", "header 2", "nested false"],
+          "flat .bin and hyphenated names, with and without a cartridge header: " + str(logs(out)))
+
+
 def attach_placement():
     """Each attachment drawn at its anchor as drawn: the gun's root after the gun, the hands and body with the body"""
     gun = (ROOT / "src/game/gunfire.c").read_bytes().decode()
@@ -2054,6 +2071,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         scope(exe, temp)
         gunmodel(exe, temp)
         attach(exe, temp)
+        pack_names(exe, temp)
         attach_loadout(exe, temp)
         guards_told(temp)
 

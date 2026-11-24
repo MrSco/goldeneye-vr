@@ -1064,11 +1064,9 @@ in-game screen). We maintain the adapters, not the mods.
     frame. Every frame is a gun model's units at the player's gun size,
     with X the holder's left, Y up and Z ahead, as the game's guns are.
   - For a self-describing pack mesh use `model = "part.bin"` with `like`
-    omitted. A cartridge-format attachment still needs `like`. Pack meshes
-    allow up to 32 RGBA images (each
-    up to 512 by 512), 50,000 triangles and 64 MiB per file; cached mesh data
-    is bounded to 128 files and 192 MiB for the run. A malformed mesh or
-    one beyond the cache budget is refused.
+    omitted. A cartridge-format attachment still needs `like`. See
+    **Pack mesh byte layout** under Weapons for the format and limits
+    used by `mod.weapon.model`. Malformed pack meshes are refused.
   - The engine places each at its anchor every rendered frame, and a hand's
     follows its controller between game frames as the guns do; a script
     only attaches, hides and removes. (A position set from `tick` would

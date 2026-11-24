@@ -80,7 +80,23 @@ def main():
             # A DLL cannot be unlinked by TemporaryDirectory while loaded.
             import _ctypes
             _ctypes.FreeLibrary(lib._handle)
-    print("PASS: both self-describing mesh layouts, texture and corner data, mount data, malformed inputs and legacy dispatch")
+        # Exercise the real loader and its draw list with generated assets.
+        (Path(tmp) / "valid.bin").write_bytes(v1)
+        (Path(tmp) / "bad.bin").write_bytes(v1[:-1])
+        (Path(tmp) / "legacy.bin").write_bytes(b"RAW_ROM_MODEL")
+        exe = Path(tmp) / ("packmesh_loader.exe" if os.name == "nt" else "packmesh_loader")
+        subprocess.run([cc, "-std=gnu11", "-D_LANGUAGE_C=1", "-DGEVR=1",
+                        "-DF3DEX_GBI_2=1", "-DVERSION=2", "-DVERSION_US=1", "-fno-builtin",
+                        "-fms-extensions",
+                        "-I", str(ROOT), "-I", str(ROOT / "include"), "-I", str(ROOT / "port/include"),
+                        "-I", str(ROOT / "src"), "-I", str(ROOT / "src/game"),
+                        str(ROOT / "port/tests/packmesh_loader_native.c"),
+                        str(ROOT / "src/game/gevr_modmesh.c"), str(ROOT / "port/src/gevr_packmesh.c"),
+                        "-lm", "-o", str(exe)], check=True)
+        run = subprocess.run([str(exe)], cwd=tmp, check=True, capture_output=True, text=True)
+        assert "pack model valid.bin: 1 triangles, 2 RGBA textures" in run.stdout, run.stdout
+        assert "refused pack model bad.bin: malformed model" in run.stdout, run.stdout
+    print("PASS: both self-describing mesh layouts, texture and corner data, mount data, malformed inputs, legacy dispatch and native display-list loading")
 
 
 if __name__ == "__main__":
