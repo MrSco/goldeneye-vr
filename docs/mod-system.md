@@ -430,6 +430,28 @@ in-game screen). We maintain the adapters, not the mods.
     to 10 times the weapon's own; only items with stats of their own.
     Stats are per weapon type, guards' too, and go back to the game's own
     at a mission's end and when a mod stops.
+  - Scopes (VR): `mod.weapon.scope(hand, t)` puts the game's per-hand
+    scope (issue #40, `gevrScopeBeginHand()`: the world drawn again
+    through a camera on the shot's line, shown as a lens on the gun) on
+    the gun the hand holds. `t = { at = { x, y, z }, radius = r, zoom = m }`:
+    the eyepiece's centre and radius in the drawn model's own coordinates,
+    as a model editor shows them (the game's own table, `s_gevrScopes`,
+    is in the same units: the sniper rifle's is `13.5, 126.5, -128, 23.5`),
+    and `m` the magnification, 1 to 25. In model units, the lens follows
+    the player's gun size, the gun's place in the hand and a GoldenEye X
+    gun's mirroring in the left hand, as the game's own scopes do; it has
+    no Gun fit trims of its own. Calling it again (a new `zoom`, say)
+    changes it at once. `false` takes the scope off, even the game's own
+    on its scoped guns (the KF7's and AR33's magnifiers, for iron sights);
+    `nil` gives the game's own back. It holds for the gun in the hand now:
+    each draw puts the game's own back, so `weapon_drawn` is the place to
+    set it, and it goes when a mod stops. True when set, false with
+    nothing in the hand; it shows only in VR, and each lens costs a draw
+    of the world, as the game's own do (two with a scope in each hand).
+    The reticle is the game's red sight, with the "Aim: crosshair"
+    option, as on the game's own scopes. `mod.weapon.look(hand)` says
+    which models the hand's gun is drawn with (`"original"`, `"gex"`,
+    `"bean"`), so a mod can keep an eyepiece for each.
   - Known gaps: on a pump gun a lower `setLoaded` reads as a shot (the
     rack, `gevr_rack.h`); in co-op another headset's copy of the player
     still shows a declined shot's fire (the fire bit comes from the

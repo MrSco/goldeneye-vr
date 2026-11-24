@@ -976,6 +976,71 @@ mod.ui.page("shop", { title = "Workshop" })
 """
 
 
+def scope_placement():
+    """The per-hand scope asks for the hand's (a mod's or the game's) everywhere it looked up the item's"""
+    view = (ROOT / "src/game/bondview2.c").read_bytes().decode()
+    check(view.count("gevrScopeFor(") == 2 and "return gevrScopeFor(item);\n}" in function(view, "static const struct GevrScope *gevrScopeForHand("),
+          "the item's own table is read only through gevrScopeForHand")
+    for name in ("s32 gevrScopeFitIndex(void)", "f32 gevrScopeMagnificationHand(s32 hand)", "s32 gevrGripSteadyOnCtrl(s32 ctrl)",
+                 "static s32 gevrScopeBeginHand(s32 hand)"):
+        check("gevrScopeForHand(" in function(view, name), name + ": the hand's scope")
+    check(view.count("gevrScopeZoom(item)") == 1 and "gevrScopeZoom(item)" in function(view, "static f32 gevrScopeZoomHand("),
+          "the zoom: a mod's own, else the item's")
+    lens = function(view, "static void gevrScopeLensPlace(")
+    check("gevrScopeInTable(sc) ? gevrScopeFitOf(" in lens and "gexDef->hasScope && gevrScopeInTable(sc)" in lens,
+          "a mod's lens: no Gun fit index of the table's, and its own eyepiece over GoldenEye X's")
+    check("sc != NULL && gevrScopeInTable(sc)" in function(view, "s32 gevrScopeFitIndex(void)"), "Gun fit fits the game's own only")
+    api = (ROOT / "port/src/gevr_modapi.c").read_bytes().decode()
+    drawn = function(api, "void gevrModApiDrawn(int hand, int item)")
+    check(drawn.index("gevrModGameScope(hand, GEVR_MODSCOPE_GAME") < drawn.index('"weapon_drawn"'),
+          "a draw gives the game's scope back before weapon_drawn")
+    check("gevrModGameScope(0, GEVR_MODSCOPE_GAME" in function(api, "void gevrModApiReset(void)"), "a reset gives them back")
+
+
+def scope(exe, temp):
+    """mod.weapon.scope: a lens, none, the game's own; its limits; a draw gives the game's back; look"""
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+mod.on("mission_start", function()
+  local bad = 0
+  local function try(t) if not pcall(mod.weapon.scope, "right", t) then bad = bad + 1 end end
+  try({ radius = 16, zoom = 4 })
+  try({ at = { 0, 80 }, radius = 16, zoom = 4 })
+  try({ at = { 0, 80, 4001 }, radius = 16, zoom = 4 })
+  try({ at = { 0, 80, "x" }, radius = 16, zoom = 4 })
+  try({ at = { 0, 80, -44 }, radius = 0.5, zoom = 4 })
+  try({ at = { 0, 80, -44 }, radius = 401, zoom = 4 })
+  try({ at = { 0, 80, -44 }, radius = 16, zoom = 0.9 })
+  try({ at = { 0, 80, -44 }, radius = 16, zoom = 26 })
+  try({ at = { 0, 80, -44 }, radius = 16 })
+  try(true)
+  try(3)
+  print("bad", bad)
+  print("empty", mod.weapon.scope("left", { at = { 0, 0, 0 }, radius = 10, zoom = 2 }))
+  print("back", mod.weapon.scope("right"))
+end)
+mod.on("weapon_drawn", function(hand, item)
+  print("drawn", hand, item, mod.weapon.look(hand))
+  if item == 8 then
+    print("set", mod.weapon.scope(hand, { at = { 0, 80, -44 }, radius = 16, zoom = 4 }))
+  elseif item == 4 then
+    print("none", mod.weapon.scope(hand, false))
+  end
+end)
+"""
+    out = run(exe, temp, "scope", lua, *play, "look", 1, 2, "draw", 0, 8, "draw", 1, 4, "draw", 0, 5,
+              "local", 0, "draw", 0, 8)
+    check(logs(out) == ["bad 11", "empty false", "back true", "drawn right 8 original", "set true", "drawn left 4 bean",
+                        "none true", "drawn right 5 original"],
+          "scope's answers, refusals and look: " + str(logs(out)))
+    scopes = answers(out, "SCOPE")
+    check(scopes[-6:] == ["SCOPE 0 0 4", "SCOPE 0 0 8", "SCOPE 0 1 8 0.0 80.0 -44.0 16.0 16.4", "SCOPE 1 0 4",
+                          "SCOPE 1 2 4", "SCOPE 0 0 5"],
+          "nil the game's own; each draw the game's back, then the mod's (4x is 16.4 degrees) or none; a copy's draw "
+          "touches nothing: " + str(scopes))
+    check(scopes[:2] == ["SCOPE 0 0 0", "SCOPE 1 0 0"], "a mission's reset gives both hands the game's own: " + str(scopes))
+
+
 def ui(exe, temp):
     play = ("start", "prepare", 9, "begin", 9)
     lua = r"""
@@ -1103,6 +1168,7 @@ def main():
     effects_placement()
     net_placement()
     ui_placement()
+    scope_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -1209,6 +1275,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         effects(exe, temp)
         net(exe, temp)
         ui(exe, temp)
+        scope(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -1224,7 +1291,9 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places. "
           "Sound and smoke: mod.audio's ids, volumes and places, mod.effect's smokes and places. Network: mod.net's sends, "
           "limits and rate, held messages by channel and mod, peer_ready, a stop told to the others and taken from them. "
-          "UI: mod.ui's pages and limits, the screen's clicks and changes, open and close, a stopped mod's pages hidden")
+          "UI: mod.ui's pages and limits, the screen's clicks and changes, open and close, a stopped mod's pages hidden. "
+          "Scopes: mod.weapon.scope's lens, none and the game's own, its limits, a draw's reset; mod.weapon.look; "
+          "the hand's scope wherever the game read the item's")
 
 
 if __name__ == "__main__":

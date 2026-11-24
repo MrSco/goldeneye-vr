@@ -19,6 +19,7 @@
  * All of it for this machine's human player only, never a copy or a bot.
  */
 /* the C library's first: see gevr_modscript.c (MB_LEN_MAX) */
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -283,12 +284,93 @@ static int l_setStats(lua_State *L)
     return 1;
 }
 
+/* a number field of the scope's table within [lo, hi]: a script error otherwise */
+static float scopeNumber(lua_State *L, int t, const char *key, int index, float lo, float hi, const char *what)
+{
+    lua_Number v;
+    int ok;
+
+    if (key) lua_getfield(L, t, key);
+    else lua_rawgeti(L, t, index);
+    v = lua_tonumberx(L, -1, &ok);
+    lua_pop(L, 1);
+    if (!ok || !(v >= lo && v <= hi)) luaL_error(L, "mod.weapon.scope: %s", what);
+    return (float)v;
+}
+
+/*
+ * scope(hand, t | false | nil): the game's per-hand VR scope on the held gun.
+ *   t = { at = { x, y, z }, radius = r, zoom = m }: a lens at the eyepiece
+ *     (x, y, z, r in the drawn model's own coordinates, as a model editor
+ *     shows them; mod.weapon.look says which models), m times magnified;
+ *   false: none, even on a gun the game scopes;
+ *   nil: the game's own.
+ * For the gun the hand holds now: a draw puts the game's own back, so
+ * weapon_drawn is the place to set it. True when set; false with nothing in
+ * the hand. It shows only in VR.
+ */
+static int l_scope(lua_State *L)
+{
+    const int hand = handArg(L, 1);
+    float at[3] = { 0.0f, 0.0f, 0.0f }, radius = 0.0f, zoomDeg = 0.0f;
+    int mode, item, i;
+
+    needPlayer(L, "mod.weapon.scope");
+    if (lua_isnoneornil(L, 2)) {
+        mode = GEVR_MODSCOPE_GAME;
+    } else if (lua_isboolean(L, 2) && !lua_toboolean(L, 2)) {
+        mode = GEVR_MODSCOPE_NONE;
+    } else {
+        float zoom;
+
+        luaL_argexpected(L, lua_istable(L, 2), 2, "a table { at, radius, zoom }, false or nil");
+        if (lua_getfield(L, 2, "at") != LUA_TTABLE || lua_rawlen(L, -1) != 3) {
+            luaL_error(L, "mod.weapon.scope: at is { x, y, z }, the eyepiece in the model's own units");
+        }
+        for (i = 0; i < 3; i++) {
+            at[i] = scopeNumber(L, lua_gettop(L), NULL, i + 1, -GEVR_MODAPI_SCOPE_RANGE, GEVR_MODAPI_SCOPE_RANGE,
+                                "at's x, y and z are -4000 to 4000");
+        }
+        lua_pop(L, 1);
+        radius = scopeNumber(L, 2, "radius", 0, GEVR_MODAPI_SCOPE_RADIUS_MIN, GEVR_MODAPI_SCOPE_RADIUS_MAX,
+                             "radius is 1 to 400, in the model's own units");
+        zoom = scopeNumber(L, 2, "zoom", 0, GEVR_MODAPI_SCOPE_ZOOM_MIN, GEVR_MODAPI_SCOPE_ZOOM_MAX,
+                           "zoom is a magnification, 1 to 25");
+        /* the game's scopes speak in the angle shown, its normal view 60 degrees */
+        zoomDeg = (float)(2.0 * atan(tan(30.0 * 3.14159265358979 / 180.0) / zoom) * 180.0 / 3.14159265358979);
+        mode = GEVR_MODSCOPE_MOD;
+    }
+    item = gevrModGameHeld(hand);
+    if (item <= 0) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    gevrModGameScope(hand, mode, item, at, radius, zoomDeg);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/* look(hand): the models the hand's gun is drawn with, for scope's at */
+static int l_look(lua_State *L)
+{
+    static const char *const s_looks[] = { "original", "gex", "bean" };
+    const int hand = handArg(L, 1);
+    int look;
+
+    needPlayer(L, "mod.weapon.look");
+    look = gevrModGameLook(hand);
+    lua_pushstring(L, s_looks[look >= 0 && look <= 2 ? look : 0]);
+    return 1;
+}
+
 static const luaL_Reg s_weaponFuncs[] = {
     { "held", l_held },
     { "loaded", l_loaded },
     { "setLoaded", l_setLoaded },
     { "stats", l_stats },
     { "setStats", l_setStats },
+    { "scope", l_scope },
+    { "look", l_look },
     { NULL, NULL },
 };
 
@@ -1235,6 +1317,8 @@ void gevrModApiReset(void)
         gevrModGameSetStats(s_saved[i].item, &s_saved[i].own);
     }
     s_savedCount = 0;
+    gevrModGameScope(0, GEVR_MODSCOPE_GAME, 0, NULL, 0.0f, 0.0f);   /* the game's own scopes again */
+    gevrModGameScope(1, GEVR_MODSCOPE_GAME, 0, NULL, 0.0f, 0.0f);
 }
 
 /* ---- the weapons area's events ---- */
@@ -1320,6 +1404,7 @@ void gevrModApiDrawn(int hand, int item)
     GevrModArg a[2];
 
     if (!forLocal()) return;
+    gevrModGameScope(hand, GEVR_MODSCOPE_GAME, item, NULL, 0.0f, 0.0f);   /* a mod sets this gun's in weapon_drawn */
     handItem(a, hand, item);
     gevrModScriptEvent("weapon_drawn", a, 2, 0);
 }

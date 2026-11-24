@@ -13,6 +13,7 @@
  *     reload <hand> <rounds>       the native reload: asked, then start, the rounds in, end
  *     autoreload <hand> <reserve>  gunfire.c's automatic reload: ASKED unless still declined
  *     draw <hand> <item>           a switch's end
+ *     look <hand> <0|1|2>          the models the hand's gun is drawn with
  *     show <item>                  the item's stats now
  *     loadedis <hand>              the hand's rounds now
  *     weapon|box <index> <id>      prop.c: a weapon (item) or ammo box (type) about to be placed
@@ -145,6 +146,14 @@ static int s_hasStats[GEVR_MODAPI_ITEMS];
 int gevrModGameLocal(void) { return s_local; }
 int gevrModGamePlayerReady(void) { return 1; }
 int gevrModGameHeld(int hand) { return s_held[hand]; }
+static int s_look[2];
+void gevrModGameScope(int hand, int mode, int item, const float at[3], float radius, float zoomDeg)
+{
+    printf("SCOPE %d %d %d", hand, mode, item);
+    if (mode == GEVR_MODSCOPE_MOD) printf(" %.1f %.1f %.1f %.1f %.1f", at[0], at[1], at[2], radius, zoomDeg);
+    printf("\n");
+}
+int gevrModGameLook(int hand) { return s_look[hand]; }
 int gevrModGameLoaded(int hand) { return s_loaded[hand]; }
 void gevrModGameSetLoaded(int hand, int rounds) { s_loaded[hand] = rounds; }
 int gevrModGameStats(int item, GevrModWeaponStats *out)
@@ -441,6 +450,9 @@ int main(int argc, char **argv)
             } else {
                 printf("AUTO %s\n", gevrModApiReloadAttempt(hand, s_held[hand], reserve) ? "DECLINED" : "RELOADS");
             }
+            i += 2;
+        } else if (!strcmp(cmd, "look") && i + 2 < argc) {
+            s_look[atoi(argv[i + 1])] = atoi(argv[i + 2]);
             i += 2;
         } else if (!strcmp(cmd, "draw") && i + 2 < argc) {
             const int hand = atoi(argv[i + 1]);

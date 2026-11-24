@@ -110,6 +110,21 @@ int gevrModGameLoaded(int hand)
     return rounds;
 }
 
+/* bondview2.c: the per-hand VR scope's mod override, and the model set */
+extern void gevrScopeModSet(s32 hand, s32 mode, s32 item, const f32 at[3], f32 radius, f32 zoomDeg);
+extern int gevrFitLook(int hand);
+
+void gevrModGameScope(int hand, int mode, int item, const float at[3], float radius, float zoomDeg)
+{
+    gevrScopeModSet(hand, mode, item, at, radius, zoomDeg);
+}
+
+int gevrModGameLook(int hand)
+{
+    if (!gevrModGamePlayerReady() || hand < 0 || hand > 1) return 0;
+    return gevrFitLook(hand);
+}
+
 void gevrModGameSetLoaded(int hand, int rounds)
 {
     s32 was;

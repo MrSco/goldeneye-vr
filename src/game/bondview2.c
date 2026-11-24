@@ -6339,6 +6339,55 @@ static const struct GevrScope *gevrScopeFor(s32 item)
     return NULL;
 }
 
+/*
+ * A mod's scope per hand (mod.weapon.scope, gevr_modgame.c): the game's own
+ * (GEVR_MODSCOPE_GAME), the mod's eyepiece and zoom (_MOD), or none
+ * (_NONE), while the hand holds the item it was set for. gevr_modapi.c puts
+ * the game's own back at each draw and when a mod stops.
+ */
+static struct
+{
+    s32 mode, item;
+    struct GevrScope sc;
+    f32 zoom;   /* degrees across the lens, as gevrScopeZoom's */
+} s_gevrModScope[2];
+
+void gevrScopeModSet(s32 hand, s32 mode, s32 item, const f32 at[3], f32 radius, f32 zoomDeg)
+{
+    if (hand < 0 || hand > 1)
+    {
+        return;
+    }
+    s_gevrModScope[hand].mode = mode;
+    s_gevrModScope[hand].item = item;
+    if (mode == GEVR_MODSCOPE_MOD && at != NULL)
+    {
+        s_gevrModScope[hand].sc.item = item;
+        s_gevrModScope[hand].sc.x = at[0];
+        s_gevrModScope[hand].sc.y = at[1];
+        s_gevrModScope[hand].sc.z = at[2];
+        s_gevrModScope[hand].sc.r = radius;
+        s_gevrModScope[hand].sc.nearOnly = FALSE;
+        s_gevrModScope[hand].zoom = zoomDeg;
+    }
+}
+
+/* the hand's scope: a mod's (or none) for the item it was set for, else the game's own */
+static const struct GevrScope *gevrScopeForHand(s32 hand, s32 item)
+{
+    if (hand >= 0 && hand <= 1 && s_gevrModScope[hand].mode != GEVR_MODSCOPE_GAME && s_gevrModScope[hand].item == item)
+    {
+        return s_gevrModScope[hand].mode == GEVR_MODSCOPE_MOD ? &s_gevrModScope[hand].sc : NULL;
+    }
+    return gevrScopeFor(item);
+}
+
+/* one of the game's own, with Gun fit's trims and a GoldenEye X eyepiece; not a mod's */
+static s32 gevrScopeInTable(const struct GevrScope *sc)
+{
+    return sc >= s_gevrScopes && sc < s_gevrScopes + GEVR_SCOPE_FITS;
+}
+
 /* the scope's zoom, degrees: the sniper's own, the laser's, a rifle's aim zoom */
 /* Gun fit (port/src/input.c): the gun hand's scope, its place in VrScopeFit, or -1 */
 s32 gevrScopeFitIndex(void)
@@ -6349,8 +6398,8 @@ s32 gevrScopeFitIndex(void)
     {
         return -1;
     }
-    sc = gevrScopeFor(getCurrentPlayerWeaponId(GUNRIGHT));
-    return sc != NULL ? (s32) (sc - s_gevrScopes) : -1;
+    sc = gevrScopeForHand(GUNRIGHT, getCurrentPlayerWeaponId(GUNRIGHT));
+    return sc != NULL && gevrScopeInTable(sc) ? (s32) (sc - s_gevrScopes) : -1;   /* a mod's has no fit */
 }
 
 static f32 gevrScopeZoom(s32 item)
@@ -6373,6 +6422,12 @@ static f32 gevrScopeZoom(s32 item)
     return zoom;
 }
 
+/* the hand's scope's zoom, degrees: a mod's own, else the game's for the item */
+static f32 gevrScopeZoomHand(s32 hand, s32 item, const struct GevrScope *sc)
+{
+    return gevrScopeInTable(sc) ? gevrScopeZoom(item) : s_gevrModScope[hand].zoom;
+}
+
 /* The N64's normal view was 60 deg (30 deg half-angle). Magnification = tan(30) / tan(zoom / 2) */
 f32 gevrScopeMagnificationHand(s32 hand)
 {
@@ -6384,11 +6439,11 @@ f32 gevrScopeMagnificationHand(s32 hand)
         return 1.0f;
     }
     item = getCurrentPlayerWeaponId(hand);
-    if (gevrScopeFor(item) == NULL)
+    if (gevrScopeForHand(hand, item) == NULL)
     {
         return 1.0f;
     }
-    zoom = gevrScopeZoom(item);
+    zoom = gevrScopeZoomHand(hand, item, gevrScopeForHand(hand, item));
     if (zoom < 0.5f) zoom = 0.5f;
     if (zoom > 60.0f) zoom = 60.0f;
     return tanf(30.0f * (M_PI_F / 180.0f)) / tanf(zoom * 0.5f * (M_PI_F / 180.0f));
@@ -6427,7 +6482,7 @@ s32 gevrGripSteadyOnCtrl(s32 ctrl)
     {
         return TRUE;
     }
-    if (gevrScopeFor(getCurrentPlayerWeaponId(hand)) != NULL)
+    if (gevrScopeForHand(hand, getCurrentPlayerWeaponId(hand)) != NULL)
     {
         return g_CurrentPlayer->insightaimmode || s_gevrScopeEyeNear[hand];
     }
@@ -6518,11 +6573,13 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
     f32 ey = sc->y;
     f32 ez = sc->z;
     f32 er = sc->r;
-    const f32 *fit = gevrScopeFitOf(gevrFitLook(hand), sc - s_gevrScopes);
+    static const f32 s_noFit[4];   /* a mod's scope: no Gun fit trims of its own */
+    const f32 *fit = gevrScopeInTable(sc) ? gevrScopeFitOf(gevrFitLook(hand), sc - s_gevrScopes) : s_noFit;
     f32 off[3];
 
     const GexWeaponDef *gexDef = gevrGexHeld(hand) ? gevrGexWeaponForHand(hand) : NULL;
-    if (gexDef && gexDef->hasScope) { ex=gexDef->scopeRoot[0]; ey=gexDef->scopeRoot[1]; ez=gexDef->scopeRoot[2]; }
+    /* GoldenEye X's eyepiece for the game's own; a mod's is where the mod put it */
+    if (gexDef && gexDef->hasScope && gevrScopeInTable(sc)) { ex=gexDef->scopeRoot[0]; ey=gexDef->scopeRoot[1]; ez=gexDef->scopeRoot[2]; }
     gevrGunOff(hand, off);
     lens[0] = (originSide * off[0] + left * fit[0]) * size / 100.0f
             - left * ex * unit + s_gevrScopeTrim[0];
@@ -6631,7 +6688,7 @@ static s32 gevrScopeBeginHand(s32 hand)
     struct coord3d o, d;
     s32 on = FALSE;
     s32 item = g_CurrentPlayer != NULL ? getCurrentPlayerWeaponId(hand) : ITEM_UNARMED;
-    const struct GevrScope *sc = gevrScopeFor(item);
+    const struct GevrScope *sc = gevrScopeForHand(hand, item);
     f32 eye = 0.0f;
     s32 i;
 
@@ -6706,7 +6763,7 @@ static s32 gevrScopeBeginHand(s32 hand)
     u[1] = r[2] * f[0] - r[0] * f[2];
     u[2] = r[0] * f[1] - r[1] * f[0];
 
-    zoom = gevrScopeZoom(item);
+    zoom = gevrScopeZoomHand(hand, item, sc);
     fov = zoom * s_gevrScopeK;   /* always zoomed, as a real scope */
     if (fov > 60.0f) fov = 60.0f;
     if (st->lensTan > 1e-3f)

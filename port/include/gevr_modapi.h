@@ -50,8 +50,18 @@ int gevrModApiReloadDeclined(int hand, int item, int reserve);
 void gevrModApiReloadStart(int hand, int item);
 /* reload_end: rounds are in (the native reload's ammo move; a magazine seated) */
 void gevrModApiReloadEnd(int hand, int item);
-/* weapon_drawn: a switched-to weapon is up and usable */
+/* weapon_drawn: a switched-to weapon is up and usable (the hand's scope is
+ * the game's own again first: mod.weapon.scope) */
 void gevrModApiDrawn(int hand, int item);
+
+/* mod.weapon.scope's limits: the eyepiece in the drawn model's own units
+ * (a gun is about 800 long), its radius, and the magnification */
+#define GEVR_MODAPI_SCOPE_RANGE 4000.0f
+#define GEVR_MODAPI_SCOPE_RADIUS_MIN 1.0f
+#define GEVR_MODAPI_SCOPE_RADIUS_MAX 400.0f
+#define GEVR_MODAPI_SCOPE_ZOOM_MIN 1.0f
+#define GEVR_MODAPI_SCOPE_ZOOM_MAX 25.0f
+enum { GEVR_MODSCOPE_GAME, GEVR_MODSCOPE_MOD, GEVR_MODSCOPE_NONE };
 
 /* ---- the items area: the stage's pickups as it loads, the local human player's pickups and inventory ---- */
 
@@ -334,6 +344,14 @@ void gevrModGameSetLoaded(int hand, int rounds);
 /* An item's own weapon stats row: 0 when it has none (it shares the default) */
 int gevrModGameStats(int item, GevrModWeaponStats *out);
 void gevrModGameSetStats(int item, const GevrModWeaponStats *in);
+/* The hand's VR scope (bondview2.c gevrScopeModSet): GEVR_MODSCOPE_GAME the
+ * game's own scoped guns, _MOD a mod's while the hand holds item (at: the
+ * eyepiece's centre in the drawn model's own coordinates, radius in them,
+ * zoomDeg the angle the lens shows), _NONE none even on a scoped gun */
+void gevrModGameScope(int hand, int mode, int item, const float at[3], float radius, float zoomDeg);
+/* Which models the hand's gun is drawn with: 0 the cartridge's, 1 GoldenEye
+ * X's, 2 Bean's (bondview2.c gevrFitLook) */
+int gevrModGameLook(int hand);
 /* A gun or thrown weapon with a model in this cartridge: what a swap or
  * mod.inventory.give/take may use */
 int gevrModGameSwappable(int item);
