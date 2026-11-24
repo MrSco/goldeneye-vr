@@ -328,7 +328,7 @@ is the proposal to refine with mod authors (Tactical first).
 | Area | Events | Calls |
 |---|---|---|
 | Lifecycle | `campaign_enter`, `mission_prepare`, `mission_start`, `mission_end`, `tick(dt)` (capped) | `mod.log`, `mod.setting`, `mod.capabilities` |
-| Weapons | `weapon_fire_attempt`, `weapon_fire`, `reload_start/end`, `weapon_drawn`, `weapon_dropped` | read and set loaded ammo, magazine size, fire rate, damage (within limits) |
+| Weapons | `weapon_fire_attempt`, `weapon_fire`, `reload_attempt`, `reload_start/end`, `weapon_drawn`, `weapon_dropped` | read and set loaded ammo, magazine size, fire rate, damage (within limits) |
 | Hands (VR) | `grip`, `release`, `hand_near(anchor)` | hand pose, body anchors (body slots), haptics |
 | Items | `pickup_spawning` (can swap a weapon, ammo or armour pickup at its existing pad), `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
 | Guards | `guard_spawning`, `guard_spawned`, `guard_alerted`, `guard_shot`, `guard_killed`, `corpse_retiring` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
@@ -387,12 +387,36 @@ in-game screen). We maintain the adapters, not the mods.
     as the hand lets go, a motion throw before it leaves the hand, a
     cooked grenade's drop too; declined, nothing leaves the hand and a
     cooking grenade stops cooking. Melee isn't asked.
+  - `reload_attempt(hand, item)` before a reload takes rounds from the
+    reserve: the native reload as it starts to lower the gun (the button,
+    an empty gun's automatic reload, and the hand reload's gestures that
+    use it: the chest cross, the belt's touch for a gun without a
+    magazine), and, with hand reload, a fresh magazine taken at the belt
+    by either hand, a dual-wielded gun's touch at the belt, and a round
+    taken for a gun loaded a round at a time. Hand reload's magazine path
+    is the same for the original, GoldenEye X and Bean models. A handler
+    returning false declines it: the gun stays as it is and nothing
+    leaves the reserve. An empty gun's automatic reload, declined, isn't
+    asked again until the hand's item or its reserve changes; a reload
+    the player asks for is always asked. A magazine pulled out and put
+    back isn't asked: its rounds aren't the reserve's.
   - `weapon_fire(hand, item, loaded)` after each spend; `reload_start` as
     the native reload lowers the gun or a hand reload's magazine leaves
     it (`gevrGexMagOut`); `reload_end(hand, item, loaded)` after the
-    native reload's ammo move or a magazine seated (`gevrGexMagIn`);
+    native reload's ammo move or a magazine seated (`gevrGexMagIn`).
+    Each `reload_end` follows a `reload_start`: a magazine topped up at
+    the belt while still in the gun sends its start as it goes in.
     `weapon_drawn` at a switch's end. A hand reload's single rounds
-    (`gevrGexRoundTick`) send nothing yet.
+    (`gevrGexRoundTick`) send no `reload_start` or `reload_end` yet.
+  - The reserve moves without an event in three places a script that
+    keeps magazines itself should know: the native reload and a fresh
+    magazine top the gun up from it (loaded becomes the lesser of the
+    magazine size and loaded plus the reserve) before `reload_end`; a
+    drawn gun is topped up the same way before `weapon_drawn` (unless
+    hand reload kept its magazine); and a magazine dropped from the hand
+    or the gun gives its rounds back to the reserve. Setting the reserve
+    and the loaded rounds in `reload_end` and `weapon_drawn`, and
+    declining in `reload_attempt`, covers all three.
   - Only for this machine's human player (`!netIsActive() || the current
     player == netGetLocalSlot()`), never a copy or the host's bot. `hand`
     is `"right"` or `"left"` (the game's gun hands); `item` an id from
