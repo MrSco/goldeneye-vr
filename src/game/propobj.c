@@ -11321,6 +11321,17 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
     {
         return TICKOP_NONE;
     }
+#ifdef GEVR
+    {
+        /* a mod's shared pickup: the host decides who takes it (gevr_modgame.c) */
+        extern s32 gevrModPickupHold(PropRecord *prop);
+
+        if (gevrModPickupHold(prop))
+        {
+            return TICKOP_NONE;
+        }
+    }
+#endif
 
     switch (obj->type)
     {

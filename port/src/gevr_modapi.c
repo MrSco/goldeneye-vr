@@ -37,6 +37,7 @@ extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern bool netIsDedicated(void);
 extern int netGetLocalSlot(void);
+extern int netGetHostSlot(void);
 extern int netSendModMessage(int kind, int to, const char *mod, const char *channel, const void *data, int len);
 
 /* ITEM_IDS from ITEM_UNARMED (0): mod.items, and a name for an item argument */
@@ -635,16 +636,24 @@ static int s_removed[GEVR_MODAPI_PICKUP_QUEUE], s_removedQueued, s_removedDroppe
 /*
  * Shared pickups (drop's shared): the host's drop is given the next id from
  * GEVR_MODAPI_PICKUP_SHARED and sent (NET_MOD_DROP); each other headset drops
- * its own copy from the same chr and binds it that id. The first player to
- * take one sends NET_MOD_TAKEN and the others free their copies (told there
- * as pickup_removed). s_pickupMod: the mod that dropped it, which the
- * messages carry; empty for a pickup that isn't shared.
+ * its own copy from the same chr and binds it that id. The host decides who
+ * takes one: a player's pickup is held back and claimed (NET_MOD_CLAIM); the
+ * host awards the first claim it has, its own pickup the same way, while it
+ * still has its copy (NET_MOD_GRANT): the winner's game takes it, the others
+ * free theirs (told there as pickup_removed). A claim for one the host no
+ * longer has gets NET_MOD_GONE back, and a copy the game frees untaken (a
+ * recycled slot) is sent as NET_MOD_GONE, so every copy goes. s_pickupMod:
+ * the mod that dropped it, which the messages carry; empty for a pickup that
+ * isn't shared.
  */
 static int s_pickupBind;   /* the next id named: a shared drop's own */
 static int s_sharedNext = GEVR_MODAPI_PICKUP_SHARED;
 static char s_pickupMod[GEVR_MODAPI_PICKUP_KINDS][GEVR_MODAPI_PICKUP_SLOTS][64];
+static unsigned long long s_claimAt[GEVR_MODAPI_PICKUP_KINDS][GEVR_MODAPI_PICKUP_SLOTS];
+static int s_pickupRemoving;   /* a copy freed for a message: nothing to tell */
+static int s_pickupGranting;   /* the host's award being taken: not held back */
 typedef struct {
-    int kind, stage, id, item, ammo, from;
+    int kind, stage, id, item, ammo, from, winner, sender;
     float armour;
     char mod[64];
 } HeldPickup;
@@ -705,16 +714,49 @@ int gevrModApiPickupSlotId(int kind, int slot)
 
 void gevrModApiPickupSlotTaken(int kind, int slot)
 {
-    if (!pickupSlotOk(kind, slot) || s_pickupId[kind][slot] == 0) return;
-    s_pickupTaken[kind][slot] = 1;
-    if (s_pickupId[kind][slot] >= GEVR_MODAPI_PICKUP_SHARED && s_pickupMod[kind][slot][0] && netIsActive()) {
-        /* a shared one: the others' copies go */
-        unsigned char b[GEVR_MODAPI_NET_TAKEN_BYTES] = { 0 };
+    if (pickupSlotOk(kind, slot) && s_pickupId[kind][slot] != 0) s_pickupTaken[kind][slot] = 1;
+}
 
-        b[0] = (unsigned char)gevrModScriptStage();
-        put32(b + 4, (unsigned)s_pickupId[kind][slot]);
-        netSendModMessage(GEVR_MODNET_TAKEN, 0xFF, s_pickupMod[kind][slot], NULL, b, (int)sizeof(b));
+/* a shared pickup's claim, award or gone: its stage, the winner, its id */
+static void sendPickup(int kind, int to, const char *mod, int winner, int id)
+{
+    unsigned char b[GEVR_MODAPI_NET_PICKUP_BYTES] = { 0 };
+
+    b[0] = (unsigned char)gevrModScriptStage();
+    b[1] = (unsigned char)winner;
+    put32(b + 4, (unsigned)id);
+    netSendModMessage(kind, to, mod, NULL, b, (int)sizeof(b));
+}
+
+/* this headset's copy freed for a message (another won it, or it's gone) */
+static void removeCopy(int kind, int slot)
+{
+    s_pickupRemoving = 1;
+    gevrModGamePickupRemove(kind, slot);
+    s_pickupRemoving = 0;
+}
+
+int gevrModApiPickupTry(int kind, int slot, int local)
+{
+    unsigned long long now;
+    int id;
+
+    if (!pickupSlotOk(kind, slot) || (id = s_pickupId[kind][slot]) < GEVR_MODAPI_PICKUP_SHARED
+        || !s_pickupMod[kind][slot][0] || !netIsActive() || s_pickupGranting) {
+        return 0;   /* not shared, not a network game, or the award itself */
     }
+    if (!local) return 1;   /* another player's: claimed from their headset */
+    if (netIsHost()) {
+        /* the host's own: awarded at once, as a claim would be, and told */
+        sendPickup(GEVR_MODNET_GRANT, 0xFF, s_pickupMod[kind][slot], netGetLocalSlot(), id);
+        return 0;
+    }
+    now = sysGetMicroseconds();
+    if (s_claimAt[kind][slot] == 0 || now - s_claimAt[kind][slot] >= GEVR_MODAPI_CLAIM_US) {
+        s_claimAt[kind][slot] = now ? now : 1;
+        sendPickup(GEVR_MODNET_CLAIM, netGetHostSlot(), s_pickupMod[kind][slot], 0, id);
+    }
+    return 1;   /* held back for the host's award */
 }
 
 void gevrModApiPickupSlotFreed(int kind, int slot)
@@ -722,8 +764,14 @@ void gevrModApiPickupSlotFreed(int kind, int slot)
     int id;
 
     if (!pickupSlotOk(kind, slot) || (id = s_pickupId[kind][slot]) == 0) return;
+    if (id >= GEVR_MODAPI_PICKUP_SHARED && s_pickupMod[kind][slot][0] && !s_pickupTaken[kind][slot]
+        && !s_pickupRemoving && netIsActive() && gevrModGamePlayerReady()) {
+        /* the game freed a shared copy untaken (its slot recycled, say): every copy goes */
+        sendPickup(GEVR_MODNET_GONE, 0xFF, s_pickupMod[kind][slot], 0, id);
+    }
     s_pickupId[kind][slot] = 0;
     s_pickupMod[kind][slot][0] = '\0';
+    s_claimAt[kind][slot] = 0;
     if (!s_pickupTaken[kind][slot] && gevrModScriptRunning()) {
         if (s_removedQueued < GEVR_MODAPI_PICKUP_QUEUE) s_removed[s_removedQueued++] = id;
         else s_removedDropped++;
@@ -736,10 +784,9 @@ void gevrModNetPickup(const char *mod, int from, int kind, const void *data, int
     const unsigned char *b = (const unsigned char *)data;
     HeldPickup *h;
 
-    (void)from;
-    if (!gevrModScriptRunning() || !mod || !b || strlen(mod) >= sizeof(h->mod)
-        || !(kind == GEVR_MODNET_DROP ? len == GEVR_MODAPI_NET_DROP_BYTES
-                                      : kind == GEVR_MODNET_TAKEN && len == GEVR_MODAPI_NET_TAKEN_BYTES)) {
+    if (!gevrModScriptRunning() || !mod || !b || strlen(mod) >= sizeof(h->mod) || kind < GEVR_MODNET_DROP
+        || kind > GEVR_MODNET_GONE
+        || len != (kind == GEVR_MODNET_DROP ? GEVR_MODAPI_NET_DROP_BYTES : GEVR_MODAPI_NET_PICKUP_BYTES)) {
         return;
     }
     if (s_heldPickups == GEVR_MODAPI_PICKUP_HELD) {
@@ -750,7 +797,9 @@ void gevrModNetPickup(const char *mod, int from, int kind, const void *data, int
     memset(h, 0, sizeof(*h));
     snprintf(h->mod, sizeof(h->mod), "%s", mod);
     h->kind = kind;
+    h->sender = from;
     h->stage = b[0];
+    h->winner = b[1];
     h->id = (int)get32(b + 4);
     if (kind == GEVR_MODNET_DROP) {
         const int raw = b[8] | b[9] << 8;
@@ -796,8 +845,23 @@ static void pickupApplyHeld(void)
                              "player, or no free slot)", h->mod, h->id);
             }
             s_pickupBind = 0;
+        } else if (h->kind == GEVR_MODNET_CLAIM) {
+            /* the host: the first claim while its copy's here wins, as its own pickup would */
+            if (!netIsHost() || h->sender < 0) continue;
+            if (pickupSlotOf(h->id, &kind, &slot)) {
+                sendPickup(GEVR_MODNET_GRANT, 0xFF, h->mod, h->sender, h->id);
+                removeCopy(kind, slot);
+            } else {
+                sendPickup(GEVR_MODNET_GONE, h->sender, h->mod, 0, h->id);   /* late, or gone: nothing */
+            }
         } else if (pickupSlotOf(h->id, &kind, &slot)) {
-            gevrModGamePickupRemove(kind, slot);   /* another player took it first: pickup_removed here */
+            if (h->kind == GEVR_MODNET_GRANT && h->winner == netGetLocalSlot()) {
+                s_pickupGranting = 1;   /* this player's: taken through the game's own pickup */
+                gevrModGamePickupGrant(kind, slot);
+                s_pickupGranting = 0;
+            } else {
+                removeCopy(kind, slot);   /* another's, or gone: pickup_removed here */
+            }
         }
     }
 }
@@ -839,6 +903,9 @@ void gevrModApiPickupClear(void)
     memset(s_pickupMod, 0, sizeof(s_pickupMod));
     s_heldPickups = 0;
     s_heldPickupsDropped = 0;
+    memset(s_claimAt, 0, sizeof(s_claimAt));
+    s_pickupRemoving = 0;
+    s_pickupGranting = 0;
     gevrModGameDropsClear();   /* and the armour pool: the last stage's props are gone */
 }
 
@@ -853,7 +920,7 @@ void gevrModApiPickupClear(void)
  * Placed on this headset only: in co-op, every headset that should have it
  * drops it. shared = true (the host, or solo): one pickup for every headset,
  * one id (from GEVR_MODAPI_PICKUP_SHARED), each other headset dropping its
- * copy from the same chr, and the first to take it taking it from everyone.
+ * copy from the same chr, and the host deciding who takes it.
  */
 static int l_drop(lua_State *L)
 {
