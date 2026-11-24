@@ -33,6 +33,7 @@ extern int netLocalSlotCount(void);
 extern int netLocalSeatOfSlot(int slot);
 extern int gevrNetSlotIsLocalHuman(int slot);
 extern void netLobbySetCharacterSlot(int slot, u8 chr_id);
+void gevrCharSelOpen(s32 slot, s32 dropin);
 extern void netLobbySetLoadoutSlot(int slot, const u8 items[4]);
 extern void netLobbySetTeamSlot(int slot, u8 team);
 extern void netSetVoteSlot(int slot, int kind, int choice);
@@ -472,7 +473,7 @@ static const GevrMenuRow s_lobbyRows[] = {
     { "DUAL WIELD",      GEVR_ROW_VALUE,  1, NULL,              rowDualValue,       rowDualStep,        "R-STICK:PICK" },
     { "LOADOUTS",        GEVR_ROW_VALUE,  1, NULL,              rowLoadoutsValue,   rowLoadoutsStep,    "R-STICK:ON/OFF" },
     { "YOUR TEAM",       GEVR_ROW_VALUE,  0, lobbyTeams,        rowTeamValue,       rowTeamStep,        "R-STICK:PICK" },
-    { "CHARACTER",       GEVR_ROW_VALUE,  0, NULL,              rowCharacterValue,  rowCharacterStep,   "R-STICK:PICK" },
+    { "CHARACTER",       GEVR_ROW_VALUE,  0, NULL,              rowCharacterValue,  rowCharacterStep,   "A/R-STICK:PICK" },
     { "LOADOUT 1",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout0Value,   rowLoadout0Step,    "R-STICK:PICK" },
     { "LOADOUT 2",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout1Value,   rowLoadout1Step,    "R-STICK:PICK" },
     { "LOADOUT 3",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout2Value,   rowLoadout2Step,    "R-STICK:PICK" },
@@ -661,6 +662,101 @@ static void gevrMenuPagesTick(s32 player_num)
     }
 }
 
+/*
+ * Select Character in a match, online on a flat screen: GoldenEye's own
+ * multiplayer screen (front.c, the scrolling portraits and the name under
+ * them) for one player, inside their own view and driven by their own pad,
+ * while the others play on. A player who drops in (input.c) gets it first;
+ * the others open it with A on the LOBBY page's CHARACTER row (the solo
+ * player from the pause window's Player tab). It is a page of the watch menu
+ * (MENU_CHARSEL), so the player stands still as in any page of it. The choice
+ * goes out as the Character row's does (netLobbySetCharacterSlot), and every
+ * machine then gives that player the new body (bondview2.c
+ * gevrNetBodyFollowsCharacter). B before choosing leaves it as it was.
+ *
+ * A player who dropped in is not in the fight until they choose: frozen
+ * where they spawned and, on their own machine, which applies their damage,
+ * unhurt (net_core.c netSetSlotChoosing). The body stays in the world (the
+ * match spawned it on joining, as before) so nothing about joining changes
+ * for the other machines.
+ */
+static s32 s_charSelDropIn[MAX_PLAYER_COUNT];
+static s32 s_charSelArmed[MAX_PLAYER_COUNT];
+
+s32 gevrCharSelIsOpen(s32 slot)
+{
+    struct player *pl;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    return pl != NULL && pl->mpmenuon && pl->mpmenumode == MENU_CHARSEL;
+}
+
+void gevrCharSelOpen(s32 slot, s32 dropin)
+{
+    struct player *pl;
+
+    if (!netIsActive() || g_gevrStereo || slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(slot)) return;
+    pl = g_playerPointers[slot];
+    if (pl == NULL) return;
+    frontCharSelectBegin(slot, gevrNetSlotChr(slot), netCharacterCount());
+    pl->mpmenuon = TRUE;
+    pl->mpmenumode = MENU_CHARSEL;
+    pl->mpjoywascentre = 1;
+    s_charSelDropIn[slot] = dropin;
+    s_charSelArmed[slot] = 0;
+    netSetSlotChoosing(slot, dropin);
+}
+
+static void gevrCharSelClose(s32 slot)
+{
+    struct player *pl = g_playerPointers[slot];
+
+    netSetSlotChoosing(slot, 0);
+    if (pl == NULL) return;
+    if (s_charSelDropIn[slot] || !netIsActive())
+    {
+        pl->mpmenuon = FALSE;   /* into the match */
+        pl->healthdisplaytime = 0;
+    }
+    else
+    {
+        pl->mpmenumode = MENU_LOBBY;   /* back to the page it came from */
+    }
+    s_charSelDropIn[slot] = 0;
+}
+
+/* The panel's frame for the player ticking; whether it had the pad */
+static s32 gevrCharSelTick(s32 player_num)
+{
+    s32 result;
+
+    if (!gevrCharSelIsOpen(player_num)) return 0;
+    if (!netIsActive() || !gevrNetSlotIsLocalHuman(player_num))
+    {
+        gevrCharSelClose(player_num);
+        return 0;
+    }
+    /* The press that opened it (a drop-in's START, the row's A) is not a choice. */
+    if (!s_charSelArmed[player_num])
+    {
+        if (joyGetButtons(player_num, A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON)) return 1;
+        s_charSelArmed[player_num] = 1;
+    }
+    result = frontCharSelectTick(player_num, netCharacterCount());
+    if (result > 0)
+    {
+        netLobbySetCharacterSlot(player_num, (u8)frontCharSelectShown(player_num));
+        gevrCharSelClose(player_num);
+    }
+    else if (result < 0)
+    {
+        mpwatchPlayBeep();
+        gevrCharSelClose(player_num);
+    }
+    return 1;
+}
+
 /* A on the LOBBY page: the selected action row */
 static s32 gevrMenuPageAction(void)
 {
@@ -670,6 +766,13 @@ static s32 gevrMenuPageAction(void)
     gevrPageMoveCursor(page, 0);
     gevrMenuPageSave(g_CurrentPlayer->mpmenumode, page);
     r = &page->rows[page->cursor];
+    if (r->step == rowCharacterStep && gevrRowVisible(r) && !g_gevrStereo)
+    {
+        /* A on CHARACTER: the portraits (the stick still steps the name) */
+        gevrCharSelOpen(menuActingSlot(), 0);
+        mpwatchPlayBeep();
+        return 1;
+    }
     if (!gevrRowVisible(r) || !gevrRowEditable(r) || r->kind != GEVR_ROW_ACTION || r->step == NULL) return 0;
     r->step(0);
     mpwatchPlayBeep();
@@ -923,6 +1026,9 @@ s32 mpwatchMenuCanGoRight(void)
         case MENU_EXIT:
         case MENU_EXIT_CONFIRM:
         case MENU_FINISHED:
+#ifdef GEVR
+        case MENU_CHARSEL:
+#endif
             return 0;
         case MENU_SCORES:
 #ifdef GEVR
@@ -951,6 +1057,9 @@ s32 mpwatchMenuCanGoLeft(void)
         case MENU_GOWOC:
         case MENU_EXIT_CONFIRM:
         case MENU_FINISHED:
+#ifdef GEVR
+        case MENU_CHARSEL:
+#endif
             return 0;
         case MENU_LOSSES:
             return g_gameOverFlag ? 1 : 0;
@@ -1523,6 +1632,12 @@ void mpwatchMenuTick(void)
             g_gameOverFlag = 1;
         }
     }
+
+#ifdef GEVR
+    /* Select Character (co-op too, whose watch is the solo pause): nothing else
+     * reads the pad meanwhile. After the game-over timer, which the first player drives. */
+    if (gevrCharSelTick(player_num)) return;
+#endif
 
 #ifdef GEVR
     /* co-op (#94): the solo watch is the pause menu (bondview2.c) */
@@ -2119,6 +2234,14 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
     curplayernum = get_cur_playernum();
     player_count = getPlayerCount();
     self_paused = 0;
+
+#ifdef GEVR
+    if (gevrCharSelIsOpen(curplayernum))
+    {
+        return frontCharSelectDraw(gdl, curplayernum, netCharacterCount(),
+                                   viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
+    }
+#endif
  
 #ifdef GEVR
     if (player_count == 1 || gevrCoopActive())   /* co-op (#94): the solo watch instead */

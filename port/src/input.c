@@ -1469,8 +1469,11 @@ static void inputOnlineSeatsSync(void)
         for (s32 seat = 1; seat < count; ++seat) {
             const s32 slot = netSlotOfLocalSeat(seat);
             if (slot >= 0 && slot < MAX_PLAYER_COUNT && s_onlineSlotDev[slot] == JOIN_NONE) {
+                extern void gevrCharSelOpen(s32 slot, s32 dropin);
                 s_onlineSlotDev[slot] = s_onlinePending;   /* the match took it */
                 s_onlinePending = JOIN_NONE;
+                /* the newcomer chooses their character in their own view first (mpmenu.c) */
+                if (bossGetStageNum() != LEVELID_TITLE) gevrCharSelOpen(slot, 1);
                 break;
             }
         }
@@ -5573,7 +5576,10 @@ int gevrNativePauseOpen(void) {
         if (netLocalSlotCount() > 1) return 0;
     }
     int slot=netIsActive()?netGetLocalSlot():-1;
-    return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon;
+    /* the Select Character panel is in the view, the game's (mpmenu.c) */
+    extern s32 gevrCharSelIsOpen(s32 slot);
+    return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon
+        && !gevrCharSelIsOpen(slot);
 }
 void gevrNativePauseOpenPanel(void) {
     s_gevrPanel = 1;

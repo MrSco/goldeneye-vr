@@ -24,6 +24,7 @@ void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn
 
 int bondinvHasInvItem(ITEM_IDS item) { (void)item; return 0; }
 int VrMpStage,VrMpWeaponSet,VrMpChr,VrMpScenario,VrMpLength,VrMpHealth;
+int VrGuestChr[3];
 int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
 int VrMpMovementSpeed;
 int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
@@ -1432,6 +1433,22 @@ EXPORT int test_core_online_splitscreen(void) {
     CHECK(netLocalSeatOfSlot(1) == 1 && netSlotOfLocalSeat(1) == 1 && gevrLocalViewIndex(1) == 1);
     CHECK(netGetSlotOwner(1) == 0 && s_lobby_state.slots[1].chr_id == 5);
     CHECK(netGetFlatPlayerCount() == 1);
+    /* A guest's character chosen in the match is the seat's saved one too (Guest2Chr). */
+    netLobbySetCharacterSlot(1, 9);
+    CHECK(s_lobby_state.slots[1].chr_id == 9 && VrGuestChr[0] == 9);
+    /* A guest choosing their character after dropping in (mpmenu.c) takes no damage,
+     * environmental included, on the machine that plays them; a slot played elsewhere
+     * is not theirs to spare. */
+    {
+        const int hurt = netDamageAllowed(0, 1);
+        netSetSlotChoosing(1, 1);
+        CHECK(netSlotChoosing(1) && !netDamageAllowed(0, 1) && !netDamageAllowed(-1, 1));
+        netSetSlotChoosing(1, 0);
+        CHECK(!netSlotChoosing(1) && netDamageAllowed(0, 1) == hurt);
+        netSetSlotChoosing(2, 1);
+        CHECK(!netSlotChoosing(2));
+        netSetSlotChoosing(2, 0);
+    }
     CHECK(netRequestRemoveLocalGuest(1));
     CHECK(netLocalSlotCount() == 1 && !netSlotIsLocalHuman(1) && !s_lobby_state.slots[1].connected);
     CHECK(!netRequestRemoveLocalGuest(0)); /* cannot drop primary seat via guest-remove */

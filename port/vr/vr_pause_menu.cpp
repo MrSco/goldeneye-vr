@@ -38,6 +38,7 @@ extern "C" const char *gevrCoopStageLabel(unsigned char stage);   /* front.c: a 
 extern "C" int flatTouchSeenAny(void);     // flat_touch.cpp: a finger has touched the screen
 extern "C" void flatTouchEditBegin(void);  // the touch layout editor, over the paused game
 extern "C" int inputIsBindingCapture(void);
+extern "C" void gevrCharSelOpen(int slot, int dropin);   // mpmenu.c: the Select Character panel in the view
 #endif
 // vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
 void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
@@ -204,6 +205,7 @@ extern "C" void gevrNativePauseRender(void) {
 #ifdef GEVR_FLAT
     view.settings.drawKbm=drawPauseKbm;
     view.settings.drawGamepad=drawPauseGamepad;
+    view.portraits=true;
 #endif
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
@@ -267,6 +269,10 @@ extern "C" void gevrNativePauseRender(void) {
 #endif
     if(action==GEVR_PAUSE_HORDE_RETRY){gevrNativePauseResume();netHordeRetry();}
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
+#ifdef GEVR_FLAT
+    /* the window closes on the game's Select Character screen; choosing comes back here */
+    if(action==GEVR_PAUSE_CHARSEL){gevrNativePauseResume();gevrCharSelOpen(netGetLocalSlot(),0);}
+#endif
     if(action==GEVR_PAUSE_LEAVE)leaveToLauncher();
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}
     if(action==GEVR_PAUSE_REQUEST_VOTES)netHostRequestVotes();

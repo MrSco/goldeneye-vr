@@ -751,6 +751,11 @@ void bossMainloop(void)
                                     viSetViewPosition(localPlayer->viewleft, localPlayer->viewtop);
 
 #ifdef GEVR
+                                    {
+                                        /* a character chosen in the match: this player's body (bondview2.c) */
+                                        extern void gevrNetBodyFollowsCharacter(void);
+                                        gevrNetBodyFollowsCharacter();
+                                    }
                                     netPlayerSyncBeforeTick(playernum);
                                     {
                                         /* the host's bot: its AI fills the pad the tick reads (gevr_bot.c) */

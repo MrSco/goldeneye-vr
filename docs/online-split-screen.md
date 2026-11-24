@@ -105,6 +105,15 @@ Files: `port/vr/vr_launcher.cpp`, `port/vr/vr_pause_menu.cpp`, `port/vr/vr_setti
   - Single shared couch mic transmits under `s_local_slots[0]`; host never relays a peer's voice back to its own `ENetPeer*`.
   - When `netLocalSlotCount() > 1`, skip single-head binaural HRTF panning (play centered) and compute proximity gain from the **nearest living local player** to each remote speaker.
 
+### Select Character (drop-in and the pause menu)
+Files: `src/game/front.c`, `src/game/mpmenu.c`, `src/game/bondview2.c`, `src/boss.c`, `port/src/input.c`, `port/src/net/net_core.c`, `port/vr/gevr_pause_widgets.h`, `port/vr/vr_pause_menu.cpp`.
+
+- **The game's own screen:** the N64 split-screen Select Character panel (front.c: "Select Character", the scrolling strip of portraits, the name under it) runs for one match slot inside that player's view, driven by their pad. front.c's per-player tick and per-panel draw are shared by the front end and the match; in a match the panel's 440 x 330 folder coordinates are mapped onto the view (a sheet of the folder's paper behind it) and anyone may pick any character, as the launcher allows. Online character ids are front.c's `mp_chr_setup` rows one for one (net_match.c), so GoldenEye X, Goldfinger and the other hack campaigns show their own names and portraits (gevr_romcampaign.c installMpChars).
+- **Drop-in:** a pad that joins mid-match (`inputOnlineSeatsSync`) opens the panel in its new view (`gevrCharSelOpen(slot, 1)`). The body the match spawned stays where it joined, frozen as in any watch page, and its own machine (which applies that player's damage) spares it until the player chooses (`netSetSlotChoosing`). A, Z or START picks; B before picking keeps the saved character.
+- **Lobby and warmup:** A on the per-viewport LOBBY page's CHARACTER row opens the panel (the right stick still steps the name); B or a choice returns to the page. The solo online player opens it from the pause window's Player tab ("Select Character"); a choice returns to the window. The launcher's dropdown is unchanged.
+- **Applying it:** the choice goes out through `netLobbySetCharacterSlot` (a guest's is also saved as its seat's `GuestNChr`). Every machine rebuilds that player's body from the lobby character once the choice has held half a second and the player is alive (`gevrNetBodyFollowsCharacter`, the third-person rebuild), so it shows at once rather than at the next load; with under half a megabyte of stage heap for a body not yet loaded, it waits for the next load.
+- **Flat screens only:** VR keeps the pause window's Character choice.
+
 ### Phase 5 — Dedicated server & automated tests
 Files: `port/server/server_host.c`, `port/tests/net_core_native.c`, `port/tests/multiplayer_native.c`, PC `--input-script` integration tests.
 

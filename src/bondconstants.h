@@ -1939,6 +1939,9 @@ typedef enum MPMENU
     MENU_EXIT,
     MENU_EXIT_CONFIRM,
     MENU_FINISHED
+#ifdef GEVR
+    ,MENU_CHARSEL   /* online: the Select Character panel in the player's view (mpmenu.c) */
+#endif
 } MPMENU;
 
 typedef enum MPSCENARIOS

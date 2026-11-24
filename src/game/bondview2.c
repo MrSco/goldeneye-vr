@@ -7471,6 +7471,90 @@ void bondviewRemovePlayerBody(void)
 }
 
 #ifdef GEVR
+#include "memp.h"   /* mempGetBankSizeLeft */
+
+/*
+ * Online, each player's body is their lobby character (net_core.c
+ * s_lobby_state). It is built at the stage load from the round's character;
+ * a choice made in the match (the Select Character panel a player who drops
+ * in gets, the pause menu's Character row: netLobbySetCharacterSlot) reaches
+ * every machine in the lobby state, and each rebuilds that player's body the
+ * way third person does (gevr_thirdperson.c), on the player's own tick (boss.c).
+ * The choice must hold half a second, so a player stepping through the list
+ * does not rebuild a body at each step, and the player must be alive: one who
+ * chose while dead takes the new body as they respawn. A body or head not yet
+ * loaded this stage loads into the stage heap; with less than half a
+ * megabyte left the body waits for the next load instead, as it always did.
+ */
+void gevrNetBodyFollowsCharacter(void)
+{
+    static s32 s_want[MAX_PLAYER_COUNT];
+    static s32 s_held[MAX_PLAYER_COUNT];
+    static s32 s_skipped[MAX_PLAYER_COUNT];
+    extern s32 player_char[];
+    extern struct MP_selectable_chars mp_chr_setup[];
+    extern const s32 gevrMpCharRows;
+    struct player *pl = g_CurrentPlayer;
+    s32 p = get_cur_playernum();
+    s32 chr;
+    s32 body;
+    s32 head;
+    ChrRecord *self;
+
+    if (!netIsActive() || p < 0 || p >= MAX_PLAYER_COUNT || pl == NULL || pl->prop == NULL) return;
+    chr = gevrNetSlotChr(p);
+    if (chr < 0 || chr >= gevrMpCharRows || chr >= netCharacterCount() || chr == player_char[p])
+    {
+        s_held[p] = 0;
+        s_skipped[p] = 0;
+        return;
+    }
+    if (chr != s_want[p])
+    {
+        s_want[p] = chr;
+        s_held[p] = 0;
+        return;
+    }
+    if (s_held[p] < 30)
+    {
+        s_held[p] += speedgraphframes;
+        return;
+    }
+    if (pl->bonddead || pl->prop->chr == NULL || pl->bodyModel == NULL || s_skipped[p] == chr + 1) return;
+
+    body = mp_chr_setup[chr].body;
+    head = mp_chr_setup[chr].head;
+    if ((c_item_entries[body].header->RootNode == NULL
+            || (!c_item_entries[body].hasHead && head >= 0 && c_item_entries[head].header->RootNode == NULL))
+        && mempGetBankSizeLeft(MEMPOOL_STAGE) < 0x80000)
+    {
+        s_skipped[p] = chr + 1;   /* chr 0 is a character: 0 means none */
+        sysLogPrintf(LOG_WARNING, "mp body: slot %d keeps its body until the next load (stage heap low)", p);
+        return;
+    }
+
+    chrpropCleanupForRemoval(pl->prop);
+    pl->prop->chr = NULL;
+    pl->bodyModel = NULL;
+    player_char[p] = chr;
+    g_playerPlayerData[p].player_perspective_height = get_player_mp_char_height(p);
+    solo_char_load();
+    self = pl->prop->chr;
+    if (self == NULL || pl->bodyModel == NULL)
+    {
+        sysLogPrintf(LOG_ERROR, "mp body: slot %d has no body for character %d", p, chr);
+        return;
+    }
+    setsuboffset(pl->bodyModel, &pl->prop->pos);
+    setsubroty(pl->bodyModel, bondviewGetPlayerYawRadians());
+    self->chrflags |= CHRFLAG_INIT;
+    self->actiontype = ACT_BONDMULTI;
+    self->act_bondmulti.unk2c = NULL;
+    sub_GAME_7F09B398(GUNLEFT);   /* solo_char_load hangs the right hand's item */
+    bondviewUpdatePlayerRoom(pl);
+    sysLogPrintf(LOG_NOTE, "mp body: slot %d is now character %d", p, chr);
+}
+
 static s32 gevrCoopIntroActive(void)
 {
     return gevrCoopActive() && (g_CameraMode == CAMERAMODE_INTRO

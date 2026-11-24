@@ -5450,6 +5450,27 @@ void init_menu0f_mpcharsel(void)
 
 
 
+#ifdef GEVR
+/*
+ * The Select Character panel inside one player's view of a match (online,
+ * mpmenu.c): the same panel, its 440 x 330 folder coordinates mapped onto
+ * the view. The portraits take the mapping as their projection, the text
+ * and the scissor as a scale and an offset; the front end's is the whole
+ * screen as ever. Online anyone may play anyone (the launcher's list), so
+ * no portrait dims for being taken.
+ */
+static f32 s_charSelOrtho[4] = { 0.0f, 440.0f, 0.0f, 330.0f };
+static f32 s_charSelScale = 1.0f;
+static s32 s_charSelOffX;
+static s32 s_charSelOffY;
+static s32 s_charSelAnyone;
+#define CHARSEL_X(x) (s_charSelOffX + (s32)((x) * s_charSelScale))
+#define CHARSEL_Y(y) (s_charSelOffY + (s32)((y) * s_charSelScale))
+#else
+#define CHARSEL_X(x) (x)
+#define CHARSEL_Y(y) (y)
+#endif
+
 //********************************************************************************************************
 //MULTIPLAYER CHARACTER SELECT
 //********************************************************************************************************
@@ -5460,6 +5481,116 @@ void update_menu0F_mpcharsel(void)
 }
 
 
+/*
+ * One player's turn of the Select Character screen, player i's pad on panel
+ * i: B takes a choice back, the d-pad, the C buttons and the stick move along
+ * the strip of count portraits, A, Z or START chooses one nobody else has,
+ * and the strip slides 12 pixels a frame towards the one shown. Returns
+ * whether the player has chosen and the portrait has grown to full size.
+ * (GEVR: the online panel, mpmenu.c, runs it for a match slot; there anyone
+ * may play anyone, and the choice is the caller's to apply.)
+ */
+static s32 frontCharSelectPlayerTick(s32 i, s32 count)
+{
+    s32 temp_v1_3;
+
+    if (player_has_selected_char[i])
+    {
+        if ((size_mp_select_image_player[i] < 0xb) && (mp_char_prev_select_player[i] == mp_char_cur_select_player[i]))
+        {
+            size_mp_select_image_player[i] = size_mp_select_image_player[i] + 1;
+        }
+
+        if (joyGetButtonsPressedThisFrame(i, B_BUTTON))
+        {
+            player_has_selected_char[i] = 0;
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+        }
+    }
+
+    if (player_has_selected_char[i] == 0 && size_mp_select_image_player[i] > 0)
+    {
+        size_mp_select_image_player[i] = size_mp_select_image_player[i] - 1;
+    }
+    else if (player_has_selected_char[i] == 0)
+    {
+        if (joyGetButtonsPressedThisFrame(i, L_JPAD|L_CBUTTONS)) // 0x202
+        {
+            if (mp_char_cur_select_player[i] > 0)
+            {
+                mp_char_cur_select_player[i]--;
+            }
+        }
+        else if (joyGetButtonsPressedThisFrame(i, R_JPAD|R_CBUTTONS)) // 0x101
+        {
+            if (mp_char_cur_select_player[i] < (count - 1))
+            {
+                mp_char_cur_select_player[i]++;
+            }
+        }
+        else if (joyGetButtonsPressedThisFrame(i, A_BUTTON|Z_TRIG|START_BUTTON)) // 0xb000
+        {
+#ifdef GEVR
+            if (s_charSelAnyone)
+            {
+                size_mp_select_image_player[i] = 1;
+                player_has_selected_char[i] = 1;
+                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+            }
+            else
+#endif
+            if (get_players_who_have_selected_mp_char(mp_char_cur_select_player[i]) == 0)
+            {
+                player_char[i] = mp_char_cur_select_player[i];
+                size_mp_select_image_player[i] = 1;
+                player_has_selected_char[i] = 1;
+
+                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+            }
+        }
+        else if (joyGetStickXInRange(i, -2, 1) > 0)
+        {
+            if (mp_char_select_scroll_offset[i] == 0)
+            {
+                if (mp_char_cur_select_player[i] < (count - 1))
+                {
+                    mp_char_cur_select_player[i]++;
+                }
+            }
+        }
+        else if ((joyGetStickXInRange(i, -2, 1) < -1) && (mp_char_select_scroll_offset[i] == 0))
+        {
+            if (mp_char_cur_select_player[i] > 0)
+            {
+                mp_char_cur_select_player[i]--;
+            }
+        }
+    }
+
+    temp_v1_3 = (mp_char_prev_select_player[i] * 0x54) + mp_char_select_scroll_offset[i];
+
+    if (mp_char_cur_select_player[i] * 0x54 < temp_v1_3)
+    {
+        mp_char_select_scroll_offset[i] -= 0xc;
+        if (mp_char_select_scroll_offset[i] < 0)
+        {
+            mp_char_select_scroll_offset[i] += 0x54;
+            mp_char_prev_select_player[i]--;
+        }
+    }
+    else if (temp_v1_3 < mp_char_cur_select_player[i] * 0x54)
+    {
+        mp_char_select_scroll_offset[i] += 0xC;
+        if (mp_char_select_scroll_offset[i] >= 0x54)
+        {
+            mp_char_select_scroll_offset[i] -= 0x54;
+            mp_char_prev_select_player[i]++;
+        }
+    }
+
+    return player_has_selected_char[i] != 0 && size_mp_select_image_player[i] == 0xb;
+}
+
 // Address 0x7F011ED4 NTSC
 void interface_menu0F_mpcharsel(void)
 {
@@ -5468,7 +5599,6 @@ void interface_menu0F_mpcharsel(void)
     s32 ready_players;
     s32 padding2;
     s32 i;
-    s32 temp_v1_3;
 
     numplayers = get_selected_num_players();
     ready_players = 0;
@@ -5479,92 +5609,7 @@ void interface_menu0F_mpcharsel(void)
 
     for (i = 0; i < numplayers; i++)
     {
-        if (player_has_selected_char[i])
-        {
-            if ((size_mp_select_image_player[i] < 0xb) && (mp_char_prev_select_player[i] == mp_char_cur_select_player[i]))
-            {
-                size_mp_select_image_player[i] = size_mp_select_image_player[i] + 1;
-            }
-
-            if (joyGetButtonsPressedThisFrame(i, B_BUTTON))
-            {
-                player_has_selected_char[i] = 0;
-                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
-            }
-        }
-
-        if (player_has_selected_char[i] == 0 && size_mp_select_image_player[i] > 0)
-        {
-            size_mp_select_image_player[i] = size_mp_select_image_player[i] - 1;
-        }
-        else if (player_has_selected_char[i] == 0)
-        {
-            if (joyGetButtonsPressedThisFrame(i, L_JPAD|L_CBUTTONS)) // 0x202
-            {
-                if (mp_char_cur_select_player[i] > 0)
-                {
-                    mp_char_cur_select_player[i]--;
-                }
-            }
-            else if (joyGetButtonsPressedThisFrame(i, R_JPAD|R_CBUTTONS)) // 0x101
-            {
-                if (mp_char_cur_select_player[i] < (num_chars_selectable_mp - 1))
-                {
-                    mp_char_cur_select_player[i]++;
-                }
-            }
-            else if (joyGetButtonsPressedThisFrame(i, A_BUTTON|Z_TRIG|START_BUTTON)) // 0xb000
-            {
-                if (get_players_who_have_selected_mp_char(mp_char_cur_select_player[i]) == 0)
-                {
-                    player_char[i] = mp_char_cur_select_player[i];
-                    size_mp_select_image_player[i] = 1;
-                    player_has_selected_char[i] = 1;
-
-                    sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
-                }
-            }
-            else if (joyGetStickXInRange(i, -2, 1) > 0)
-            {
-                if (mp_char_select_scroll_offset[i] == 0)
-                {
-                    if (mp_char_cur_select_player[i] < (num_chars_selectable_mp - 1))
-                    {
-                        mp_char_cur_select_player[i]++;
-                    }
-                }
-            }
-            else if ((joyGetStickXInRange(i, -2, 1) < -1) && (mp_char_select_scroll_offset[i] == 0))
-            {
-                if (mp_char_cur_select_player[i] > 0)
-                {
-                    mp_char_cur_select_player[i]--;
-                }
-            }
-        }
-
-        temp_v1_3 = (mp_char_prev_select_player[i] * 0x54) + mp_char_select_scroll_offset[i];
-
-        if (mp_char_cur_select_player[i] * 0x54 < temp_v1_3)
-        {
-            mp_char_select_scroll_offset[i] -= 0xc;
-            if (mp_char_select_scroll_offset[i] < 0)
-            {
-                mp_char_select_scroll_offset[i] += 0x54;
-                mp_char_prev_select_player[i]--;
-            }
-        }
-        else if (temp_v1_3 < mp_char_cur_select_player[i] * 0x54)
-        {
-            mp_char_select_scroll_offset[i] += 0xC;
-            if (mp_char_select_scroll_offset[i] >= 0x54)
-            {
-                mp_char_select_scroll_offset[i] -= 0x54;
-                mp_char_prev_select_player[i]++;
-            }
-        }
-
-        if (player_has_selected_char[i] != 0 && size_mp_select_image_player[i] == 0xb)
+        if (frontCharSelectPlayerTick(i, num_chars_selectable_mp))
         {
             ready_players++;
         }
@@ -5629,7 +5674,11 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
     spCC = dynAllocateVertices(16);
     DL = microcode_constructor(DL);
 
+#ifdef GEVR
+    guOrtho(spD4, s_charSelOrtho[0], s_charSelOrtho[1], s_charSelOrtho[2], s_charSelOrtho[3], 1.0f, 10.0f, 1.0f);
+#else
     guOrtho(spD4, 0.0f, 440.0f, 0.0f, 330.0f, 1.0f, 10.0f, 1.0f);
+#endif
     guRotate(spD0, 3.1415927f, 1.0f, 0.0f, 0.0f);
 
     vtx_index = 0;
@@ -5645,7 +5694,11 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
             var_s3 = (j >= 2) ? j - 1 : j;
             var_s2 = (i >= 2) ? i - 1 : i;
 
+#ifdef GEVR
+            if (!s_charSelAnyone && (get_players_who_have_selected_mp_char(arg5)) && (arg6 == 0))
+#else
             if ((get_players_who_have_selected_mp_char(arg5)) && (arg6 == 0))
+#endif
             {
                 var_v0 = 0x6E;
             }
@@ -5667,6 +5720,27 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
             {
                 spCC[vtx_index].s = 0;
             }
+
+#ifdef GEVR
+            if (s_charSelAnyone)
+            {
+                /*
+                 * In a match the scissor does not hold the strip in the
+                 * player's view (fast3d draws the watch layer unclipped:
+                 * a portrait faded at the panel's edge ran on into the next
+                 * player's view, 2026-11-24). Cut each half portrait at the
+                 * fade's ends instead, its texture with it: the alpha below
+                 * is 0 there, as the panel's scissor left it on the N64.
+                 */
+                s32 x = spCC[vtx_index].coord.AsArray[0];
+                s32 half_left = (j < 2) ? arg3 - sp58 : arg3;
+
+                if (x < arg1) x = arg1;
+                if (x > arg2) x = arg2;
+                spCC[vtx_index].coord.AsArray[0] = x;
+                spCC[vtx_index].s = ((x - half_left) * 0x1000) / sp58;
+            }
+#endif
 
             if (i & 1)
             {
@@ -5727,17 +5801,15 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
 }
 
 
-Gfx *constructor_menu0F_mpcharsel(Gfx *DL)
+/*
+ * One player's panel of the Select Character screen, in folder coordinates:
+ * "Select Character" until they choose, the name of the character shown, and
+ * the strip of count portraits sliding under it (the chosen portrait alone
+ * once chosen, growing).
+ */
+static Gfx *frontCharSelectPanel(Gfx *DL, s32 playernum, s32 panel_left, s32 panel_top, s32 panel_width, s32 count)
 {
-    s32 numplayers;
-    s32 playernum;
     u8 *text;
-    s32 panel_left;  // X position where the portraits completely fade out on the left.
-    s32 panel_top;   
-    s32 panel_width; // Width of the character portrait panel (1 panel per player)
-    s32 grid_offset; // Distance between the portrait panels
-    s32 stackpad;
-    s32 stackpad2;
     s32 portrait_y_base;
     s32 select_char_height;
     s32 select_char_width;
@@ -5749,8 +5821,77 @@ Gfx *constructor_menu0F_mpcharsel(Gfx *DL)
     s32 name_x;
     s32 name_y;
 
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, CHARSEL_X(panel_left + 6), CHARSEL_Y(panel_top + 5), CHARSEL_X(panel_left + panel_width - 6), CHARSEL_Y(panel_top + 0x8C - 5));
+
+    panel_center_x = (panel_width >> 1) + panel_left;
+
+    if ((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0))
+    {
+        text = langGet(getStringID(LTITLE, TITLE_STR_85_SELECTCHARACTER));
+        textMeasure(&select_char_height, &select_char_width, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        select_char_x = CHARSEL_X(panel_center_x) - (select_char_width >> 1);
+        select_char_y = CHARSEL_Y(panel_top + 5);
+        DL = microcode_constructor(DL);
+        DL = frontPrintText(DL, &select_char_x, &select_char_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    }
+
+    text = langGet(mp_chr_setup[mp_char_cur_select_player[playernum]].text_preset);
+    textMeasure(&name_height, &name_width, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    portrait_y_base = panel_top;
+    name_x = CHARSEL_X(panel_center_x) - (name_width >> 1);
+    name_y = CHARSEL_Y((portrait_y_base + 0x46) + 0x32);
+    DL = microcode_constructor(DL);
+    DL = frontPrintText(DL, &name_x, &name_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, panel_center_x - mp_char_select_scroll_offset[playernum], portrait_y_base + 0x46, mp_char_prev_select_player[playernum], size_mp_select_image_player[playernum]);
+
+    if (((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0)) || (mp_char_prev_select_player[playernum] != mp_char_cur_select_player[playernum]))
+    {
+        if (mp_char_prev_select_player[playernum] >= 3)
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0xFC, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 3, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] >= 2)
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0xA8, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 2, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] >= 1)
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0x54, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 1, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] < (count - 1))
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0x54, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 1, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] < (count - 2))
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0xA8, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 2, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] < (count - 3))
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0xFC, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 3, size_mp_select_image_player[playernum]);
+        }
+    }
+
+    return DL;
+}
+
+
+Gfx *constructor_menu0F_mpcharsel(Gfx *DL)
+{
+    s32 numplayers;
+    s32 playernum;
+    s32 panel_left;  // X position where the portraits completely fade out on the left.
+    s32 panel_top;
+    s32 panel_width; // Width of the character portrait panel (1 panel per player)
+    s32 grid_offset; // Distance between the portrait panels
+
     numplayers = get_selected_num_players();
-    
+
     DL = viSetFillColor(DL, 0, 0, 0);
     DL = viFillScreen(DL);
     DL = frontSetupMenuBackground(DL);
@@ -5781,68 +5922,138 @@ Gfx *constructor_menu0F_mpcharsel(Gfx *DL)
             grid_offset = (playernum & 1) ? (0xAF) : (0);
             panel_left = grid_offset + 0x26;
         }
-        
-        gDPSetScissor(DL++, G_SC_NON_INTERLACE, (panel_left + 6), panel_top + 5, (panel_left + panel_width - 6), (panel_top + 0x8C - 5));
 
-        panel_center_x = (panel_width >> 1) + panel_left;
-
-        if ((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0))
-        {
-            text = langGet(getStringID(LTITLE, TITLE_STR_85_SELECTCHARACTER));
-            textMeasure(&select_char_height, &select_char_width, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
-            select_char_x = panel_center_x - (select_char_width >> 1);
-            select_char_y = panel_top + 5;
-            DL = microcode_constructor(DL);
-            DL = frontPrintText(DL, &select_char_x, &select_char_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
-        }
-        
-        text = langGet(mp_chr_setup[mp_char_cur_select_player[playernum]].text_preset);
-        textMeasure(&name_height, &name_width, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
-        portrait_y_base = panel_top;
-        name_x = panel_center_x - (name_width >> 1);
-        name_y = (portrait_y_base + 0x46) + 0x32;
-        DL = microcode_constructor(DL);
-        DL = frontPrintText(DL, &name_x, &name_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
-        DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, panel_center_x - mp_char_select_scroll_offset[playernum], portrait_y_base + 0x46, mp_char_prev_select_player[playernum], size_mp_select_image_player[playernum]);
-
-        if (((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0)) || (mp_char_prev_select_player[playernum] != mp_char_cur_select_player[playernum]))
-        {
-            if (mp_char_prev_select_player[playernum] >= 3)
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0xFC, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 3, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] >= 2)
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0xA8, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 2, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] >= 1)
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0x54, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 1, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] < (num_chars_selectable_mp - 1))
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0x54, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 1, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] < (num_chars_selectable_mp - 2))
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0xA8, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 2, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] < (num_chars_selectable_mp - 3))
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0xFC, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 3, size_mp_select_image_player[playernum]);
-            }
-        }
+        DL = frontCharSelectPanel(DL, playernum, panel_left, panel_top, panel_width, num_chars_selectable_mp);
     }
 
     DL = combiner_bayer_lod_perspective(DL);
 
     return DL;
 }
+
+
+#ifdef GEVR
+/*
+ * The Select Character panel in a match (online, mpmenu.c): the front end's
+ * own screen for one match slot, with its pad, drawn into that player's view.
+ * It keeps its state in the front end's arrays, which have a row for every
+ * slot and are idle in a match. count is the online list's length
+ * (net_match.c), front.c's mp_chr_setup rows one for one, so a hack's own
+ * characters (gevr_romcampaign.c installMpChars) show their own names and
+ * portraits.
+ */
+void frontCharSelectBegin(s32 slot, s32 chr, s32 count)
+{
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    if (count > gevrMpCharRows) count = gevrMpCharRows;
+    if (chr < 0 || chr >= count) chr = 0;
+
+    /* Each portrait is four textures, as init_menu0f_mpcharsel loads them. */
+    for (i = 0; i < count * 4; i++)
+    {
+        s32 image = mp_chr_setup[i >> 2].select_photo * 4 + (i & 3);
+
+        if (mpcharselimages[image].index < (u32)(MAX_TEXTURES - 1))
+        {
+            texLoadFromTextureNum(mpcharselimages[image].index, 0);
+        }
+    }
+
+    mp_char_cur_select_player[slot] = chr;
+    mp_char_prev_select_player[slot] = chr;
+    mp_char_select_scroll_offset[slot] = 0;
+    player_has_selected_char[slot] = 0;
+    size_mp_select_image_player[slot] = 0;
+}
+
+/* A frame of the slot's panel: 1 chosen (frontCharSelectShown has it), -1 B
+ * before choosing (leave it as it was), 0 still choosing. */
+s32 frontCharSelectTick(s32 slot, s32 count)
+{
+    s32 done;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return -1;
+    if (count > gevrMpCharRows) count = gevrMpCharRows;
+    if (!player_has_selected_char[slot] && size_mp_select_image_player[slot] == 0
+        && joyGetButtonsPressedThisFrame(slot, B_BUTTON))
+    {
+        return -1;
+    }
+    s_charSelAnyone = 1;
+    done = frontCharSelectPlayerTick(slot, count);
+    s_charSelAnyone = 0;
+    return done ? 1 : 0;
+}
+
+s32 frontCharSelectShown(s32 slot)
+{
+    return slot >= 0 && slot < MAX_PLAYER_COUNT ? mp_char_cur_select_player[slot] : 0;
+}
+
+/*
+ * The slot's panel over the view at (vx, vy), vw x vh screen pixels: a sheet
+ * of the folder's paper, and on it the panel at the 4-player size (175 x 140)
+ * scaled to the view's height, widened to its shape so a wide view shows
+ * more of the strip. The text keeps its size; the portraits scale.
+ */
+Gfx *frontCharSelectDraw(Gfx *DL, s32 slot, s32 count, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    extern u8 g_ViBackIndex;
+    Vp *viewport;
+    f32 scale;
+    s32 panel_width;
+    s32 sw = viGetX();
+    s32 sh = viGetY();
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0) return DL;
+    if (count > gevrMpCharRows) count = gevrMpCharRows;
+
+    scale = (f32)vh / 140.0f;
+    if ((f32)vw / scale < 175.0f) scale = (f32)vw / 175.0f;
+    panel_width = (s32)((f32)vw / scale);
+    if (panel_width > 440) panel_width = 440;
+    s_charSelScale = scale;
+    s_charSelOffX = vx + (vw - (s32)(panel_width * scale)) / 2;
+    s_charSelOffY = vy + (vh - (s32)(140 * scale)) / 2;
+    /* folder x = (screen x - offset) / scale; folder y counts up from 330 at the panel's top */
+    s_charSelOrtho[0] = -(f32)s_charSelOffX / scale;
+    s_charSelOrtho[1] = (f32)(sw - s_charSelOffX) / scale;
+    s_charSelOrtho[2] = 330.0f - (f32)(sh - s_charSelOffY) / scale;
+    s_charSelOrtho[3] = 330.0f + (f32)s_charSelOffY / scale;
+    s_charSelAnyone = 1;
+
+    /* The portraits are shaded triangles: the whole screen's viewport, no depth test. */
+    viewport = dynAllocate(sizeof(Vp));
+    *viewport = g_CurrentPlayer->viewports[g_ViBackIndex];
+    viewport->vp.vscale[0] = viewport->vp.vtrans[0] = sw * 2;
+    viewport->vp.vscale[1] = viewport->vp.vtrans[1] = sh * 2;
+
+    gDPPipeSync(DL++);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    DL = microcode_constructor(DL);
+    DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+    gSPViewport(DL++, osVirtualToPhysical(viewport));
+    gSPClearGeometryMode(DL++, G_CULL_BOTH | G_LIGHTING | G_ZBUFFER);
+    DL = frontCharSelectPanel(DL, slot, 0, 0, panel_width, count);
+    DL = combiner_bayer_lod_perspective(DL);
+    gDPPipeSync(DL++);
+    gSPMatrix(DL++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPViewport(DL++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+
+    s_charSelAnyone = 0;
+    s_charSelScale = 1.0f;
+    s_charSelOffX = 0;
+    s_charSelOffY = 0;
+    s_charSelOrtho[0] = 0.0f;
+    s_charSelOrtho[1] = 440.0f;
+    s_charSelOrtho[2] = 0.0f;
+    s_charSelOrtho[3] = 330.0f;
+    return DL;
+}
+#endif
 
 
 //********************************************************************************************************

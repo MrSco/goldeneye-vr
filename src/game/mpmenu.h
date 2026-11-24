@@ -42,5 +42,10 @@ void mpwatchSetStopPlayFlag(void);
 Gfx * mp_watch_menu_display(Gfx *arg0);
 s32 disablePlayerActionsWhenPausedOrInMpMenu(void);
 s32 mpwatchShouldDisplayGauges(void);
+#ifdef GEVR
+/* online: the Select Character panel in a player's view (dropin: just joined) */
+void gevrCharSelOpen(s32 slot, s32 dropin);
+s32 gevrCharSelIsOpen(s32 slot);
+#endif
 
 #endif

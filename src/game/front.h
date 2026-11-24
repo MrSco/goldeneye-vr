@@ -352,5 +352,12 @@ void unlock_all_mp_chars(void);
 u8 get_player_mp_char_gender(int player);
 s32 pull_and_display_text_for_folder_a0(s32 arg0);
 void set_players_team_or_scenario_item_flag(int player, s32 flag);
+#ifdef GEVR
+/* The Select Character panel for one match slot (online, mpmenu.c) */
+void frontCharSelectBegin(s32 slot, s32 chr, s32 count);
+s32 frontCharSelectTick(s32 slot, s32 count);
+s32 frontCharSelectShown(s32 slot);
+Gfx *frontCharSelectDraw(Gfx *DL, s32 slot, s32 count, s32 vx, s32 vy, s32 vw, s32 vh);
+#endif
 
 #endif

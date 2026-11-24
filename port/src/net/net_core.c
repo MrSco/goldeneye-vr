@@ -548,9 +548,25 @@ int netActiveLoadoutItem(int slot, int k) {
            k >= 0 && k < 4 && netItemIndexOf(s_round.loadout[slot][k]) >= 0 ? s_round.loadout[slot][k] : 0;
 }
 const NetMatchConfig *netGetActiveMatchConfig(void) { return &s_round.config; }
+/*
+ * A player who dropped into the match and is choosing their character (the
+ * Select Character panel, mpmenu.c) stands frozen where they joined; until
+ * they choose, nothing hurts them. Only the machine they play on knows: a
+ * player's own machine applies their damage (netApplyDamage: a copy takes
+ * none of its own, and dies when its owner reports it dead), so the others'
+ * shots land without harm and no message changes.
+ */
+static bool s_slot_choosing[GEVR_MAX_PLAYERS];
+void netSetSlotChoosing(int slot, int choosing) {
+    if (slot >= 0 && slot < GEVR_MAX_PLAYERS) s_slot_choosing[slot] = choosing != 0;
+}
+int netSlotChoosing(int slot) {
+    return slot >= 0 && slot < GEVR_MAX_PLAYERS && s_slot_choosing[slot] && netSlotIsLocalHuman(slot);
+}
 int netDamageAllowed(int attacker, int target) {
     if (!netIsActive()) return 1;
     if (target < 0 || target >= GEVR_MAX_PLAYERS || attacker >= GEVR_MAX_PLAYERS) return 0;
+    if (netSlotChoosing(target)) return 0;
     if (attacker < 0) return 1; /* Environmental damage has no player attacker. */
     /* co-op: the guards are the enemy; a teammate hurts only with friendly fire on */
     if (netModePve(s_round.config.mode)) return attacker == target || s_round.config.friendly_fire;
@@ -2623,7 +2639,13 @@ void netLobbySetCharacterSlot(int slot, uint8_t chr_id) {
         vrSettingsSave();
     } else {
         int seat = netLocalSeatOfSlot(slot);
-        if (seat > 0 && seat < GEVR_MAX_LOCAL_PLAYERS) s_local_seat_cfg[seat].chr_id = chr_id;
+        if (seat > 0 && seat < GEVR_MAX_LOCAL_PLAYERS) {
+            /* the seat's saved character, as the launcher's guest row keeps it (Guest2Chr...) */
+            extern int VrGuestChr[3];
+            s_local_seat_cfg[seat].chr_id = chr_id;
+            VrGuestChr[seat - 1] = chr_id;
+            vrSettingsSave();
+        }
     }
     
     if (netIsHost()) {
@@ -2988,6 +3010,8 @@ void netApplyMatchConfig(void) {
     extern void init_mp_options_for_scenario(s32 numplayers);
     extern s32 g_StageNum;
     const NetMatchConfig *c = &s_round.config;
+    /* a new load starts nobody mid-choice (the panel closes with the stage) */
+    memset(s_slot_choosing, 0, sizeof(s_slot_choosing));
     if (c->mode == NET_MODE_HORDE) {
         netApplyHordeConfig(c);
         return;
