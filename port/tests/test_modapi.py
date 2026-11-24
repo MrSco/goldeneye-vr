@@ -101,6 +101,18 @@ def placement():
           "a hand reload's magazine out and in")
     reload_placement(gun, view)
     empty_placement(gun, view)
+    speed_placement(view)
+
+
+def speed_placement(view):
+    """setSpeed where the game applies its own speed boost, both ways of moving"""
+    boost = view.index("g_CurrentPlayer->speedforwards *= g_CurrentPlayer->speedboost;")
+    scale = view.index("const f32 k = gevrModMoveScale();", boost)
+    check(scale < boost + 300 and view.index("g_CurrentPlayer->speedsideways *= k;", scale) < scale + 200,
+          "the mod's speed scale beside the game's speed boost, forward and sideways")
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    check("gevrModScriptRunning() && gevrModGameLocal() ? s_modMoveScale : 1.0f" in function(game, "f32 gevrModMoveScale(void)"),
+          "only while a mod runs, and only the local player's")
 
 
 def empty_placement(gun, view):
@@ -1556,6 +1568,32 @@ end)
         check(logs(out) == ["calls ok"], "calls: " + out[-600:])
         check(answers(out, "STATS") == ["STATS 8 45 2 15.00", "STATS 4 12 -1 1.00", "STATS 8 30 3 1.50", "STATS 4 7 -1 1.00"],
               "stats changed, then the game's own again at the mission's end: " + str(answers(out, "STATS")))
+
+        # ---- the handling stats, and the player's speed ----
+        lua = r"""
+mod.on("mission_start", function()
+  local w = mod.weapon
+  local s = w.stats("ak47")
+  print("own", s.inaccuracy, s.recoilBack, s.sound, s.loudnessMax)
+  assert(w.setStats("ak47", { inaccuracy = 2.5, recoilBack = 4, recoilUp = 1, sound = 12, loudnessMin = 1, loudnessMax = 5 }))
+  local bad = 0
+  for _, t in ipairs({ { inaccuracy = 101 }, { recoilUp = -1 }, { sound = 120 }, { sound = 1.5 }, { loudnessMin = 6 },
+                       { loudnessMax = "x" } }) do
+    if not pcall(w.setStats, "ak47", t) then bad = bad + 1 end
+  end
+  print("bad", bad, w.stats("ak47").sound)
+  print("speed", (pcall(mod.player.setSpeed, 0.1)), (pcall(mod.player.setSpeed, 2.5)))
+  mod.player.setSpeed(0.8)
+end)
+"""
+        out = run(exe, temp, "handling", lua, *play, "show2", 8, "title", "show2", 8)
+        check(logs(out) == ["own 0.0 0.0 0 0.0", "bad 6 12", "speed false false"], "handling: " + str(logs(out)))
+        check(answers(out, "STATS2") == ["STATS2 2.50 4.00 1.00 12 1.00 5.00", "STATS2 0.00 0.00 0.00 0 0.00 0.00"],
+              "accuracy, recoil, sound and loudness set, then the game's own again at the mission's end: "
+              + str(answers(out, "STATS2")))
+        check(answers(out, "SPEED")[-3:] == ["SPEED 1.00", "SPEED 0.80", "SPEED 1.00"],
+              "the speed: the game's own at the mission's start, the mod's, the game's own after: "
+              + str(answers(out, "SPEED")))
 
         # ---- an error puts the stats back at once ----
         lua = """

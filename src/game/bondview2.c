@@ -13453,6 +13453,16 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
         g_CurrentPlayer->speedforwards *= 1.08f;
         g_CurrentPlayer->speedforwards *= g_CurrentPlayer->speedboost;
+#ifdef GEVR
+        {
+            /* a mod's mod.player.setSpeed (gevr_modgame.c): the local player's walk and strafe */
+            extern f32 gevrModMoveScale(void);
+            const f32 k = gevrModMoveScale();
+
+            g_CurrentPlayer->speedforwards *= k;
+            g_CurrentPlayer->speedsideways *= k;
+        }
+#endif
 
         if ((moveData.canLookAhead == 0) && (moveData.digitalStepForward == 0))
         {

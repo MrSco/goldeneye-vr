@@ -440,7 +440,15 @@ in-game screen). We maintain the adapters, not the mods.
     rounds)` (0 to the held weapon's magazine), `stats(item)` (`magazine`,
     `fireRate` for an automatic, `damage`) and `setStats(item, t)`:
     magazine 1 to 255, fireRate 1 to 60 ticks (automatics only), damage 0
-    to 10 times the weapon's own; only items with stats of their own.
+    to 10 times the weapon's own; `inaccuracy` (the KF7's 10, the sniper
+    rifle's 0; 0 to 100, or ten times its own), `recoilBack` and
+    `recoilUp` (how far the hands pull back and the gun kicks up; 0 to
+    10, or ten times its own), `sound` (the shot's ROM sound effect,
+    `mod.audio`'s ids) and `loudnessMin` and `loudnessMax` (how far
+    guards hear the shot, a suppressor's lower; 0 to 100, or ten times
+    its own most, min at most max); only items with stats of their own.
+    Automatic fire on a gun the game fires one shot at a time isn't a
+    stat: the game decides it by the item, in the firing code.
     Stats are per weapon type, guards' too, and go back to the game's own
     at a mission's end and when a mod stops.
   - Scopes (VR): `mod.weapon.scope(hand, t)` puts the game's per-hand
@@ -739,7 +747,11 @@ in-game screen). We maintain the adapters, not the mods.
     goes down instead).
   - Calls: `mod.player.health()` gives health and armour (0 to 1),
     `setHealth(x)` (more than 0, up to 1) and `setArmour(x)` (0 to 1) set
-    them; false while the player is dead or down.
+    them; false while the player is dead or down. `setSpeed(scale)` (0.25
+    to 2; 1 the game's own) scales this machine's player's walking and
+    strafing, where the game applies its own speed boost (`bondview2.c`),
+    until the mission ends or the mod stops; a player's own steps in
+    room-scale VR aren't scaled.
 - **Sound and effects.** `mod.audio.play` uses `sndPlaySfx()` to play
   an existing ROM sound effect by ID. Positional playback uses
   `chrobjSndCreatePostEventDefault()`.

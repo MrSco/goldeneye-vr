@@ -219,7 +219,45 @@ static int l_stats(lua_State *L)
     }
     lua_pushnumber(L, st.damage);
     lua_setfield(L, -2, "damage");
+    lua_pushnumber(L, st.inaccuracy);
+    lua_setfield(L, -2, "inaccuracy");
+    lua_pushnumber(L, st.recoilBack);
+    lua_setfield(L, -2, "recoilBack");
+    lua_pushnumber(L, st.recoilUp);
+    lua_setfield(L, -2, "recoilUp");
+    lua_pushinteger(L, st.sound);
+    lua_setfield(L, -2, "sound");
+    lua_pushnumber(L, st.loudnessMin);
+    lua_setfield(L, -2, "loudnessMin");
+    lua_pushnumber(L, st.loudnessMax);
+    lua_setfield(L, -2, "loudnessMax");
     return 1;
+}
+
+/* a number field from 0 to most, kept when absent; a script error past it */
+static void statNumber(lua_State *L, const char *key, double most, float *out)
+{
+    double v = 0.0;
+
+    if (lua_getfield(L, 2, key) != LUA_TNIL) {
+        if (!lua_isnumber(L, -1) || (v = lua_tonumber(L, -1)) < 0 || v > most) {
+            char cap[48];   /* Lua's own formats have no %g */
+
+            snprintf(cap, sizeof(cap), "%.3g", most);
+            luaL_error(L, "mod.weapon.setStats: %s is 0 to %s", key, cap);
+        }
+        *out = (float)v;
+    }
+    lua_pop(L, 1);
+}
+
+/* the most a stat may be: ten times the weapon's own, or 10 (100 for
+ * inaccuracy and loudness) where its own is less */
+static double statMost(float own, double floor)
+{
+    const double ten = own * 10.0;
+
+    return ten > floor ? ten : floor;
 }
 
 /* setStats(item, {magazine=, fireRate=, damage=}): any of them, within the
@@ -272,6 +310,24 @@ static int l_setStats(lua_State *L)
             return luaL_error(L, "mod.weapon.setStats: damage is 0 to %s", most);
         }
         next.damage = (float)v;
+    }
+    lua_pop(L, 1);
+    statNumber(L, "inaccuracy", statMost(own.inaccuracy, 100.0), &next.inaccuracy);
+    statNumber(L, "recoilBack", statMost(own.recoilBack, 10.0), &next.recoilBack);
+    statNumber(L, "recoilUp", statMost(own.recoilUp, 10.0), &next.recoilUp);
+    statNumber(L, "loudnessMin", statMost(own.loudnessMax, 100.0), &next.loudnessMin);
+    statNumber(L, "loudnessMax", statMost(own.loudnessMax, 100.0), &next.loudnessMax);
+    if (next.loudnessMin > next.loudnessMax) {
+        return luaL_error(L, "mod.weapon.setStats: loudnessMin is at most loudnessMax");
+    }
+    if (lua_getfield(L, 2, "sound") != LUA_TNIL) {
+        lua_Integer v;
+
+        if (!lua_isinteger(L, -1) || (v = lua_tointeger(L, -1)) < 0 || v >= gevrModGameSoundCount()) {
+            return luaL_error(L, "mod.weapon.setStats: sound is a ROM sound effect's id, 0 to %d",
+                              gevrModGameSoundCount() - 1);
+        }
+        next.sound = (int)v;
     }
     lua_pop(L, 1);
     if (i == s_savedCount && s_savedCount < GEVR_MODAPI_ITEMS) {
@@ -931,10 +987,24 @@ static int l_playerSetArmour(lua_State *L)
     return 1;
 }
 
+/* setSpeed(scale): the local player's walking and strafing, times scale
+ * (0.25 to 2; 1 the game's own), until the mission ends or the mod stops */
+static int l_playerSetSpeed(lua_State *L)
+{
+    const lua_Number v = luaL_checknumber(L, 1);
+
+    if (!(v >= GEVR_MODAPI_SPEED_MIN && v <= GEVR_MODAPI_SPEED_MAX)) {
+        return luaL_argerror(L, 1, "a speed is 0.25 to 2 times the game's own");
+    }
+    gevrModGameSetSpeed((float)v);
+    return 0;
+}
+
 static const luaL_Reg s_playerFuncs[] = {
     { "health", l_playerHealth },
     { "setHealth", l_playerSetHealth },
     { "setArmour", l_playerSetArmour },
+    { "setSpeed", l_playerSetSpeed },
     { NULL, NULL },
 };
 
@@ -1717,6 +1787,7 @@ void gevrModApiReset(void)
     gevrModGameScope(1, GEVR_MODSCOPE_GAME, 0, NULL, 0.0f, 0.0f);
     gevrModGameGunModelReset();   /* and the hands' own models */
     gevrModGameAttachReset();     /* and nothing attached */
+    gevrModGameSetSpeed(1.0f);    /* and the player's own speed */
     memset(s_attachOwners, 0, sizeof(s_attachOwners));
 }
 

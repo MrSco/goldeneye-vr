@@ -353,6 +353,12 @@ typedef struct GevrModWeaponStats {
     int magazine;     /* MagSize */
     int fireRate;     /* AutomaticFiringRate, ticks between shots; -1: not automatic */
     float damage;     /* DestructionAmount */
+    float inaccuracy; /* Inaccuracy: the KF7's 10, the sniper rifle's 0 */
+    float recoilBack; /* RecoilBack: how far the hands pull back at a shot */
+    float recoilUp;   /* RecoilUp: how far the gun kicks up */
+    int sound;        /* Sound: the shot's ROM sound effect (mod.audio's ids) */
+    float loudnessMin;   /* LoudnessMin, LoudnessMax: how far guards hear a shot */
+    float loudnessMax;
 } GevrModWeaponStats;
 
 /* The current player is this machine's human (not a copy, not a bot) */
@@ -481,6 +487,11 @@ int gevrModGameSetPlayerHealth(float health);
 int gevrModGameSetPlayerArmour(float armour);
 /* The sound effects bank's count: ids 1 to it (sndPlaySfx's, 1-based) */
 int gevrModGameSoundCount(void);
+/* mod.player.setSpeed: the local player's walking and strafing speed, times
+ * scale (1 the game's own), until the mission ends or the mod stops */
+#define GEVR_MODAPI_SPEED_MIN 0.25f
+#define GEVR_MODAPI_SPEED_MAX 2.0f
+void gevrModGameSetSpeed(float scale);
 /* Play one in a stage: volume 0 to 1 sets it, -1 keeps its own; pos (world
  * units) places it, heard from there; 0 when it couldn't */
 int gevrModGamePlaySound(int id, float volume, const float *pos);

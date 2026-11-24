@@ -165,6 +165,12 @@ int gevrModGameStats(int item, GevrModWeaponStats *out)
     out->magazine = st->MagSize;
     out->fireRate = st->AutomaticFiringRate == 0xFF ? -1 : (int)st->AutomaticFiringRate;
     out->damage = st->DestructionAmount;
+    out->inaccuracy = st->Inaccuracy;
+    out->recoilBack = st->RecoilBack;
+    out->recoilUp = st->RecoilUp;
+    out->sound = st->Sound;
+    out->loudnessMin = st->LoudnessMin;
+    out->loudnessMax = st->LoudnessMax;
     return 1;
 }
 
@@ -178,6 +184,25 @@ void gevrModGameSetStats(int item, const GevrModWeaponStats *in)
     st->MagSize = (s16)in->magazine;
     if (in->fireRate >= 0) st->AutomaticFiringRate = (u8)in->fireRate;
     st->DestructionAmount = in->damage;
+    st->Inaccuracy = in->inaccuracy;
+    st->RecoilBack = in->recoilBack;
+    st->RecoilUp = in->recoilUp;
+    st->Sound = (u16)in->sound;
+    st->LoudnessMin = in->loudnessMin;
+    st->LoudnessMax = in->loudnessMax;
+}
+
+/* mod.player.setSpeed's scale (bondview2.c, the local player's walk) */
+static f32 s_modMoveScale = 1.0f;
+
+void gevrModGameSetSpeed(float scale)
+{
+    s_modMoveScale = scale;
+}
+
+f32 gevrModMoveScale(void)
+{
+    return gevrModScriptRunning() && gevrModGameLocal() ? s_modMoveScale : 1.0f;
 }
 
 /* ---- the items area ---- */

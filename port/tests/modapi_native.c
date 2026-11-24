@@ -285,6 +285,7 @@ int gevrModGameGuardGun(int item) { return item >= 4 && item <= 25 && item != 23
 
 /* sound and smoke: a bank of 120; guard 99 isn't there */
 int gevrModGameSoundCount(void) { return 120; }
+void gevrModGameSetSpeed(float scale) { printf("SPEED %.2f\n", scale); }
 int gevrModGamePlaySound(int id, float volume, const float *pos)
 {
     if (pos) printf("SOUND %d %.2f %g %g %g\n", id, volume, pos[0], pos[1], pos[2]);
@@ -551,6 +552,11 @@ int main(int argc, char **argv)
             const int item = atoi(argv[++i]);
 
             printf("STATS %d %d %d %.2f\n", item, s_stats[item].magazine, s_stats[item].fireRate, s_stats[item].damage);
+        } else if (!strcmp(cmd, "show2") && i + 1 < argc) {
+            const GevrModWeaponStats *s = &s_stats[atoi(argv[++i])];
+
+            printf("STATS2 %.2f %.2f %.2f %d %.2f %.2f\n", s->inaccuracy, s->recoilBack, s->recoilUp, s->sound,
+                   s->loudnessMin, s->loudnessMax);
         } else if (!strcmp(cmd, "loadedis") && i + 1 < argc) {
             printf("LOADED %d\n", s_loaded[atoi(argv[++i])]);
         } else if ((!strcmp(cmd, "weapon") || !strcmp(cmd, "box") || !strcmp(cmd, "crate") || !strcmp(cmd, "armour"))
