@@ -79,6 +79,9 @@ void gevrModNetReceive(const char *mod,int from,const char *channel,const void *
     char line[160];snprintf(line,sizeof(line),"recv %s %d %s %d %02x;",mod,from,channel,len,len>3?((const u8*)data)[3]:0);modNote(line);
 }
 void gevrModNetStopped(const char *mod,int from) { char line[96];snprintf(line,sizeof(line),"off %s %d;",mod,from);modNote(line); }
+void gevrModNetPickup(const char *mod,int from,int kind,const void *data,int len) {
+    char line[96];(void)data;snprintf(line,sizeof(line),"pickup %s %d %d %d;",mod,from,kind,len);modNote(line);
+}
 void gevrModApiPeerReady(int slot) { char line[32];snprintf(line,sizeof(line),"ready %d;",slot);modNote(line); }
 int enet_address_get_ip(const ENetAddress *address,char *buffer,size_t size) { (void)address;snprintf(buffer,size,"127.0.0.1");return 0; }
 static ENetPeer *disconnected_peer;
@@ -777,6 +780,62 @@ EXPORT int test_core_mod_messages(void) {
     n=modPacket(raw,sizeof(raw),0xFF,NET_MOD_DATA,0xFF,"tactical","srv","x",1,0,0);modArrives(&hit_peers[0],raw,n);
     n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0xFF,"tactical","pos","x",1,0,0);modArrives(&hit_peers[1],raw,n);
     CHECK(!strcmp(mod_got,"recv tactical 1 pos 1 00;recv tactical 0 hi 1 00;recv tactical -1 srv 1 00;"));
+    s_server_peer=NULL;
+    return 0;
+}
+/* A shared pickup's NET_MSG_MOD: the mod's id, then its fixed bytes */
+static size_t pickupPacket(u8 *raw,size_t cap,uint8_t from,uint8_t kind,uint8_t to,const u8 *bytes,int len) {
+    struct netbuf w={.data=raw,.size=(u32)cap};
+    netbufStartWrite(&w);
+    netbufWriteU32(&w,GEVR_NET_MAGIC);netbufWriteU16(&w,GEVR_NET_VERSION);netbufWriteU8(&w,NET_MSG_MOD);netbufWriteU8(&w,from);
+    netbufWriteU8(&w,kind);netbufWriteU8(&w,to);netbufWriteStr(&w,"tactical");netbufWriteData(&w,bytes,(u32)len);
+    return w.wp;
+}
+/* Shared pickups (mod.pickups.drop's shared): a drop is the host's alone, to
+ * everyone; a take goes to the host, is delivered there and relayed to the
+ * others; either with the wrong length or to one player is dropped */
+EXPORT int test_core_mod_pickups(void) {
+    static u8 raw[256];
+    static ENetHost mod_host;
+    static const u8 drop[NET_MOD_DROP_BYTES]={9,8,0,0,0,0,0,0x40,0xed,0x03,0,0};
+    static const u8 taken[NET_MOD_TAKEN_BYTES]={9,0,0,0,0,0,0,0x40};
+    size_t n;
+    fixture(NET_SCENARIO_4V4);
+    clock_us+=2000000;
+    s_state=NET_STATE_INGAME;s_host=&mod_host;
+    for(int i=1;i<4;i++) {s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);s_lobby_state.slots[i].connected=1;}
+    /* the host: a player's take, here and to the other two */
+    mod_got[0]=0;send_count=0;
+    n=pickupPacket(raw,sizeof(raw),1,NET_MOD_TAKEN,0xFF,taken,(int)sizeof(taken));modArrives(&hit_peers[1],raw,n);
+    CHECK(!strcmp(mod_got,"pickup tactical 1 3 8;") && send_count==2 && sent_peer!=&hit_peers[1]);
+    /* a player's drop, a take to one, a short take: none */
+    mod_got[0]=0;send_count=0;
+    n=pickupPacket(raw,sizeof(raw),1,NET_MOD_DROP,0xFF,drop,(int)sizeof(drop));modArrives(&hit_peers[1],raw,n);
+    n=pickupPacket(raw,sizeof(raw),1,NET_MOD_TAKEN,3,taken,(int)sizeof(taken));modArrives(&hit_peers[1],raw,n);
+    n=pickupPacket(raw,sizeof(raw),1,NET_MOD_TAKEN,0xFF,taken,(int)sizeof(taken)-1);modArrives(&hit_peers[1],raw,n);
+    n=pickupPacket(raw,sizeof(raw),1,4,0xFF,taken,(int)sizeof(taken));modArrives(&hit_peers[1],raw,n);
+    CHECK(!mod_got[0] && !send_count);
+    /* the host sends both to everyone; never to one, never short */
+    CHECK(netSendModMessage(NET_MOD_DROP,0xFF,"tactical",NULL,drop,(int)sizeof(drop)) && send_count==3);
+    /* the bytes after the id (u16 9, "tactical" and its NUL) */
+    CHECK(sent_data[8]==NET_MOD_DROP && sent_data[9]==0xFF && !memcmp(sent_data+21,drop,sizeof(drop)));
+    send_count=0;
+    CHECK(!netSendModMessage(NET_MOD_DROP,3,"tactical",NULL,drop,(int)sizeof(drop)));
+    CHECK(!netSendModMessage(NET_MOD_TAKEN,0xFF,"tactical",NULL,taken,4) && !netSendModMessage(NET_MOD_DROP,0xFF,"tactical",NULL,NULL,12));
+    CHECK(!send_count && netSendModMessage(NET_MOD_TAKEN,0xFF,"tactical",NULL,taken,(int)sizeof(taken)) && send_count==3);
+    /* a player (slot 2): sends a take to the host, never a drop; takes the host's drop and a relayed take, not
+     * another player's drop */
+    s_local_slot=2;s_host_slot=0;s_server_peer=&hit_peers[0];
+    for(int i=1;i<4;i++) s_client_peers[i]=NULL;
+    send_count=0;
+    CHECK(!netSendModMessage(NET_MOD_DROP,0xFF,"tactical",NULL,drop,(int)sizeof(drop)) && !send_count);
+    CHECK(netSendModMessage(NET_MOD_TAKEN,0xFF,"tactical",NULL,taken,(int)sizeof(taken)) && send_count==1 && sent_peer==&hit_peers[0]);
+    mod_got[0]=0;
+    n=pickupPacket(raw,sizeof(raw),0,NET_MOD_DROP,0xFF,drop,(int)sizeof(drop));modArrives(&hit_peers[0],raw,n);
+    n=pickupPacket(raw,sizeof(raw),1,NET_MOD_DROP,0xFF,drop,(int)sizeof(drop));modArrives(&hit_peers[0],raw,n);
+    n=pickupPacket(raw,sizeof(raw),1,NET_MOD_TAKEN,0xFF,taken,(int)sizeof(taken));modArrives(&hit_peers[0],raw,n);
+    n=pickupPacket(raw,sizeof(raw),0,NET_MOD_DROP,0xFF,drop,(int)sizeof(drop));modArrives(&hit_peers[1],raw,n);
+    CHECK(!strcmp(mod_got,"pickup tactical 0 2 12;pickup tactical 1 3 8;"));
     s_server_peer=NULL;
     return 0;
 }

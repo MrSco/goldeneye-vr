@@ -1074,6 +1074,11 @@ const char *gevrModScriptTakeNote(void)
     return NULL;
 }
 
+int gevrModScriptStage(void)
+{
+    return s_inMission ? s_missionStage : -1;
+}
+
 int gevrModScriptRunning(void)
 {
     int k;

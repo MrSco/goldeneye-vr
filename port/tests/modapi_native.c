@@ -37,6 +37,7 @@
  *     frame                        a frame in play (gevrModScriptFrame: the held messages go out)
  *     slotid|slottaken|slotfreed <kind> <slot>   gevr_modgame.c: a runtime pickup named (SLOTID id),
  *                                  taken by this player, freed (propobj.c objFree)
+ *     netpickup <mod> <from> <kind> <hex>   net_core.c: a shared pickup's drop (2) or take (3)
  *     panel <0|1>                  this build has the in-game screen (input.c gevrPanelAvailable)
  *     ui                           the pages the in-game screen shows now (UIPAGE, UIROW, UIBUTTON, UIASKED)
  *     uiset <page> <row> <value> | uiclick <page> <button> | uiopened   the screen's side
@@ -261,6 +262,12 @@ int gevrModGameDrop(int item, int ammo, float armour, int from)
          : gevrModApiPickupSlotId(GEVR_MODAPI_PICKUP_ARMOUR, s_dropArmour++);
 }
 void gevrModGameDropsClear(void) { s_dropArmour = 0; }
+int gevrModGamePickupRemove(int kind, int slot)
+{
+    printf("REMOVE %d %d\n", kind, slot);
+    gevrModApiPickupSlotFreed(kind, slot);   /* as objFree tells it */
+    return 1;
+}
 void gevrModGameSetAmmo(int type, int rounds) { s_ammo[type] = rounds; }
 int gevrModGameAmmoMax(int type) { return type >= 1 && type <= GEVR_MODAPI_AMMO_TYPES ? s_ammoMax[type] : 0; }
 
@@ -644,6 +651,20 @@ int main(int argc, char **argv)
             gevrModApiItemPickup(&got);
         } else if (!strcmp(cmd, "campaign") && i + 1 < argc) {
             s_modCampaign = atoi(argv[++i]);   /* a mod campaign runs (its own save) */
+        } else if (!strcmp(cmd, "netpickup") && i + 4 < argc) {
+            unsigned char bytes[64];
+            int len = 0;
+            const char *hex = argv[i + 4];
+
+            while (hex[0] && hex[1] && len < (int)sizeof(bytes)) {
+                unsigned v;
+
+                sscanf(hex, "%2x", &v);
+                bytes[len++] = (unsigned char)v;
+                hex += 2;
+            }
+            gevrModNetPickup(argv[i + 1], atoi(argv[i + 2]), atoi(argv[i + 3]), bytes, len);
+            i += 4;
         } else if (!strcmp(cmd, "slotid") && i + 2 < argc) {
             printf("SLOTID %d\n", gevrModApiPickupSlotId(atoi(argv[i + 1]), atoi(argv[i + 2])));
             i += 2;

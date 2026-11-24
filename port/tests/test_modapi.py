@@ -243,6 +243,68 @@ mod.on("tick", function() print("count", n) end)
           "a mission's load clears the last one's ids")
 
 
+def shared_drops(exe, temp):
+    """drop's shared: the host's id from 0x40000000, sent; a player's refused; the host's drop made on a player's
+    headset from the same chr with that id; the first take sent, and the others' copies removed"""
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+mod.on("mission_start", function()
+  print("solo", mod.pickups.drop({ item = "ak47", from = "player", shared = true }),
+        mod.pickups.drop({ item = "ak47", from = "player" }),
+        (pcall(mod.pickups.drop, { item = "ak47", from = "player", shared = 1 })))
+end)
+"""
+    out = run(exe, temp, "sharedsolo", lua, *play)
+    check(logs(out) == ["solo 1073741824 65536 false"] and not answers(out, "NETSEND"),
+          "solo: a shared id, nothing sent; shared is a boolean: " + str(logs(out)))
+
+    lua = r"""
+mod.on("mission_start", function()
+  print("host", mod.pickups.drop({ item = "ak47", from = 1005, shared = true }),
+        mod.pickups.drop({ armour = 0.5, from = "player", shared = true }),
+        mod.pickups.drop({ ammo = "rifle", from = "player" }),
+        (pcall(mod.pickups.drop, { item = "ak47", from = 40000, shared = true })))
+end)
+mod.on("pickup_removed", function(p) print("removed", p) end)
+"""
+    out = run(exe, temp, "sharedhost", lua, "online", 1, 1, 0, 0, *play, "slottaken", 0, 0, "slottaken", 1, 0,
+              "netpickup", "tactical", 1, 3, "0900000001000040", "frame")
+    check(logs(out) == ["host 1073741824 1073741825 65536 false", "removed 1073741825"],
+          "the host: shared ids, a local one beside them; a player's take removes the host's copy: " + str(logs(out)))
+    check(answers(out, "NETSEND") == ["NETSEND 2 255 tactical - 12 09 08 00 00 00 00 00 40 ed 03 00 00",
+                                      "NETSEND 2 255 tactical - 12 09 00 00 00 01 00 00 40 ff ff 00 80",
+                                      "NETSEND 3 255 tactical - 8 09 00 00 00 00 00 00 40"],
+          "sent: the gun from guard 1005, half armour from the host's player (slot 0), the host's own take of the "
+          "gun; the box isn't shared: " + str(answers(out, "NETSEND")))
+    check(answers(out, "REMOVE") == ["REMOVE 2 0"], "the armour's copy freed here: " + str(answers(out, "REMOVE")))
+
+    lua = r"""
+mod.on("mission_start", function()
+  print("client", (pcall(mod.pickups.drop, { item = "ak47", from = "player", shared = true })))
+end)
+mod.on("pickup_removed", function(p) print("removed", p) end)
+"""
+    out = run(exe, temp, "sharedclient", lua, "online", 1, 0, 0, 2, *play,
+              "netpickup", "tactical", 0, 2, "0908000000000040ffff0000",
+              "netpickup", "tactical", 0, 2, "0708000002000040ffff0000",
+              "netpickup", "tactical", 0, 2, "0908000003000040ffff00",
+              "netpickup", "tactical", 0, 2, "0900000001000040ed030040",
+              "frame",
+              "slotid", 0, 0, "slotid", 2, 0, "slottaken", 0, 0,
+              "netpickup", "tactical", 3, 3, "0900000001000040", "frame",
+              "netpickup", "tactical", 3, 3, "0900000001000040", "frame")
+    check(logs(out) == ["client false", "removed 1073741825"],
+          "a player's shared drop refused; the host's armour removed when another took it, once: " + str(logs(out)))
+    check(answers(out, "DROP") == ["DROP 8 0 0.00 -16", "DROP 0 0 0.25 1005"],
+          "the host's drops made here at the next frame, from the host's player (slot 0) and the guard; another "
+          "mission's and a short one not: " + str(answers(out, "DROP")))
+    check(answers(out, "SLOTID") == ["SLOTID 1073741824", "SLOTID 1073741825"],
+          "bound to the host's ids: " + str(answers(out, "SLOTID")))
+    check(answers(out, "NETSEND") == ["NETSEND 3 255 tactical - 8 09 00 00 00 00 00 00 40"]
+          and answers(out, "REMOVE") == ["REMOVE 2 0"],
+          "this player's take sent; another's removes the copy here: " + str(answers(out, "NETSEND", "REMOVE")))
+
+
 def drops_placement():
     """weapon_dropped at the game's drop; a mod's drop through the game's own; ids as co-op numbers them"""
     obj = (ROOT / "src/game/propobj.c").read_bytes().decode().replace("\r\n", "\n")
@@ -1808,6 +1870,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
 
         items(exe, temp)
         pickup_ids(exe, temp)
+        shared_drops(exe, temp)
         hands(exe, temp)
         guards(exe, temp)
         guards2(exe, temp)
@@ -1829,7 +1892,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
     print("PASS: mods' weapons area: fire attempts declined or not, weapon_fire, reloads asked and declined, an "
           "empty gun kept in hand, draws, the local player only, "
           "mod.weapon's calls and limits, mod.items, the stats put back; the hooks' places in the gun code. "
-          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, ids never reused and pickup_removed, mod.pickups.drop (armour too), "
+          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, ids never reused and pickup_removed, mod.pickups.drop (armour too, and shared), "
           "weapon_dropped, mod.inventory, mod.ammo; "
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "

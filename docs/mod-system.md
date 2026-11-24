@@ -578,9 +578,22 @@ in-game screen). We maintain the adapters, not the mods.
     at once, freed as they're taken), the stage's body armour model, taken
     by the game's own armour pickup (only when it's more than the player
     has) and worn down by shots as the stage's is. A model the stage
-    never placed is loaded first, as the game loads a hat it gives. Placed
-    on this headset only: in co-op, each headset that should have it
-    drops it (from the host's `guard_killed`, say, sent over `mod.net`).
+    never placed is loaded first, as the game loads a hat it gives.
+    Without `shared`, placed on this headset only: in co-op, each headset
+    that should have it drops it (from the host's `guard_killed`, say,
+    sent over `mod.net`), and each player can take their own.
+  - `shared = true` (the host, or solo; a player's is refused): one
+    pickup for every headset. Its id comes from `0x40000000` up, the same
+    on every headset. The host's drop goes to the others (`NET_MSG_MOD`'s
+    `NET_MOD_DROP`), and each drops its own copy from the same chr (a
+    guard by its id, or the host's player) with that id, once it's in
+    play and only in the mission it was sent in. The first player to
+    take it has the others' copies removed (`NET_MOD_TAKEN`, through the
+    host), told there as `pickup_removed`. As with the stage's own
+    pickups in co-op, two players taking it within the network's delay
+    both get it, each told `item_pickup` with the same id. A headset that
+    can't make it (no such guard there, no free slot) logs it and goes
+    without; a guard's id is 0 to 32767 for a shared drop.
   - Calls: `mod.inventory.has(item)` (any item), `give(item)` and
     `take(item)` (guns and thrown weapons only, the swap list below).
     `give` returns true when the item is new and brings no rounds; remote

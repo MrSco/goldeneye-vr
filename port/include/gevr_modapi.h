@@ -104,6 +104,9 @@ void gevrModApiItemPickup(const GevrModPickup *p);
  * it (a guard's id, GEVR_MODAPI_FROM_PLAYER, or GEVR_MODAPI_FROM_NONE) */
 #define GEVR_MODAPI_FROM_PLAYER (-1)
 #define GEVR_MODAPI_FROM_NONE (-2)
+/* gevrModGameDrop's from for a player's slot n (a shared drop from the host's
+ * player): GEVR_MODAPI_FROM_SLOT0 - n */
+#define GEVR_MODAPI_FROM_SLOT0 (-16)
 void gevrModApiWeaponDropped(int pickup, int item, int from);
 
 /* A pickup's id: the setup record's index (pickup_spawning's) for the
@@ -113,6 +116,10 @@ void gevrModApiWeaponDropped(int pickup, int item, int from);
  * is never given again in the mission. Each headset numbers its own. */
 #define GEVR_MODAPI_PICKUP_RUNTIME 0x10000
 #define GEVR_MODAPI_PICKUP_LAST 0x3FFFFFFF
+/* A shared pickup's (drop's shared): the host's numbering, the same on every
+ * headset, from here up */
+#define GEVR_MODAPI_PICKUP_SHARED 0x40000000
+#define GEVR_MODAPI_PICKUP_HELD 32    /* shared drops and takes waiting for play */
 enum { GEVR_MODAPI_PICKUP_WEAPON, GEVR_MODAPI_PICKUP_BOX, GEVR_MODAPI_PICKUP_ARMOUR, GEVR_MODAPI_PICKUP_KINDS };
 #define GEVR_MODAPI_PICKUP_SLOTS 64   /* a pool's slots at most (the game's: 30 weapons, 20 boxes) */
 #define GEVR_MODAPI_PICKUP_QUEUE 64   /* pickup_removed's waiting for the next frame */
@@ -134,6 +141,9 @@ void gevrModApiPickupClear(void);   /* and as a mission loads: no ids, none wait
 #define GEVR_MODAPI_ARMOUR_DROPS 8
 int gevrModGameDrop(int item, int ammo, float armour, int from);
 void gevrModGameDropsClear(void);   /* as a mission loads: the armour pool's records free */
+/* A shared pickup another player took first: this headset's copy in that
+ * runtime slot freed, as the game frees one (objFree tells pickup_removed) */
+int gevrModGamePickupRemove(int kind, int slot);
 
 /* The game's hooks (src/game/gevr_modgame.c) */
 struct PropDefHeaderRecord;
@@ -283,13 +293,22 @@ enum { GEVR_MODAT_PLAYER = 1, GEVR_MODAT_GUARD, GEVR_MODAT_PAD };
 #define GEVR_MODAPI_NET_INBOX 64          /* messages held until play */
 #define GEVR_MODAPI_NET_SENDS 30          /* a mod's sends a second */
 #define GEVR_MODAPI_NET_BYTES 16384       /* and their bytes */
-enum { GEVR_MODNET_DATA = 0, GEVR_MODNET_OFF = 1 };   /* net_protocol.h NET_MOD_* */
+enum { GEVR_MODNET_DATA = 0, GEVR_MODNET_OFF = 1, GEVR_MODNET_DROP = 2, GEVR_MODNET_TAKEN = 3 };   /* net_protocol.h NET_MOD_* */
+/* a shared pickup's bytes on the wire (little-endian): a drop's u8 stage, u8
+ * item, u8 ammo, u8 0, u32 id, s16 from (a guard's id, or -1 - a player's
+ * slot), u16 armour (65535 the most); a take's u8 stage, three 0s, u32 id */
+#define GEVR_MODAPI_NET_DROP_BYTES 12
+#define GEVR_MODAPI_NET_TAKEN_BYTES 8
 
 /* net_core.c: a mod's message arrived (from: the sender's slot, -1 a
  * dedicated server); held, and handed to the mod at the next frame in play */
 void gevrModNetReceive(const char *mod, int from, const char *channel, const void *data, int len);
 /* net_core.c: the mod stopped on another player's headset */
 void gevrModNetStopped(const char *mod, int from);
+/* net_core.c: a shared pickup's drop (the host's) or take (GEVR_MODNET_DROP,
+ * _TAKEN; from the sender's slot); held, and applied at the next frame in
+ * play if it's this mission's */
+void gevrModNetPickup(const char *mod, int from, int kind, const void *data, int len);
 /* net_core.c netReceiveStageReady, the host: a player is in the stage;
  * peer_ready at the next frame in play */
 void gevrModApiPeerReady(int slot);

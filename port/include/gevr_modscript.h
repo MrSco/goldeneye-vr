@@ -69,6 +69,9 @@ const char *gevrModScriptIdOf(struct lua_State *L);
 const char *gevrModScriptTakeNote(void);
 /* A mod's scripts are running now */
 int gevrModScriptRunning(void);
+/* The stage of the mission the mods are in, -1 outside one (a shared
+ * pickup's message names its mission's) */
+int gevrModScriptStage(void);
 /* All of it down (a test's teardown; the game never needs it) */
 void gevrModScriptShutdown(void);
 

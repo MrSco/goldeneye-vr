@@ -460,6 +460,33 @@ void gevrModGameDropsClear(void)
     memset(s_modArmour, 0, sizeof(s_modArmour));
 }
 
+/* A shared pickup another player took first (gevr_modapi.c): this
+ * headset's copy freed as the game frees a recycled one, so objFree tells
+ * pickup_removed */
+int gevrModGamePickupRemove(int kind, int slot)
+{
+    ObjectRecord *obj = NULL;
+
+    if (kind == GEVR_MODAPI_PICKUP_WEAPON && slot >= 0 && slot < MAX_WEAPON_SLOTS)
+    {
+        obj = (ObjectRecord *)&g_WeaponSlots[slot];
+    }
+    else if (kind == GEVR_MODAPI_PICKUP_BOX && slot >= 0 && slot < MAX_AMMO_CRATES)
+    {
+        obj = (ObjectRecord *)&g_AmmoCrates[slot];
+    }
+    else if (kind == GEVR_MODAPI_PICKUP_ARMOUR && slot >= 0 && slot < GEVR_MODAPI_ARMOUR_DROPS)
+    {
+        obj = (ObjectRecord *)&s_modArmour[slot];
+    }
+    if (obj == NULL || obj->prop == NULL)
+    {
+        return 0;
+    }
+    objFreePermanently(obj, TRUE);
+    return 1;
+}
+
 /* A pickup the game made while playing: its pool (GEVR_MODAPI_PICKUP_*) and
  * slot, or FALSE for the stage's own */
 static s32 runtimeSlot(ObjectRecord *obj, s32 *kind, s32 *slot)
@@ -946,11 +973,13 @@ int gevrModGameDrop(int item, int ammo, float armour, int from)
     s32 id = -1;
 
     if (!gevrModGamePlayerReady()) return -1;
-    if (from == GEVR_MODAPI_FROM_PLAYER)
+    if (from == GEVR_MODAPI_FROM_PLAYER || from <= GEVR_MODAPI_FROM_SLOT0)
     {
-        struct player *me = g_playerPointers[localSlot()];
+        /* this headset's player, or a player's slot (the host's, for its shared drop) */
+        const s32 slot = from == GEVR_MODAPI_FROM_PLAYER ? localSlot() : GEVR_MODAPI_FROM_SLOT0 - from;
+        struct player *who = slot >= 0 && slot < getPlayerCount() ? g_playerPointers[slot] : NULL;
 
-        chr = me != NULL && me->prop != NULL ? me->prop->chr : NULL;
+        chr = who != NULL && who->prop != NULL ? who->prop->chr : NULL;
     }
     else
     {

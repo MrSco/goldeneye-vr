@@ -584,25 +584,89 @@ static unsigned char s_pickupTaken[GEVR_MODAPI_PICKUP_KINDS][GEVR_MODAPI_PICKUP_
 static int s_pickupNext = GEVR_MODAPI_PICKUP_RUNTIME;
 static int s_removed[GEVR_MODAPI_PICKUP_QUEUE], s_removedQueued, s_removedDropped;
 
+/*
+ * Shared pickups (drop's shared): the host's drop is given the next id from
+ * GEVR_MODAPI_PICKUP_SHARED and sent (NET_MOD_DROP); each other headset drops
+ * its own copy from the same chr and binds it that id. The first player to
+ * take one sends NET_MOD_TAKEN and the others free their copies (told there
+ * as pickup_removed). s_pickupMod: the mod that dropped it, which the
+ * messages carry; empty for a pickup that isn't shared.
+ */
+static int s_pickupBind;   /* the next id named: a shared drop's own */
+static int s_sharedNext = GEVR_MODAPI_PICKUP_SHARED;
+static char s_pickupMod[GEVR_MODAPI_PICKUP_KINDS][GEVR_MODAPI_PICKUP_SLOTS][64];
+typedef struct {
+    int kind, stage, id, item, ammo, from;
+    float armour;
+    char mod[64];
+} HeldPickup;
+static HeldPickup s_heldPickup[GEVR_MODAPI_PICKUP_HELD];
+static int s_heldPickups, s_heldPickupsDropped;
+
 static int pickupSlotOk(int kind, int slot)
 {
     return kind >= 0 && kind < GEVR_MODAPI_PICKUP_KINDS && slot >= 0 && slot < GEVR_MODAPI_PICKUP_SLOTS;
+}
+
+/* the runtime slot holding a pickup with that id now */
+static int pickupSlotOf(int id, int *kind, int *slot)
+{
+    int k, s;
+
+    for (k = 0; id != 0 && k < GEVR_MODAPI_PICKUP_KINDS; k++) {
+        for (s = 0; s < GEVR_MODAPI_PICKUP_SLOTS; s++) {
+            if (s_pickupId[k][s] == id) {
+                *kind = k;
+                *slot = s;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static void put32(unsigned char *p, unsigned v)
+{
+    p[0] = (unsigned char)v;
+    p[1] = (unsigned char)(v >> 8);
+    p[2] = (unsigned char)(v >> 16);
+    p[3] = (unsigned char)(v >> 24);
+}
+
+static unsigned get32(const unsigned char *p)
+{
+    return (unsigned)p[0] | (unsigned)p[1] << 8 | (unsigned)p[2] << 16 | (unsigned)p[3] << 24;
 }
 
 int gevrModApiPickupSlotId(int kind, int slot)
 {
     if (!pickupSlotOk(kind, slot)) return -1;
     if (s_pickupId[kind][slot] == 0) {
-        if (s_pickupNext > GEVR_MODAPI_PICKUP_LAST) return -1;
-        s_pickupId[kind][slot] = s_pickupNext++;
+        if (s_pickupBind) {
+            s_pickupId[kind][slot] = s_pickupBind;   /* a shared drop's: the host's id */
+            s_pickupBind = 0;
+        } else {
+            if (s_pickupNext > GEVR_MODAPI_PICKUP_LAST) return -1;
+            s_pickupId[kind][slot] = s_pickupNext++;
+        }
         s_pickupTaken[kind][slot] = 0;
+        s_pickupMod[kind][slot][0] = '\0';
     }
     return s_pickupId[kind][slot];
 }
 
 void gevrModApiPickupSlotTaken(int kind, int slot)
 {
-    if (pickupSlotOk(kind, slot) && s_pickupId[kind][slot] != 0) s_pickupTaken[kind][slot] = 1;
+    if (!pickupSlotOk(kind, slot) || s_pickupId[kind][slot] == 0) return;
+    s_pickupTaken[kind][slot] = 1;
+    if (s_pickupId[kind][slot] >= GEVR_MODAPI_PICKUP_SHARED && s_pickupMod[kind][slot][0] && netIsActive()) {
+        /* a shared one: the others' copies go */
+        unsigned char b[GEVR_MODAPI_NET_TAKEN_BYTES] = { 0 };
+
+        b[0] = (unsigned char)gevrModScriptStage();
+        put32(b + 4, (unsigned)s_pickupId[kind][slot]);
+        netSendModMessage(GEVR_MODNET_TAKEN, 0xFF, s_pickupMod[kind][slot], NULL, b, (int)sizeof(b));
+    }
 }
 
 void gevrModApiPickupSlotFreed(int kind, int slot)
@@ -611,6 +675,7 @@ void gevrModApiPickupSlotFreed(int kind, int slot)
 
     if (!pickupSlotOk(kind, slot) || (id = s_pickupId[kind][slot]) == 0) return;
     s_pickupId[kind][slot] = 0;
+    s_pickupMod[kind][slot][0] = '\0';
     if (!s_pickupTaken[kind][slot] && gevrModScriptRunning()) {
         if (s_removedQueued < GEVR_MODAPI_PICKUP_QUEUE) s_removed[s_removedQueued++] = id;
         else s_removedDropped++;
@@ -618,10 +683,84 @@ void gevrModApiPickupSlotFreed(int kind, int slot)
     s_pickupTaken[kind][slot] = 0;
 }
 
+void gevrModNetPickup(const char *mod, int from, int kind, const void *data, int len)
+{
+    const unsigned char *b = (const unsigned char *)data;
+    HeldPickup *h;
+
+    (void)from;
+    if (!gevrModScriptRunning() || !mod || !b || strlen(mod) >= sizeof(h->mod)
+        || !(kind == GEVR_MODNET_DROP ? len == GEVR_MODAPI_NET_DROP_BYTES
+                                      : kind == GEVR_MODNET_TAKEN && len == GEVR_MODAPI_NET_TAKEN_BYTES)) {
+        return;
+    }
+    if (s_heldPickups == GEVR_MODAPI_PICKUP_HELD) {
+        s_heldPickupsDropped++;   /* logged as the frame applies them */
+        return;
+    }
+    h = &s_heldPickup[s_heldPickups++];
+    memset(h, 0, sizeof(*h));
+    snprintf(h->mod, sizeof(h->mod), "%s", mod);
+    h->kind = kind;
+    h->stage = b[0];
+    h->id = (int)get32(b + 4);
+    if (kind == GEVR_MODNET_DROP) {
+        const int raw = b[8] | b[9] << 8;
+        const int who = raw >= 0x8000 ? raw - 0x10000 : raw;
+
+        h->item = b[1];
+        h->ammo = b[2];
+        h->armour = (float)(b[10] | b[11] << 8) / 65535.0f;
+        h->from = who >= 0 ? who : GEVR_MODAPI_FROM_SLOT0 - (-1 - who);   /* a guard, or a player's slot */
+    }
+}
+
+/* the shared drops and takes that came, in order, if they're this mission's */
+static void pickupApplyHeld(void)
+{
+    const int stage = gevrModScriptStage() & 0xFF;
+    int q, n = s_heldPickups;
+    static HeldPickup taken[GEVR_MODAPI_PICKUP_HELD];
+
+    if (s_heldPickupsDropped) {
+        sysLogPrintf(LOG_WARNING, "mods: %d shared pickup message(s) dropped: more than %d waited", s_heldPickupsDropped,
+                     GEVR_MODAPI_PICKUP_HELD);
+        s_heldPickupsDropped = 0;
+    }
+    memcpy(taken, s_heldPickup, sizeof(taken[0]) * (size_t)n);
+    s_heldPickups = 0;
+    for (q = 0; q < n; q++) {
+        const HeldPickup *h = &taken[q];
+        int kind, slot;
+
+        if (h->stage != stage || h->id < GEVR_MODAPI_PICKUP_SHARED) continue;   /* another mission's */
+        if (h->kind == GEVR_MODNET_DROP) {
+            if (pickupSlotOf(h->id, &kind, &slot)
+                || (h->item != 0) + (h->ammo != 0) + (h->armour > 0.0f) != 1
+                || (h->item != 0 && !gevrModGameSwappable(h->item)) || h->ammo > GEVR_MODAPI_AMMO_TYPES) {
+                continue;   /* here already, or not one a drop makes */
+            }
+            s_pickupBind = h->id;
+            if (gevrModGameDrop(h->item, h->ammo, h->armour, h->from) >= 0 && pickupSlotOf(h->id, &kind, &slot)) {
+                snprintf(s_pickupMod[kind][slot], sizeof(s_pickupMod[kind][slot]), "%s", h->mod);
+            } else {
+                sysLogPrintf(LOG_WARNING, "mods: %s: the host's shared pickup %d isn't here (no such guard or "
+                             "player, or no free slot)", h->mod, h->id);
+            }
+            s_pickupBind = 0;
+        } else if (pickupSlotOf(h->id, &kind, &slot)) {
+            gevrModGamePickupRemove(kind, slot);   /* another player took it first: pickup_removed here */
+        }
+    }
+}
+
 void gevrModApiPickupFlush(void)
 {
-    int q, n = s_removedQueued;
+    int q, n;
     int taken[GEVR_MODAPI_PICKUP_QUEUE];
+
+    pickupApplyHeld();
+    n = s_removedQueued;
 
     if (s_removedDropped) {
         sysLogPrintf(LOG_WARNING, "mods: %d pickup_removed dropped: more than %d in a frame", s_removedDropped,
@@ -647,6 +786,11 @@ void gevrModApiPickupClear(void)
     s_pickupNext = GEVR_MODAPI_PICKUP_RUNTIME;
     s_removedQueued = 0;
     s_removedDropped = 0;
+    s_pickupBind = 0;
+    s_sharedNext = GEVR_MODAPI_PICKUP_SHARED;
+    memset(s_pickupMod, 0, sizeof(s_pickupMod));
+    s_heldPickups = 0;
+    s_heldPickupsDropped = 0;
     gevrModGameDropsClear();   /* and the armour pool: the last stage's props are gone */
 }
 
@@ -659,11 +803,13 @@ void gevrModApiPickupClear(void)
  * mod.guards id, a corpse too). The new pickup's id (as item_pickup and
  * weapon_dropped give it), or nil when there's no free slot or no such guard.
  * Placed on this headset only: in co-op, every headset that should have it
- * drops it.
+ * drops it. shared = true (the host, or solo): one pickup for every headset,
+ * one id (from GEVR_MODAPI_PICKUP_SHARED), each other headset dropping its
+ * copy from the same chr, and the first to take it taking it from everyone.
  */
 static int l_drop(lua_State *L)
 {
-    int item = 0, ammo = 0, from, id;
+    int item = 0, ammo = 0, from, id, shared = 0;
     float armour = 0.0f;
 
     luaL_checktype(L, 1, LUA_TTABLE);
@@ -695,8 +841,46 @@ static int l_drop(lua_State *L)
         from = (int)g;
     }
     lua_pop(L, 1);
+    lua_getfield(L, 1, "shared");
+    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1)) return luaL_error(L, "mod.pickups.drop: shared is true or false");
+    shared = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    if (shared && netIsActive() && !netIsHost()) return luaL_error(L, "mod.pickups.drop: a shared drop is the host's");
+    if (shared && from != GEVR_MODAPI_FROM_PLAYER && from > 32767) {
+        return luaL_error(L, "mod.pickups.drop: a shared drop's guard is 0 to 32767");
+    }
     needPlayer(L, "mod.pickups.drop");
+    if (shared) {
+        if (s_sharedNext == 0x7FFFFFFF) {
+            lua_pushnil(L);   /* the mission's shared ids used up */
+            return 1;
+        }
+        s_pickupBind = s_sharedNext++;
+    }
     id = gevrModGameDrop(item, ammo, armour, from);
+    s_pickupBind = 0;
+    if (id >= 0 && shared) {
+        int kind, slot;
+
+        if (pickupSlotOf(id, &kind, &slot)) {
+            snprintf(s_pickupMod[kind][slot], sizeof(s_pickupMod[kind][slot]), "%s", gevrModScriptIdOf(L));
+        }
+        if (netIsActive()) {
+            unsigned char b[GEVR_MODAPI_NET_DROP_BYTES] = { 0 };
+            const int who = from == GEVR_MODAPI_FROM_PLAYER ? -1 - netGetLocalSlot() : from;
+            const unsigned amount = (unsigned)(armour * 65535.0f + 0.5f);
+
+            b[0] = (unsigned char)gevrModScriptStage();
+            b[1] = (unsigned char)item;
+            b[2] = (unsigned char)ammo;
+            put32(b + 4, (unsigned)id);
+            b[8] = (unsigned char)(who & 0xFF);
+            b[9] = (unsigned char)((who >> 8) & 0xFF);
+            b[10] = (unsigned char)(amount & 0xFF);
+            b[11] = (unsigned char)(amount >> 8);
+            netSendModMessage(GEVR_MODNET_DROP, 0xFF, gevrModScriptIdOf(L), NULL, b, (int)sizeof(b));
+        }
+    }
     if (id < 0) lua_pushnil(L);
     else lua_pushinteger(L, id);
     return 1;
