@@ -54,9 +54,9 @@ static ShaderProgram program{1}, secondProgram{2}, *s_curPrg = &program;
 static bool use_multiview = true, gForceFlatShaderForMenu, gVrFlatPass, s_uniCacheValid;
 static bool s_eyePresent, s_eyeRec, s_flatRec, s_eyeReady, s_eyeSpilled, s_eyeClearDepth;
 static int s_eyeHand=-1, boundProgram=1, current_framebuffer=0;
-static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
+static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16], s_eyePresentDelta[16];
 static std::vector<ShaderProgram*> s_eyePresentationPrograms;
-static std::vector<int> s_eyeDraws;
+static std::vector<int> s_eyeDraws, s_eyeVolBatches;
 static uint32_t s_eyeKept, s_eyeMerged;
 static int VrShowStats;
 static void vr_log(const char*, ...) {}

@@ -402,6 +402,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 # src/game/gevr_speedrun.c added 2026-11-11 (speedrun timer).
 # src/game/gevr_ghost.c added 2026-11-11 (ghost race).
 # port/src/gevr_settings.c added 2026-11-05 (the settings table, docs/launcher-unify.md).
+# port/src/gevr_volumetric.c added 2026-11-23 (volumetric smoke & explosions, #249).
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 # port/server: the dedicated server's main and the headset, renderer and

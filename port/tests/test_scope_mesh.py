@@ -20,6 +20,11 @@ def function(name):
 capture = source[source.index('struct GevrScopeDraw {'):source.index("/* a hand's scope target")]
 capture = capture.replace('#define GEVR_SCOPE_RES 512', '#define GEVR_SCOPE_RES 512')
 code = capture + '\n' + function('gevr_replay_vao') + '\n' + function('gevr_replay_mesh') + '\n' + function('gfx_vr_scope_render')
+code = code.replace('static void gevr_vol_draw_recorded(const GevrVolRecordedBatch* batch, const float delta[16],\n'
+                    '                                   const float proj[16], bool applyStereo, bool depthSquash,\n'
+                    '                                   const float* eyeBase, bool flipProjY, bool flipCullY);',
+                    'static void gevr_vol_draw_recorded(const GevrVolRecordedBatch*, const float*,\n'
+                    '                                   const float*, bool, bool, const float*, bool, bool) {}')
 constants = sorted(set(re.findall(r'\bGL_[A-Z0-9_]+\b', code)))
 glcalls = set(re.findall(r'\b(gl[A-Z]\w*)\(', code))
 custom = {'glBindVertexArray','glGetIntegerv','glGetFloatv','glGetBooleanv','glIsEnabled',
@@ -35,6 +40,7 @@ prelude = '''#include <algorithm>
 #include "gfx_rendering_api.h"
 #include "gevr_mesh_visibility.h"
 #include "gevr_scope.h"
+#include "gevr_volumetric.h"
 using GLuint=unsigned; using GLint=int; using GLsizei=int; using GLenum=unsigned;
 using GLfloat=float; using GLboolean=bool;
 struct ShaderProgram { int scopeLocation=0,scopeVPLocation=1,scopeHeadPLocation=2;
@@ -64,6 +70,7 @@ static void verify_draw();
 static int get_debug_VisCVG_flag() {return 0;}
 static bool gevr_decal_writes_depth() {return false;}
 static void gevr_scope_make_target(int) {}
+static void gevr_scope_resolve_target(int) {}
 static void gevr_mesh_uniforms(const ShaderProgram*,const GfxMeshDrawParams*p,bool *bound) {savedParams=*p;*bound=true;}
 static void gevr_mesh_clip(bool) {}
 static void gevr_mesh_cull(int v) {cull=v;}

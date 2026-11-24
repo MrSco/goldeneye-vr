@@ -164,6 +164,7 @@ extern int VrResetRenderScale;  // the test build's RenderScale key was read: sc
 extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 samples (live)
 extern float VrRenderScale;     // Resolution: eye images over the headset's size, next start; 0 = the config's
 extern int VrTextureAniso;      // anisotropic filtering of HD pack and Bean pictures: 1 off, 2..16 (live)
+extern int VrVolumetricExplosions; // 1 = analytical 3D volumetric smoke and explosions, 0 = classic flat sprites (live)
 extern int VrCpuLevel;          // CPU performance level asked at session start: -1 none, 0..2
 extern int VrBatTwoHand;        // the glove-held rifle bat with both hands: 0 wrist together/line apart, 1 the line
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n

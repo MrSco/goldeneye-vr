@@ -198,6 +198,7 @@ extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]);
 extern "C" void gevrVrMarkEyesRendered(int stereo); // vr_openxr.cpp
 void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
 void gfx_opengl_draw_vignette(float strength, float blink);   // gfx_opengl.cpp
+void gfx_opengl_draw_volumetric(int batchId);                 // gfx_opengl.cpp (issue #249)
 extern "C" float gevrStereoVignette(void);          // bondview2.c
 extern "C" float gevrTeleportBlink(void);           // gevr_teleport.c: the teleport's blink, 0..1
 void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
@@ -5462,6 +5463,24 @@ static void gfx_run_dl(Gfx* cmd) {
                         gevrMenuVertices = gevrMenuTriangles = gevrMenuClipped = gevrMenuCulled = 0;
                         if (gevrMenuTrace) vr_log("menubg-rsp: begin menu=%u", menu);
                     }
+                    break;
+                }
+                if ((tag_w1 & 0xFFFF0000u) == 0x56640000u) {
+                    // GEVR_VOL_DL_TAG_PREFIX (issue #249): analytical 3D volumetric
+                    // smoke/explosion batch drawn in-place in transparency order
+                    gfx_flush();
+                    if (rdp.viewport_or_scissor_changed) {
+                        if (memcmp(&rdp.viewport, &rendering_state.viewport, sizeof(rdp.viewport)) != 0) {
+                            gfx_rapi->set_viewport(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width, rdp.viewport.height);
+                            rendering_state.viewport = rdp.viewport;
+                        }
+                        if (memcmp(&rdp.scissor, &rendering_state.scissor, sizeof(rdp.scissor)) != 0) {
+                            gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
+                            rendering_state.scissor = rdp.scissor;
+                        }
+                        rdp.viewport_or_scissor_changed = false;
+                    }
+                    gfx_opengl_draw_volumetric((int)(tag_w1 & 0xFFFFu));
                     break;
                 }
                 if ((tag_w1 & 0xFFFF0000u) == 0x56630000u) {

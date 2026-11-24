@@ -7474,42 +7474,68 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
                 screen->xmidfrac = 0.0f;
                 screen->xmidinc = 1.0f / m->arg2;
                 screen->xmidold = screen->xmid;
+#ifdef GEVR
+                /* 64-bit: command lists store 32-bit negative deltas (e.g. 0xFFFFFE00)
+                 * in uintptr_t slots; sign-extend from 32 bits before scaling (#309). */
+                screen->xmidnew = screen->xmid + (s32)m->time * (1.0f / 1024.0f);
+#else
                 screen->xmidnew = screen->xmid + m->time * (1.0f / 1024.0f);
+#endif
                 screen->offset += 3;
                 break;
             case TVCMD_SCROLLRELY:
                 screen->ymidfrac = 0.0f;
                 screen->ymidinc = 1.0f / m->arg2;
                 screen->ymidold = screen->ymid;
+#ifdef GEVR
+                screen->ymidnew = screen->ymid + (s32)m->time * (1.0f / 1024.0f);
+#else
                 screen->ymidnew = screen->ymid + m->time * (1.0f / 1024.0f);
+#endif
                 screen->offset += 3;
                 break;
             case TVCMD_SCROLLABSX:
                 screen->xmidfrac = 0.0f;
                 screen->xmidinc = 1.0f / m->arg2;
                 screen->xmidold = screen->xmid;
+#ifdef GEVR
+                screen->xmidnew = (s32)m->time * (1.0f / 1024.0f);
+#else
                 screen->xmidnew = m->time * (1.0f / 1024.0f);
+#endif
                 screen->offset += 3;
                 break;
             case TVCMD_SCROLLABSY:
                 screen->ymidfrac = 0.0f;
                 screen->ymidinc = 1.0f / m->arg2;
                 screen->ymidold = screen->ymid;
+#ifdef GEVR
+                screen->ymidnew = (s32)m->time * (1.0f / 1024.0f);
+#else
                 screen->ymidnew = m->time * (1.0f / 1024.0f);
+#endif
                 screen->offset += 3;
                 break;
             case TVCMD_SCALEABSX:
                 screen->xscalefrac = 0.0f;
                 screen->xscaleinc = 1.0f / m->arg2;
                 screen->xscaleold = screen->xscale;
+#ifdef GEVR
+                screen->xscalenew = (s32)m->time * (1.0f / 1024.0f);
+#else
                 screen->xscalenew = m->time * (1.0f / 1024.0f);
+#endif
                 screen->offset += 3;
                 break;
             case TVCMD_SCALEABSY:
                 screen->yscalefrac = 0.0f;
                 screen->yscaleinc = 1.0f / m->arg2;
                 screen->yscaleold = screen->yscale;
+#ifdef GEVR
+                screen->yscalenew = (s32)m->time * (1.0f / 1024.0f);
+#else
                 screen->yscalenew = m->time * (1.0f / 1024.0f);
+#endif
                 screen->offset += 3;
                 break;
             case TVCMD_SETTEXTURE:
@@ -7537,7 +7563,11 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
                     #endif
 
                     yielding = TRUE;
+#ifdef GEVR
+                    screen->pause60 = (s32)m->time;
+#else
                     screen->pause60 = m->time;
+#endif
                 }
                 break;
             case TVCMD_SETCMDLIST:
@@ -7578,11 +7608,19 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
                 screen->offset += 3;
                 break;
             case TVCMD_ROTATEABS:
+#ifdef GEVR
+                screen->rot = (s32)m->time * M_TAU_F / M_U16_MAX_VALUE_F;
+#else
                 screen->rot = m->time * M_TAU_F / M_U16_MAX_VALUE_F;
+#endif
                 screen->offset += 2;
                 break;
             case TVCMD_ROTATEREL:
+#ifdef GEVR
+                screen->rot += MONITOR_TIMER_DELTA * (s32)m->time * M_TAU_F / M_U16_MAX_VALUE_F;
+#else
                 screen->rot += MONITOR_TIMER_DELTA * m->time * M_TAU_F / M_U16_MAX_VALUE_F;
+#endif
 
                 if (screen->rot >= M_TAU_F) 
                 {
@@ -7770,6 +7808,35 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
 
                 if (tmp1 * yfrac2);
 
+#ifdef GEVR
+                /* Keep wrapping monitors' UVs in one texture period so long-running
+                 * relative scrolls (e.g. scrolling text, bar graphs) never overflow s16 (#309). */
+                {
+                    f32 xmid = screen->xmid;
+                    f32 ymid = screen->ymid;
+
+                    if ((tconfig->flagsS & (G_TX_CLAMP | G_TX_MIRROR)) == 0)
+                    {
+                        xmid -= floorf(xmid);
+                    }
+                    if ((tconfig->flagsT & (G_TX_CLAMP | G_TX_MIRROR)) == 0)
+                    {
+                        ymid -= floorf(ymid);
+                    }
+
+                    vertices[0].s = (s16)(s32)(tconfig->width  * (xmid + xfrac1) * 32.0f);
+                    vertices[0].t = (s16)(s32)(tconfig->height * (ymid + yfrac1) * 32.0f);
+
+                    vertices[1].s = (s16)(s32)(tconfig->width  * (xmid - xfrac2) * 32.0f);
+                    vertices[1].t = (s16)(s32)(tconfig->height * (ymid + yfrac2) * 32.0f);
+
+                    vertices[2].s = (s16)(s32)(tconfig->width  * (xmid - xfrac1) * 32.0f);
+                    vertices[2].t = (s16)(s32)(tconfig->height * (ymid - yfrac1) * 32.0f);
+
+                    vertices[3].s = (s16)(s32)(tconfig->width  * (xmid + xfrac2) * 32.0f);
+                    vertices[3].t = (s16)(s32)(tconfig->height * (ymid - yfrac2) * 32.0f);
+                }
+#else
                 vertices[0].s = tconfig->width  * (screen->xmid + xfrac1) * 32.0f;
                 vertices[0].t = tconfig->height * (screen->ymid + yfrac1) * 32.0f;
 
@@ -7781,6 +7848,7 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
 
                 vertices[3].s = tconfig->width  * (screen->xmid + xfrac2) * 32.0f;
                 vertices[3].t = tconfig->height * (screen->ymid - yfrac2) * 32.0f;
+#endif
             }
 
             tmp2 = tmp1;

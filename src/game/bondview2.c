@@ -936,6 +936,48 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: guards' detailed guns %s", g_gevrHeldGunGuards ? "on" : "off");
             continue;
         }
+        /* "vol0" / "vol1": live-switch volumetric explosions (#249) for A/B profiling */
+        if (strcasecmp(word, "vol0") == 0 || strcasecmp(word, "vol1") == 0)
+        {
+            extern int VrVolumetricExplosions;
+            VrVolumetricExplosions = (word[3] == '1') ? 1 : 0;
+            sysLogPrintf(LOG_NOTE, "cheathook: volumetric explosions %s", VrVolumetricExplosions ? "on" : "off");
+            continue;
+        }
+        /* "boom<N>": spawn N grenade explosions (type 0xD, default 1, max 6) directly
+         * ahead of Bond for repeatable A/B smoke & fireball performance benchmarks */
+        if (strncasecmp(word, "boom", 4) == 0)
+        {
+            s32 n = word[4] ? atoi(word + 4) : 1;
+            s32 k;
+            Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+            coord3d base = g_CurrentPlayer->prop->pos;
+            StandTile *tile = g_CurrentPlayer->prop->stan;
+            u8 rooms[2];
+            if (n < 1) n = 1;
+            if (n > 6) n = 6;
+            rooms[0] = (tile != NULL) ? (u8)getTileRoom(tile) : g_CurrentPlayer->prop->rooms[0];
+            rooms[1] = 0xFF;
+            for (k = 0; k < n; k++)
+            {
+                coord3d pos = base;
+                f32 side = ((f32)k - 0.5f * (f32)(n - 1)) * 120.0f;
+                f32 fwd = 340.0f + (f32)(k & 1) * 80.0f;
+                if (v2w != NULL)
+                {
+                    pos.x += -v2w->m[2][0] * fwd + v2w->m[0][0] * side;
+                    pos.y -= 40.0f;
+                    pos.z += -v2w->m[2][2] * fwd + v2w->m[0][2] * side;
+                }
+                else
+                {
+                    pos.z -= fwd;
+                }
+                explosionCreate(NULL, &pos, tile, 0xD, 1, get_cur_playernum(), rooms, 0);
+            }
+            sysLogPrintf(LOG_NOTE, "cheathook: boom %d grenade blasts", n);
+            continue;
+        }
         /* "blast<R>": every object within R units of Bond (600 if none) takes the
          * damage that destroys it, as a shot's would (objApplyDamage): destroyed
          * props, scorched and crumpled, without aiming from the PC */

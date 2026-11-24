@@ -2859,7 +2859,7 @@ static bool vr_pointer_own_cursor(void)
  * Quest's own panels show. Premultiplied alpha, no depth.
  */
 static GLuint s_ptrProg, s_ptrVao, s_ptrVbo;
-static GLint s_ptrVpLoc = -1;
+static GLint s_ptrVp0Loc = -1, s_ptrVp1Loc = -1;
 static void QuatToMat4(const XrQuaternionf& q, float* m);          // below
 static void Mat4Mul(const float* a, const float* b, float* out);
 static void InvertRigidMat4(const float* m, float* out);
@@ -2938,11 +2938,12 @@ static void vr_pointer_paint(const std::array<XrView, 2> &views, bool declare)
             "#version 300 es\n"
             "#extension GL_OVR_multiview2 : require\n"
             "layout(num_views = 2) in;\n"
-            "uniform mat4 uVP[2];\n"
+            "uniform mat4 uVP0;\n"
+            "uniform mat4 uVP1;\n"
             "layout(location = 0) in vec3 aPos;\n"
             "layout(location = 1) in vec4 aShape;\n"   // x across, y along, z kind (0 beam, 1 dot), w alpha
             "out vec4 vShape;\n"
-            "void main() { vShape = aShape; gl_Position = uVP[gl_ViewID_OVR] * vec4(aPos, 1.0); }\n";
+            "void main() { vShape = aShape; gl_Position = ((gl_ViewID_OVR == 0u) ? uVP0 : uVP1) * vec4(aPos, 1.0); }\n";
         const char *fs =
             "#version 300 es\n"
             "precision mediump float;\n"
@@ -2981,7 +2982,8 @@ static void vr_pointer_paint(const std::array<XrView, 2> &views, bool declare)
             s_ptrProg = 0xffffffffu;
             return;
         }
-        s_ptrVpLoc = glGetUniformLocation(s_ptrProg, "uVP");
+        s_ptrVp0Loc = glGetUniformLocation(s_ptrProg, "uVP0");
+        s_ptrVp1Loc = glGetUniformLocation(s_ptrProg, "uVP1");
         glGenVertexArrays(1, &s_ptrVao);
         glGenBuffers(1, &s_ptrVbo);
         glBindVertexArray(s_ptrVao);
@@ -3078,7 +3080,8 @@ static void vr_pointer_paint(const std::array<XrView, 2> &views, bool declare)
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(s_ptrProg);
-    glUniformMatrix4fv(s_ptrVpLoc, 2, GL_FALSE, vp);
+    glUniformMatrix4fv(s_ptrVp0Loc, 1, GL_FALSE, vp);
+    glUniformMatrix4fv(s_ptrVp1Loc, 1, GL_FALSE, vp + 16);
     glBindVertexArray(s_ptrVao);
     glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
     if (p0.hit && wanted) {
@@ -5249,7 +5252,7 @@ static void vr_subimage_v(const XrRect2Di &r, int32_t h, float *v0, float *v1)
 
 static bool vr_hud_layer_render(const std::array<XrView, 2> &views, XrTime time, const VrHudQuad *quads, int n)
 {
-    if (n <= 0 || g_hudLayerFailed || !glFramebufferTextureMultiviewOVR) {
+    if (n <= 0 || g_hudLayerFailed || !glFramebufferTextureLayer) {
         return false;
     }
     if (g_hudLayerSwapchain == XR_NULL_HANDLE) {
@@ -5275,15 +5278,16 @@ static bool vr_hud_layer_render(const std::array<XrView, 2> &views, XrTime time,
         LOGI("hud layer: %d x %d (SteamVR: the in-game quads as eye buffers)", g_hudLayerW, g_hudLayerH);
     }
     if (s_hudProg == 0) {
+        // Plain single-view shader rendered once per eye via glFramebufferTextureLayer
+        // (issue #321: avoids Mesa/Zink GL_OVR_multiview2 dynamic mat4[] indexing bugs
+        // that displaced the scope and HUD quads in the right eye on Steam Frame).
         const char *vs =
             "#version 300 es\n"
-            "#extension GL_OVR_multiview2 : require\n"
-            "layout(num_views = 2) in;\n"
-            "uniform mat4 uVP[2];\n"
+            "uniform mat4 uVP;\n"
             "layout(location = 0) in vec3 aPos;\n"
             "layout(location = 1) in vec2 aUV;\n"
             "out vec2 vUV;\n"
-            "void main() { vUV = aUV; gl_Position = uVP[gl_ViewID_OVR] * vec4(aPos, 1.0); }\n";
+            "void main() { vUV = aUV; gl_Position = uVP * vec4(aPos, 1.0); }\n";
         // the scope's: vr_scope_copy_init's lens, its uv across the quad
         const char *fs =
             "#version 300 es\n"
@@ -5438,39 +5442,42 @@ static bool vr_hud_layer_render(const std::array<XrView, 2> &views, XrTime time,
         glGenFramebuffers(1, &g_hudLayerFbo);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, g_hudLayerFbo);
-    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, g_hudLayerImages[index].image, 0, 0, 2);
     glViewport(0, 0, g_hudLayerW, g_hudLayerH);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   // premultiplied, as the runtime takes the quads
     glUseProgram(s_hudProg);
-    glUniformMatrix4fv(s_hudVpLoc, 2, GL_FALSE, vp);
     glBindVertexArray(s_hudVao);
     glBindBuffer(GL_ARRAY_BUFFER, s_hudVbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(n * 6 * 5 * sizeof(float)), verts, GL_STREAM_DRAW);
-    for (int i = 0; i < n; i++) {
-        // smooth and clamped while drawn here; the capture keeps its own filtering
-        GLint minF = 0, magF = 0, wrapS = 0, wrapT = 0;
-        glBindTexture(GL_TEXTURE_2D, quads[i].tex);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &minF);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &magF);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, &wrapS);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, &wrapT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glUniform1i(s_hudRoundLoc, quads[i].round ? 1 : 0);
-        glDrawArrays(GL_TRIANGLES, i * 6, 6);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minF);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magF);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapS);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
+    for (int eye = 0; eye < 2; eye++) {
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                  g_hudLayerImages[index].image, 0, eye);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glUniformMatrix4fv(s_hudVpLoc, 1, GL_FALSE, vp + eye * 16);
+        for (int i = 0; i < n; i++) {
+            // smooth and clamped while drawn here; the capture keeps its own filtering
+            GLint minF = 0, magF = 0, wrapS = 0, wrapT = 0;
+            glBindTexture(GL_TEXTURE_2D, quads[i].tex);
+            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &minF);
+            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &magF);
+            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, &wrapS);
+            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, &wrapT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glUniform1i(s_hudRoundLoc, quads[i].round ? 1 : 0);
+            glDrawArrays(GL_TRIANGLES, i * 6, 6);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minF);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magF);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapS);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
+        }
     }
 
     glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);

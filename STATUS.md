@@ -5,32 +5,30 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.26 (versionCode 139, protocol 27), 2026-11-23, tag on
-e8ca03bd ([notes](docs/releases/v0.5.26.md)): hand reload on by default (on once
-for older inis, `HandReloadDefaulted`) with grip use held on for every model set;
-force pull one setting (no Pull disarm / Pull visuals / Auto pickup); reload mode
-in multiplayer (roster column, host "Hand reload only", Join list "Hide games with
-button reload", `NET_MSG_RELOAD_MODE` 64, additive; lobby service #19); ghost
-runs note the reload; the Graphics tab with per-headset Auto defaults measured on
-a Quest 3; the lobby's player menu with Add friend (and the ghost boards'); doors
-and Dam's truck read `CHRFLAG_HIDDEN` (64-bit Android/Linux/Apple read the prop
-pointer there) and treat bodies alike with Bodies stay and ragdolls on or off;
-the third-person camera comes in at solid objects; proximity voice 8-25 m; flat
-Crouch key and pause Enter fix; back to launcher waits for the old process; the
-Join list's server filter (#281, service #18); iCloud sync on TestFlight (App
-Store profiles remade with iCloud, archives with `GEVR_ICLOUD=1`). Protocol 27
-unchanged: plays online with v0.5.25 to v0.5.22. 9 downloads from one commit;
-TestFlight iOS 148 and visionOS 23 with iCloud; tvOS 9 without it, then tvOS 10
-with it (aps-environment beside iCloud: Push on the App ID, profiles remade). Gates: port/tests 120/120 on Windows and 120/120 on
-Linux (#302's toolchain fixes), the 12 asset tests on both, Java 147 (three
-flavours), dedicated server gate passed (26 kills, 3.6% peak CPU); played by the
-user on a Quest 3 (the truck, third person, gestures, launcher). PR #295.
-**Next:** volumetric smoke and explosions (#249, design thread), the mod system
-(`mod-system`, #292), host rule against teleporting (protocol 28), bolts that
-move on the meshes, the iCloud dev profiles remade (INVALID since Push).
-**Before it:** v0.5.25 (versionCode 138), tag on c4218068
-([notes](docs/releases/v0.5.25.md)), PR #278; v0.5.24 (versionCode 137), tag on
-e73c2a4f ([notes](docs/releases/v0.5.24.md)), PR #272.
+**Release:** v0.5.27 (versionCode 140, protocol 27), 2026-11-23, tag on
+37cd0d7a ([notes](docs/releases/v0.5.27.md)): analytical 3D volumetric
+explosions and world-anchored lingering smoke (#249, Graphics → Explosions,
+Classic default, FP16 + startup pre-warm + spatial cluster merging, Quest 3
+120 Hz 0 missed frames across 1- and 4-grenade chaos); 64-bit monitor scrolling
+negative delta sign-extension and UV wrap (#309, PR #311); Steam Frame scope
+fix (#321: 2-layer `GL_OVR_multiview` scope FBO + layer-0 blit so Mesa/Zink
+accepts `num_views = 2` draws, and per-eye `glFramebufferTextureLayer` HUD
+layer + explicit `uVP0`/`uVP1` uniforms fixing right-eye lens displacement).
+Protocol 27 unchanged: plays online with v0.5.26 to v0.5.22. 9 downloads from
+one commit; TestFlight iOS 149, tvOS 11 and visionOS 24 with iCloud
+(`GEVR_ICLOUD=1`). Gates: `port/tests` 122/122 on Windows and 122/122 on Linux,
+Java unit tests (three flavours), dedicated server gate passed (19 kills, 3.8%
+peak CPU awake, 0.4% idle); explosions, smoke and Dam monitors played by the
+user on a Quest 3. PR #311, PR #322.
+**Next:** the mod system (`mod-system`, #292), host rule against teleporting
+(protocol 28), bolts that move on the meshes, the iCloud dev profiles remade
+(INVALID since Push).
+**Before it:** v0.5.26 (versionCode 139, protocol 27), tag on e8ca03bd
+([notes](docs/releases/v0.5.26.md)), PR #295 (hand reload default, Graphics tab
+with per-headset Auto defaults, reload mode in multiplayer, Add friend, doors/truck
+`CHRFLAG_HIDDEN`, iCloud sync on TestFlight); v0.5.25 (versionCode 138), tag on
+c4218068 ([notes](docs/releases/v0.5.25.md)), PR #278; v0.5.24 (versionCode 137),
+tag on e73c2a4f ([notes](docs/releases/v0.5.24.md)), PR #272.
 **In v0.5.23 (from t3/discuss-issue-269):** #269's Apple TV
 list: the Info.plist's GCSupportsMultipleMicroGamepads + DirectionalGamepad
 (tvOS 26 merged a 2nd generation remote into a ring-less "Coalesced Remote";

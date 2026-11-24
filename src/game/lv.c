@@ -933,8 +933,18 @@ Gfx* lvlRender(Gfx* DL)
 #ifdef GEVR
     {
         extern void gevrStereoFrame(s32 inlevel);
+        extern void gevrVolumetricBeginFrame(void);
+        extern f32 g_gevrVolumetricTimeSec;
         extern bool netIsActive(void);
         extern int netGetLocalSlot(void);
+        gevrVolumetricBeginFrame();
+        if (g_ClockTimer > 0) {
+            f32 dt = (g_ClockTimer < 15 ? (f32)g_ClockTimer : 15.0f) * (1.0f / 60.0f);
+            g_gevrVolumetricTimeSec += dt;
+            if (g_gevrVolumetricTimeSec > 10000.0f) {
+                g_gevrVolumetricTimeSec -= 10000.0f;
+            }
+        }
         /*
          * The local slot's player, when it has one. A co-op party's menus are
          * the solo title stage with player 0 alone (net_core.c

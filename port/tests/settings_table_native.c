@@ -199,6 +199,15 @@ int main(void)
           "N64 accurate is the three-point filter and warns on a headset");
     gevrSettingSet(id, 1);
     check(s_texFilter == 1 && gevrSettingDefault(id) == 1, "texture filtering back to Smooth, its default");
+    /* Volumetric smoke & explosions (#249): live, off (Classic) by default */
+    id = find("Explosions");
+    check(gevrSettingIndex(id) == 0 && VrVolumetricExplosions == 0, "explosions default to Classic");
+    text(id, t);
+    check(!strcmp(t, "Classic"), "explosions default label is Classic");
+    gevrSettingSet(id, 1); text(id, t);
+    check(VrVolumetricExplosions == 1 && !strcmp(t, "Volumetric"), "explosions switch live to Volumetric");
+    gevrSettingSet(id, 0);
+    check(VrVolumetricExplosions == 0, "explosions switch back to Classic");
     id = find("Movement speed");
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");
