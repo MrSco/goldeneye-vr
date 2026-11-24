@@ -1047,7 +1047,8 @@ static void uiRow(lua_State *L, int t, GevrModUiRow *r, int index)
 }
 
 /* page(id, {title, text, rows, buttons}): a sub-tab under the in-game
- * screen's Mods/Fun, made or replaced */
+ * screen's Mods/Fun, made or replaced (true), or false when the four pages
+ * are taken */
 static int l_uiPage(lua_State *L)
 {
     const char *mod = gevrModScriptIdOf(L);
@@ -1099,11 +1100,16 @@ static int l_uiPage(lua_State *L)
         if (!strcmp(s_pages[i].mod, mod) && !strcmp(s_pages[i].id, p.id)) at = i;
     }
     if (at < 0) {
-        if (s_pageCount == GEVR_MODAPI_UI_PAGES) return luaL_error(L, "mod.ui.page: at most 4 pages, every mod's together");
+        /* every mod's together, so no mod can know: false, not an error */
+        if (s_pageCount == GEVR_MODAPI_UI_PAGES) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
         at = s_pageCount++;
     }
     s_pages[at] = p;
-    return 0;
+    lua_pushboolean(L, 1);
+    return 1;
 }
 
 static int ownPage(lua_State *L, int arg)

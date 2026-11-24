@@ -7452,6 +7452,29 @@ void bondviewRemovePlayerBody(void)
 }
 
 #ifdef GEVR
+/*
+ * input.c: a page a mod asked for (mod.ui.open) waits while this is true. The
+ * screen pauses a solo mission with a Start press, and Start during the
+ * intro's fly-by and swirl skips them (bondviewTickCamera's skips) instead:
+ * the page would come up over a running mission. Solo plays in
+ * CAMERAMODE_FP (NONE only between modes, or before the intro starts);
+ * local multiplayer plays in NONE after its swirl. Online the screen
+ * doesn't pause, so nothing waits.
+ */
+s32 gevrIntroPlaying(void)
+{
+    if (netIsActive())
+    {
+        return FALSE;
+    }
+    if (g_CameraMode == CAMERAMODE_NONE)
+    {
+        return getPlayerCount() == 1;
+    }
+    return g_CameraMode == CAMERAMODE_INTRO || g_CameraMode == CAMERAMODE_FADESWIRL
+        || g_CameraMode == CAMERAMODE_SWIRL || g_CameraMode == CAMERAMODE_MP;
+}
+
 static s32 gevrCoopIntroActive(void)
 {
     return gevrCoopActive() && (g_CameraMode == CAMERAMODE_INTRO

@@ -702,9 +702,12 @@ in-game screen). We maintain the adapters, not the mods.
     Up to 4 `buttons`, each an `id`, a `label` (up to 14) and `blocked`.
     The rows are drawn as the settings' rows are, so they look and fit
     the same (one column, or two when they fit); no Reset.
-  - At most 4 pages, every mod's together. A page stays until the mod
-    removes it (`mod.ui.remove(id)`), across missions; a stopped mod's
-    pages hide until it runs again.
+  - At most 4 pages, every mod's together. `mod.ui.page` returns true
+    when the page is made or replaced, and false when all four are taken
+    by others (a mod can't know how many the others use); a malformed
+    page is still an error. A page stays until the mod removes it
+    (`mod.ui.remove(id)`), across missions; a stopped mod's pages hide
+    until it runs again.
   - `ui_change(page, row, value)` and `ui_click(page, button)` reach only
     the page's own mod, at its next frame (before `tick`), even while the
     solo panel holds the mission paused. A change is kept on the page at
@@ -715,7 +718,11 @@ in-game screen). We maintain the adapters, not the mods.
   - `mod.ui.open(id)` opens the in-game screen on the page, as the hold
     opens it: a solo mission pauses under it, and online the match screen
     comes up on Settings. False where there's no screen (the dedicated
-    server). `mod.ui.close()` closes the screen, as Resume does.
+    server). Asked during a solo mission's intro (from `mission_start`,
+    say), the screen comes up when the intro ends, paused before play:
+    the pause is a Start press, which the intro would take as a skip
+    (`gevrIntroPlaying()`). `mod.ui.close()` closes the screen, as Resume
+    does.
   - The limits keep the fullest page (four pages, eight rows of the
     longest labels, choices and reasons, four buttons) on both screens
     without scrolling at the Quest's font size

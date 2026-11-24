@@ -323,9 +323,13 @@ void gevrPanelCloseAsk(void)
     s_gevrPanel = 0;
 #endif
 }
+extern int gevrIntroPlaying(void);   /* bondview2.c */
 static void gevrPanelTakeAsk(u32 t, int paused)
 {
     if (!s_gevrPanelAsk) return;
+    /* the intro: the pause's Start would skip it and the mission would run on,
+     * so the ask waits for play (mod.ui.open from mission_start) */
+    if (gevrIntroPlaying()) return;
     s_gevrPanelAsk = 0;
     if (s_gevrPanel) return;
     s_gevrPanel = 1;

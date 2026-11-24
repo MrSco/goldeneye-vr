@@ -902,6 +902,17 @@ def ui_placement():
     inp = (ROOT / "port/src/input.c").read_bytes().decode()
     check(inp.count("panelWas = s_gevrPanel;\n            gevrPanelTakeAsk(t, paused);") == 2,
           "mod.ui.open: the flat game's and the headset's panel passes both take the ask")
+    take = function(inp, "static void gevrPanelTakeAsk(u32 t, int paused)")
+    check(take.index("if (gevrIntroPlaying()) return;") < take.index("s_gevrPanelAsk = 0;") < take.index("s_gevrStartUntil"),
+          "a page asked for in the intro waits for play, still asked, before the pause's Start")
+    view = (ROOT / "src/game/bondview2.c").read_bytes().decode()
+    intro = function(view, "s32 gevrIntroPlaying(void)")
+    check("if (netIsActive())" in intro and "getPlayerCount() == 1" in intro
+          and all(m in intro for m in ("CAMERAMODE_INTRO", "CAMERAMODE_FADESWIRL", "CAMERAMODE_SWIRL", "CAMERAMODE_MP")),
+          "the intro: its fly-by, fade and swirl (solo's NONE before it), multiplayer's swirl; online nothing waits")
+    skip = view.index("(buttons & ~oldbuttons & (CONT_A | B_BUTTON | Z_TRIG | START_BUTTON | CONT_R | CONT_L))")
+    check(view.rindex("g_CameraMode == CAMERAMODE_INTRO", 0, skip) > skip - 4000,
+          "the reason: Start skips the intro (if this moves, recheck gevrIntroPlaying)")
     menu = (ROOT / "port/vr/vr_pause_menu.cpp").read_bytes().decode()
     check("gevrModUiAttach(v.settings);" in menu and "gevrModUiAttach(view.settings);" in menu,
           "the solo panel and the online Settings tab both draw the mods' pages")
@@ -990,16 +1001,17 @@ mod.on("mission_start", function()
   try("p", { title = "T", buttons = { { id = "a", label = string.rep("b", 15) } } })
   try("p", { title = "T", buttons = { { id = "a", label = "A" }, { id = "a", label = "B" } } })
   print("bad", bad)
-  for i = 1, 4 do mod.ui.page("p" .. i, { title = "P" .. i }) end
-  local ok, err = pcall(mod.ui.page, "p5", { title = "P5" })
-  print("fifth", ok, err:match("at most 4 pages") ~= nil)
-  mod.ui.page("p2", { title = "Again" })
+  local made = 0
+  for i = 1, 4 do if mod.ui.page("p" .. i, { title = "P" .. i }) == true then made = made + 1 end end
+  print("fifth", made, mod.ui.page("p5", { title = "P5" }))
+  print("again", mod.ui.page("p2", { title = "Again" }))
   print("remove", mod.ui.remove("p1"), mod.ui.remove("p1"), (pcall(mod.ui.open, "p1")))
 end)
 """
     out = run(exe, temp, "uibad", lua, *play, "ui")
-    check(logs(out) == ["bad 27", "fifth false true", "remove true false false"],
-          "27 pages refused; 4 at most, every mod's together; a page replaced in its place; remove: " + str(logs(out)))
+    check(logs(out) == ["bad 27", "fifth 4 false", "again true", "remove true false false"],
+          "27 pages refused; 4 at most, every mod's together, a fifth false; a page replaced in its place; remove: "
+          + str(logs(out)))
     check(answers(out, "UIPAGE") == ["UIPAGE 0 tactical p2 Again|", "UIPAGE 1 tactical p3 P3|", "UIPAGE 2 tactical p4 P4|"],
           "the pages left, in their order: " + str(answers(out, "UIPAGE")))
 
