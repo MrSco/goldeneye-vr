@@ -44,13 +44,14 @@ static s32 Offset;
 s32 get_cur_playernum(void) { return cur_player; }
 void set_cur_player(s32 playernum) { cur_player = playernum; }
 int netGetLocalSlot(void) { return local_slot; }
+bool netSlotIsLocalHuman(int slot) { return slot == local_slot; }
 bool netIsHost(void) { return is_host; }
 int netCoopActive(void) { return coop_active; }
 bool netIsActive(void) { return net_active; }
 int gevrCoopPuppets(void) { return puppets; }
 int gevrCoopDowned(int player) { return player >= 0 && player < 4 && downed[player]; }
 bool netSlotOccupied(int slot) { return slot >= 0 && slot < 4 && occupied[slot]; }
-bool netSlotIsSpectator(int slot) { return slot >= 0 && slot < 4 && spectator[slot]; }
+bool netSlotIsSpectator(int slot) { return slot >= 0 && slot < 4 && (spectator[slot] || (slot == local_slot && netLocalIsSpectator())); }
 int bondinvAddInvItem(int item)
 {
     assert(cur_player >= 0 && cur_player < 4);

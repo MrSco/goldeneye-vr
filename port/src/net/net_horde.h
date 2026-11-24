@@ -16,6 +16,7 @@ void netHordeTick(void);
 void netHordeReceive(struct netbuf *b);
 void netHordeReceiveClient(int slot, struct netbuf *b);
 void netHordeRequestAction(unsigned action, unsigned item);
+void netHordeRequestActionSlot(int slot, unsigned action, unsigned item);
 void netHordeSend(int slot); /* -1 broadcasts, otherwise late-join snapshot */
 void gevrHordePrepareSetup(void);
 int gevrHordeSkipProp(int type);

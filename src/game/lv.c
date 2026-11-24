@@ -949,7 +949,6 @@ Gfx* lvlRender(Gfx* DL)
             set_cur_player(0);
         }
         gevrStereoFrame(g_CurrentStageToLoad != LEVELID_TITLE);
-        if (g_CurrentStageToLoad != LEVELID_TITLE) netSpectatorFrame();
     }
 #endif
     gSPSegment(DL++, SPSEGMENT_PHYSICAL, NULL);
@@ -982,12 +981,12 @@ Gfx* lvlRender(Gfx* DL)
             s32 playernum = get_nth_player_from_shuffled(i);
 #ifdef GEVR
             {
-                extern int netGetLocalSlot(void);
+                extern int gevrNetSlotIsLocalHuman(int slot);
                 extern bool netSlotOccupied(int slot);
-                if (netIsActive() && playernum != netGetLocalSlot())
+                if (netIsActive() && !gevrNetSlotIsLocalHuman(playernum))
                 {
-                    /* Online only the local player's view is drawn; the other
-                     * players' copies get their view pass without the drawing. */
+                    /* Online only local human viewports are drawn; remote and bot
+                     * copies get their view pass without the drawing. */
                     if (netSlotOccupied(playernum))
                     {
                         gevrViewPass(playernum, GUNRIGHT);
@@ -998,6 +997,30 @@ Gfx* lvlRender(Gfx* DL)
             }
 #endif
             set_cur_player(playernum);
+#ifdef GEVR
+            if (netIsActive())
+            {
+                extern s16 bondviewGetCurrentPlayerViewportWidth(void);
+                extern s16 bondviewGetCurrentPlayerViewportHeight(void);
+                extern s16 get_curplayer_viewport_ulx(void);
+                extern s16 bondviewGetCurrentPlayerViewportUly(void);
+                extern float portNativeAspect(void);
+                s16 vw = bondviewGetCurrentPlayerViewportWidth();
+                s16 vh = bondviewGetCurrentPlayerViewportHeight();
+                s16 vl = get_curplayer_viewport_ulx();
+                s16 vt = bondviewGetCurrentPlayerViewportUly();
+                if (g_CurrentPlayer->viewx != vw || g_CurrentPlayer->viewy != vh ||
+                    g_CurrentPlayer->viewleft != vl || g_CurrentPlayer->viewtop != vt)
+                {
+                    f32 nat = portNativeAspect();
+                    f32 asp = nat > 0.0f ? ((f32)vw / (f32)vh) * 0.75f * nat : ((f32)vw / (f32)vh);
+                    set_cur_player_screen_size(vw, vh);
+                    set_cur_player_viewport_size(vl, vt);
+                    set_cur_player_aspect(asp);
+                }
+                netSpectatorFrame();
+            }
+#endif
 
             viSetViewSize(g_CurrentPlayer->viewx, g_CurrentPlayer->viewy);
             viSetViewPosition(g_CurrentPlayer->viewleft, g_CurrentPlayer->viewtop);
@@ -1431,9 +1454,9 @@ void lvlSetMultipliersForDifficulty(void)
  */
 static s32 gevrDeathPlaysHere(s32 i)
 {
-    extern int netGetLocalSlot(void);
+    extern int gevrNetSlotIsLocalHuman(int slot);
 
-    return !netIsActive() || i == netGetLocalSlot();
+    return !netIsActive() || gevrNetSlotIsLocalHuman(i);
 }
 #endif
 

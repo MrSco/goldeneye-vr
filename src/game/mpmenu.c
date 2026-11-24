@@ -29,6 +29,22 @@ extern s32 g_gevrStereo;
 extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern int netGetLocalSlot(void);
+extern int netLocalSlotCount(void);
+extern int netLocalSeatOfSlot(int slot);
+extern int gevrNetSlotIsLocalHuman(int slot);
+extern void netLobbySetCharacterSlot(int slot, u8 chr_id);
+extern void netLobbySetLoadoutSlot(int slot, const u8 items[4]);
+extern void netLobbySetTeamSlot(int slot, u8 team);
+extern void netSetVoteSlot(int slot, int kind, int choice);
+extern void netLobbySetReadySlot(int slot, bool ready);
+extern bool netRequestRemoveLocalGuest(int slot);
+extern void gevrNativePauseOpenPanel(void);
+extern int netSlotReady(int slot);
+static s32 menuActingSlot(void)
+{
+    s32 cur = get_cur_playernum();
+    return gevrNetSlotIsLocalHuman(cur) ? cur : netGetLocalSlot();
+}
 extern void netHostRoundEnded(void);
 extern bool netSlotOccupied(int slot);
 extern const char *netGetSlotName(int slot);
@@ -208,7 +224,7 @@ static void lobbyVoteValue(char *b, s32 n, s32 kind, const char *(*name)(int))
         snprintf(b, n, "%s", netNextRoundName(mode));
         return;
     }
-    s32 vote = netGetVote(kind, netGetLocalSlot());
+    s32 vote = netGetVote(kind, menuActingSlot());
     s32 tally = 0;
     s32 slot;
     for (slot = 0; slot < MAX_PLAYER_COUNT; slot++)
@@ -222,7 +238,8 @@ static void rowNextMapValue(char *b, s32 n) { lobbyVoteValue(b, n, 0, netStageNa
 static void rowNextMapStep(s32 dir)
 {
     /* through the maps the party fits; past either end is no vote */
-        s32 vote = netGetVote(0, netGetLocalSlot());
+    s32 me = menuActingSlot();
+    s32 vote = netGetVote(0, me);
     s32 count = netStageCount();
     s32 tries = count + 1;
     if (!lobbyVoting()) return;
@@ -232,18 +249,19 @@ static void rowNextMapStep(s32 dir)
         if (vote >= count) vote = -1;
         if (vote < -1) vote = count - 1;
     } while (vote >= 0 && !netStageEligible(vote) && --tries > 0);
-    netSetLocalVote(0, vote);
+    netSetVoteSlot(me, 0, vote);
 }
 static void rowNextWeaponsValue(char *b, s32 n) { lobbyVoteValue(b, n, 1, netWeaponSetName); }
 static void rowNextWeaponsStep(s32 dir)
 {
-    s32 vote = netGetVote(1, netGetLocalSlot());
+    s32 me = menuActingSlot();
+    s32 vote = netGetVote(1, me);
     s32 count = netWeaponSetCount();
     if (!lobbyVoting()) return;
     vote += dir;
     if (vote >= count) vote = -1;
     if (vote < -1) vote = count - 1;
-    netSetLocalVote(1, vote);
+    netSetVoteSlot(me, 1, vote);
 }
 static void rowNextRoundValue(char *b, s32 n) { snprintf(b, n, "%s", netNextRoundName(gevrNetConfigGet(CFG_NEXT_ROUND))); }
 static void rowNextRoundStep(s32 dir) { gevrNetConfigSet(CFG_NEXT_ROUND, gevrCycled(gevrNetConfigGet(CFG_NEXT_ROUND), dir, 3)); }
@@ -302,23 +320,24 @@ static void rowCustom0Step(s32 dir) { lobbyCustomStep(dir, 0); }
 static void rowCustom1Step(s32 dir) { lobbyCustomStep(dir, 1); }
 static void rowCustom2Step(s32 dir) { lobbyCustomStep(dir, 2); }
 static void rowCustom3Step(s32 dir) { lobbyCustomStep(dir, 3); }
-static void rowCharacterValue(char *b, s32 n) { snprintf(b, n, "%s", netCharacterName(gevrNetSlotChr(netGetLocalSlot()))); }
-static void rowCharacterStep(s32 dir) { netLobbySetCharacter((u8)gevrCycled(gevrNetSlotChr(netGetLocalSlot()), dir, netCharacterCount())); }
+static void rowCharacterValue(char *b, s32 n) { snprintf(b, n, "%s", netCharacterName(gevrNetSlotChr(menuActingSlot()))); }
+static void rowCharacterStep(s32 dir) { s32 me = menuActingSlot(); netLobbySetCharacterSlot(me, (u8)gevrCycled(gevrNetSlotChr(me), dir, netCharacterCount())); }
 static void lobbyLoadoutValue(char *b, s32 n, s32 k)
 {
-    s32 item = gevrNetSlotLoadout(netGetLocalSlot(), k);
+    s32 item = gevrNetSlotLoadout(menuActingSlot(), k);
     snprintf(b, n, "%s", item ? netItemName(item) : "NONE");
 }
 static void lobbyLoadoutStep(s32 dir, s32 k)
 {
+    s32 me = menuActingSlot();
     u8 items[4];
     s32 i;
     s32 idx;
-    for (i = 0; i < 4; i++) items[i] = (u8)gevrNetSlotLoadout(netGetLocalSlot(), i);
+    for (i = 0; i < 4; i++) items[i] = (u8)gevrNetSlotLoadout(me, i);
     idx = netItemIndexOf(items[k]);
     idx = gevrCycled(idx < 0 ? 0 : idx, dir, netItemCount());
     items[k] = gevrNetItemAt(idx);
-    netLobbySetLoadout(items);
+    netLobbySetLoadoutSlot(me, items);
 }
 static void rowLoadout0Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 0); }
 static void rowLoadout1Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 1); }
@@ -400,11 +419,23 @@ static void rowPlayersStep(s32 dir)
         if (gevrNetConfigGet(CFG_MAX_PLAYERS) == next + 2) return;
     }
 }
-static void rowTeamValue(char *b,s32 n) { snprintf(b,n,"%s",netTeamName(netGetSlotTeam(netGetLocalSlot()))); }
-static void rowTeamStep(s32 dir) { netLobbySetTeam((u8)gevrCycled(netGetSlotTeam(netGetLocalSlot()),dir,3)); }
+static void rowTeamValue(char *b,s32 n) { snprintf(b,n,"%s",netTeamName(netGetSlotTeam(menuActingSlot()))); }
+static void rowTeamStep(s32 dir) { s32 me = menuActingSlot(); netLobbySetTeamSlot(me, (u8)gevrCycled(netGetSlotTeam(me),dir,3)); }
 static s32 lobbyClient(void) { return !netIsHost(); }
-static void rowReadyValue(char *b,s32 n) { snprintf(b,n,"%s",netLocalReady() ? "READY" : "WAITING"); }
-static void rowReadyStep(s32 dir) { gevrNetSetReady(!netLocalReady()); }
+static void rowReadyValue(char *b,s32 n) { snprintf(b,n,"%s",netSlotReady(menuActingSlot()) ? "READY" : "WAITING"); }
+static void rowReadyStep(s32 dir) { s32 me = menuActingSlot(); (void)dir; netLobbySetReadySlot(me, !netSlotReady(me)); }
+static s32 lobbySplitPrimary(void) { return netLocalSlotCount() > 1 && menuActingSlot() == netGetLocalSlot(); }
+static s32 lobbySplitGuest(void) { return netLocalSlotCount() > 1 && netLocalSeatOfSlot(menuActingSlot()) > 0; }
+static void rowFullMenuValue(char *b, s32 n) { snprintf(b, n, "%s", ""); }
+static void rowFullMenuStep(s32 dir) { (void)dir; gevrNativePauseOpenPanel(); }
+static void rowDropOutValue(char *b, s32 n) { snprintf(b, n, "%s", ""); }
+static void rowDropOutStep(s32 dir)
+{
+    s32 me = menuActingSlot();
+    (void)dir;
+    if (g_CurrentPlayer) g_CurrentPlayer->mpmenuon = FALSE;
+    netRequestRemoveLocalGuest(me);
+}
 /* Bots: player slots the host runs (gevr_bot.c), changed between rounds only */
 static s32 lobbyBots(void) { return gevrNetBotRowsEditable(); }
 static s32 lobbyBotsOn(void) { return gevrNetBotRowsEditable() && gevrNetConfigGet(CFG_BOT_MODE) != NET_BOT_OFF; }
@@ -416,6 +447,8 @@ static void rowBotCountStep(s32 dir) { gevrNetConfigSet(CFG_BOT_COUNT,gevrCycled
 static void rowBotDiffValue(char *b,s32 n) { snprintf(b,n,"%s",netBotDifficultyName(gevrNetConfigGet(CFG_BOT_DIFFICULTY))); }
 static void rowBotDiffStep(s32 dir) { gevrNetConfigSet(CFG_BOT_DIFFICULTY,gevrCycled(gevrNetConfigGet(CFG_BOT_DIFFICULTY),dir,NET_BOT_DIFF_COUNT)); }
 static const GevrMenuRow s_lobbyRows[] = {
+    { "FULL MENU / SETTINGS", GEVR_ROW_ACTION, 0, lobbySplitPrimary, rowFullMenuValue, rowFullMenuStep, "A:OPEN" },
+    { "DROP OUT",        GEVR_ROW_ACTION, 0, lobbySplitGuest,   rowDropOutValue,    rowDropOutStep,     "A:LEAVE MATCH" },
     { "NEXT ROUND READY", GEVR_ROW_VALUE, 0, lobbyClient, rowReadyValue, rowReadyStep, "R-STICK:ON/OFF" },
     { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, friendlyFireTeams, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
     { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     rowStartValue,      rowStartStep,       "A:START" },
@@ -454,10 +487,12 @@ static void rowDkValue(char *b,s32 n) { funValue(b,n,NET_FUN_DK); }
 static void rowPaintValue(char *b,s32 n) { funValue(b,n,NET_FUN_PAINTBALL); }
 static void rowLineValue(char *b,s32 n) { funValue(b,n,NET_FUN_LINE); }
 static void rowRadarValue(char *b,s32 n) { funValue(b,n,NET_FUN_NO_RADAR); }
+static void rowTeleportValue(char *b,s32 n) { funValue(b,n,NET_FUN_NO_TELEPORT); }
 static void rowDkStep(s32 dir) { funStep(NET_FUN_DK); }
 static void rowPaintStep(s32 dir) { funStep(NET_FUN_PAINTBALL); }
 static void rowLineStep(s32 dir) { funStep(NET_FUN_LINE); }
 static void rowRadarStep(s32 dir) { funStep(NET_FUN_NO_RADAR); }
+static void rowTeleportStep(s32 dir) { funStep(NET_FUN_NO_TELEPORT); }
 /* hit immunity: none (every hit counts), short, GoldenEye's (net_rules.h) */
 static void rowImmunityValue(char *b,s32 n) { const char *names[] = { "NONE", "SHORT", "GOLDENEYE" }; snprintf(b,n,"%s",names[netHitImmunity(gevrNetConfigGet(CFG_FUN_FLAGS))]); }
 static void rowImmunityStep(s32 dir) { s32 f=gevrNetConfigGet(CFG_FUN_FLAGS); gevrNetConfigSet(CFG_FUN_FLAGS, netWithHitImmunity(f, gevrCycled(netHitImmunity(f),dir,3))); }
@@ -474,6 +509,7 @@ static const GevrMenuRow s_funRows[] = {
     { "PAINTBALL", GEVR_ROW_VALUE, 1, NULL, rowPaintValue, rowPaintStep, "R-STICK:ON/OFF" },
     { "LINE MODE", GEVR_ROW_VALUE, 1, NULL, rowLineValue, rowLineStep, "R-STICK:ON/OFF" },
     { "NO RADAR", GEVR_ROW_VALUE, 1, NULL, rowRadarValue, rowRadarStep, "R-STICK:ON/OFF" },
+    { "NO TELEPORT", GEVR_ROW_VALUE, 1, NULL, rowTeleportValue, rowTeleportStep, "R-STICK:ON/OFF" },
     { "HIT IMMUNITY", GEVR_ROW_VALUE, 1, NULL, rowImmunityValue, rowImmunityStep, "R-STICK:PICK" },
     { "GUN SIZE", GEVR_ROW_VALUE, 1, NULL, rowGunSizeValue, rowGunSizeStep, "R-STICK:PICK" },
     { "MOVEMENT SPEED", GEVR_ROW_VALUE, 1, NULL, rowMovementSpeedValue, rowMovementSpeedStep, "LIVE:HOST CHOOSES" },
@@ -481,13 +517,35 @@ static const GevrMenuRow s_funRows[] = {
 static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0 };
 static GevrMenuPage s_pausePage = { s_pauseRows, sizeof(s_pauseRows) / sizeof(s_pauseRows[0]), 0, 0 };
 static GevrMenuPage s_lobbyPage = { s_lobbyRows, sizeof(s_lobbyRows) / sizeof(s_lobbyRows[0]), 0, 0 };
+static s32 s_pageCursor[MAX_PLAYER_COUNT][3];
+static s32 s_pageScroll[MAX_PLAYER_COUNT][3];
 
+static s32 gevrMenuPageIdx(s32 mode)
+{
+    return mode == MENU_PAUSE ? 0 : mode == MENU_LOBBY ? 1 : mode == MENU_FUN ? 2 : -1;
+}
 static GevrMenuPage *gevrMenuPageFor(s32 mode)
 {
-    return mode == MENU_PAUSE ? &s_pausePage : mode == MENU_LOBBY ? &s_lobbyPage : mode == MENU_FUN ? &s_funPage : NULL;
+    s32 idx = gevrMenuPageIdx(mode);
+    s32 p = get_cur_playernum();
+    GevrMenuPage *pg = idx == 0 ? &s_pausePage : idx == 1 ? &s_lobbyPage : idx == 2 ? &s_funPage : NULL;
+    if (pg && p >= 0 && p < MAX_PLAYER_COUNT) {
+        pg->cursor = s_pageCursor[p][idx];
+        pg->scroll = s_pageScroll[p][idx];
+    }
+    return pg;
+}
+static void gevrMenuPageSave(s32 mode, const GevrMenuPage *pg)
+{
+    s32 idx = gevrMenuPageIdx(mode);
+    s32 p = get_cur_playernum();
+    if (pg && idx >= 0 && p >= 0 && p < MAX_PLAYER_COUNT) {
+        s_pageCursor[p][idx] = pg->cursor;
+        s_pageScroll[p][idx] = pg->scroll;
+    }
 }
 static s32 gevrRowVisible(const GevrMenuRow *r) { return r->visible == NULL || r->visible(); }
-static s32 gevrRowEditable(const GevrMenuRow *r) { return !r->hostonly || netIsHost(); }
+static s32 gevrRowEditable(const GevrMenuRow *r) { return !r->hostonly || (netIsHost() && menuActingSlot() == netGetLocalSlot()); }
 
 /* the cursor onto a visible row: dir steps to the next one that way, 0 keeps it or takes the nearest below */
 static void gevrPageMoveCursor(GevrMenuPage *page, s32 dir)
@@ -508,8 +566,10 @@ static void gevrMenuPagesTick(s32 player_num)
     if(gevrNativePauseOpen())return;
 #endif
     static int last_rclick = 0;
-    static s32 stick_direction = 0;
-    static s32 stick_held_ticks = 0;
+    static s32 stick_direction[MAX_PLAYER_COUNT];
+    static s32 stick_held_ticks[MAX_PLAYER_COUNT];
+    static s32 nav_direction[MAX_PLAYER_COUNT];
+    static s32 nav_held_ticks[MAX_PLAYER_COUNT];
     GevrMenuPage *page;
     s32 change = 0;
     s32 stick_y;
@@ -517,70 +577,78 @@ static void gevrMenuPagesTick(s32 player_num)
     s32 direction;
     int rclick;
 
-    if (!netIsActive() || player_num != netGetLocalSlot()) return;
+    if (!netIsActive() || player_num < 0 || player_num >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(player_num)) return;
     page = gevrMenuPageFor(g_CurrentPlayer->mpmenumode);
     if (page == NULL) return;
 
-    rclick = get_button_state(1, "thumbstick_click") ? 1 : 0;
-    /* Right stick click only: A also closes the pause menu. */
-    if (rclick && !last_rclick)
-    {
-        gevrPageMoveCursor(page, 1);
-        mpwatchPlayBeep();
+    if (player_num == netGetLocalSlot()) {
+        rclick = get_button_state(1, "thumbstick_click") ? 1 : 0;
+        /* Right stick click only: A also closes the pause menu. */
+        if (rclick && !last_rclick)
+        {
+            gevrPageMoveCursor(page, 1);
+            mpwatchPlayBeep();
+        }
+        last_rclick = rclick;
     }
-    last_rclick = rclick;
 
     {
-        /*
-         * The left stick's up and down move the cursor (its x flips the
-         * page: input.c gives the game that as stick_x, and drops it while
-         * the stick is mostly vertical); the right stick's left and right
-         * change the value like its up and down below.
-         */
-        static s32 nav_direction = 0;
-        static s32 nav_held_ticks = 0;
         GevrVec2 lstick = { 0.0f, 0.0f };
         GevrVec2 rstick = { 0.0f, 0.0f };
         float lx, ly, rx, ry;
-        s32 nav;
-        get_2d_input(0, "thumbstick", &lstick);
-        get_2d_input(1, "thumbstick", &rstick);
-        lx = lstick.x < 0.0f ? -lstick.x : lstick.x;
-        ly = lstick.y < 0.0f ? -lstick.y : lstick.y;
-        rx = rstick.x < 0.0f ? -rstick.x : rstick.x;
-        ry = rstick.y < 0.0f ? -rstick.y : rstick.y;
-        nav = ly > 0.5f && ly > lx ? (lstick.y > 0.0f ? -1 : 1) : 0;
-        if (nav != nav_direction)
+        s32 nav = 0;
+        if (player_num == netGetLocalSlot()) {
+            get_2d_input(0, "thumbstick", &lstick);
+            get_2d_input(1, "thumbstick", &rstick);
+            lx = lstick.x < 0.0f ? -lstick.x : lstick.x;
+            ly = lstick.y < 0.0f ? -lstick.y : lstick.y;
+            rx = rstick.x < 0.0f ? -rstick.x : rstick.x;
+            ry = rstick.y < 0.0f ? -rstick.y : rstick.y;
+            nav = ly > 0.5f && ly > lx ? (lstick.y > 0.0f ? -1 : 1) : 0;
+            stick_x_value = rx > 0.5f && rx > ry ? (rstick.x > 0.0f ? 1 : -1) : 0;
+        }
+        /* Flat gamepads & keyboard: D-pad Up/Down or C-Up/C-Down move cursor; D-pad Left/Right step value. */
+        if (!nav) {
+            u16 held = joyGetButtons(player_num, U_JPAD | D_JPAD | U_CBUTTONS | D_CBUTTONS);
+            if (held & (U_JPAD | U_CBUTTONS)) nav = -1;
+            else if (held & (D_JPAD | D_CBUTTONS)) nav = 1;
+        }
+        if (!stick_x_value) {
+            u16 held = joyGetButtons(player_num, L_JPAD | R_JPAD);
+            if (held & L_JPAD) stick_x_value = -1;
+            else if (held & R_JPAD) stick_x_value = 1;
+        }
+        if (nav != nav_direction[player_num])
         {
-            nav_direction = nav;
-            nav_held_ticks = 0;
+            nav_direction[player_num] = nav;
+            nav_held_ticks[player_num] = 0;
             if (nav)
             {
                 gevrPageMoveCursor(page, nav);
                 mpwatchPlayBeep();
             }
         }
-        else if (nav != 0 && ++nav_held_ticks >= 18 && (nav_held_ticks - 18) % 6 == 0)
+        else if (nav != 0 && ++nav_held_ticks[player_num] >= 18 && (nav_held_ticks[player_num] - 18) % 6 == 0)
         {
             gevrPageMoveCursor(page, nav);
             mpwatchPlayBeep();
         }
-        stick_x_value = rx > 0.5f && rx > ry ? (rstick.x > 0.0f ? 1 : -1) : 0;
     }
 
     stick_y = joyGetStickY(player_num);
     direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : stick_x_value;
-    if (direction != stick_direction)
+    if (direction != stick_direction[player_num])
     {
-        stick_direction = direction;
-        stick_held_ticks = 0;
+        stick_direction[player_num] = direction;
+        stick_held_ticks[player_num] = 0;
         change = direction;
     }
-    else if (direction != 0 && ++stick_held_ticks >= 18 && (stick_held_ticks - 18) % 6 == 0)
+    else if (direction != 0 && ++stick_held_ticks[player_num] >= 18 && (stick_held_ticks[player_num] - 18) % 6 == 0)
     {
         change = direction;
     }
     gevrPageMoveCursor(page, 0);
+    gevrMenuPageSave(g_CurrentPlayer->mpmenumode, page);
     if (change)
     {
         const GevrMenuRow *r = &page->rows[page->cursor];
@@ -600,6 +668,7 @@ static s32 gevrMenuPageAction(void)
     const GevrMenuRow *r;
     if (page == NULL) return 0;
     gevrPageMoveCursor(page, 0);
+    gevrMenuPageSave(g_CurrentPlayer->mpmenumode, page);
     r = &page->rows[page->cursor];
     if (!gevrRowVisible(r) || !gevrRowEditable(r) || r->kind != GEVR_ROW_ACTION || r->step == NULL) return 0;
     r->step(0);
@@ -641,6 +710,7 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     if (page->scroll < ci - shown + 1) page->scroll = ci - shown + 1;
     if (page->scroll > nvis - shown) page->scroll = nvis - shown;
     if (page->scroll < 0) page->scroll = 0;
+    gevrMenuPageSave(g_CurrentPlayer->mpmenumode, page);
 
     for (i = 0; i < shown && page->scroll + i < nvis; i++)
     {
@@ -1561,7 +1631,7 @@ void mpwatchMenuTick(void)
                     }
                 }
 #ifdef GEVR
-                else if (netIsActive() && player_num == netGetLocalSlot() &&
+                else if (netIsActive() && gevrNetSlotIsLocalHuman(player_num) &&
                          (g_CurrentPlayer->mpmenumode == MENU_LOBBY || g_CurrentPlayer->mpmenumode == MENU_FUN) &&
                          joyGetButtonsPressedThisFrame(player_num, A_BUTTON) && gevrMenuPageAction())
                 {
@@ -1628,6 +1698,11 @@ void mpwatchMenuTick(void)
                         mpwatchPlayBeep();
 #ifdef GEVR
                         if (netIsActive()) {
+                            if (netLocalSeatOfSlot(player_num) > 0) {
+                                g_CurrentPlayer->mpmenuon = FALSE;
+                                netRequestRemoveLocalGuest(player_num);
+                                return;
+                            }
                             gevrLobbySessionStopped();
                             gevrRestartToLauncher();
                             return;
@@ -1655,7 +1730,7 @@ void mpwatchMenuTick(void)
                 g_CurrentPlayer->mpmenuon = TRUE;
                 g_CurrentPlayer->mpmenumode =
 #ifdef GEVR
-                    MENU_STATUS;
+                    (netIsActive() && netLocalSlotCount() > 1) ? MENU_LOBBY : MENU_STATUS;
 #else
                     MENU_SCORES;
 #endif

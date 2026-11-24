@@ -110,6 +110,7 @@ void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3
                             const f32 *rot9, const coord3d *extra, s32 cooktimer)
 {
     extern int netGetLocalSlot(void);
+    extern int gevrNetSlotIsLocalHuman(int slot);
     extern void gevrSetCopyTrace(s32 on);
     s32 prev = get_cur_playernum();
     s32 local = netGetLocalSlot();
@@ -121,7 +122,7 @@ void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3
     s32 savedcook;
     s32 i;
 
-    if (slot < 0 || slot >= MAX_PLAYER_COUNT || slot == local || local < 0 || local >= MAX_PLAYER_COUNT || hand < 0 || hand > 1)
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || gevrNetSlotIsLocalHuman(slot) || local < 0 || local >= MAX_PLAYER_COUNT || hand < 0 || hand > 1)
     {
         return;
     }

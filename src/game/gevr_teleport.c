@@ -113,7 +113,8 @@ s32 gevrTeleportTakesStick(void)
     const s32 slot = netIsActive() ? netGetLocalSlot() : -1;
     struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : g_CurrentPlayer;
 
-    return VrTeleport && g_gevrStereo && pl != NULL && pl->prop != NULL && !pl->bonddead
+    return VrTeleport && g_gevrStereo && !(netIsActive() && (netActiveFunFlags() & NET_FUN_NO_TELEPORT))
+        && pl != NULL && pl->prop != NULL && !pl->bonddead
         && g_PlayerIsInTank != 1 && !gevrDamBoatAboard() && !gevrSpectating() && !gevrCoopLocalDowned();
 }
 
@@ -559,7 +560,8 @@ Gfx *gevrTeleportDraw(Gfx *gdl)
     coord3d floor;
     u32 rgb = s_valid ? 0x40C8FF00 : 0xFF403000;
 
-    if (!s_show || !g_gevrStereo || !VrTeleport || g_CurrentPlayer == NULL
+    if (!s_show || !g_gevrStereo || !VrTeleport
+        || (netIsActive() && (netActiveFunFlags() & NET_FUN_NO_TELEPORT)) || g_CurrentPlayer == NULL
         || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
         || !gevrPullHandRay(tpCtrl(), p, f))
     {

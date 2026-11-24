@@ -13,10 +13,11 @@
 #include "gevr_pull.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         27  /* 27: the Community Edition's fixes to GoldenEye's own stage setups and tiles (gevr_romswap.c gevrRomFixData), which change what peers load; 26: force pull, catch and disarm (NET_MSG_FORCE_PULL); 25: Horde briefcase powers and consumable buys; 24: all gameplay maps in Horde and Deathmatch (older peers reject the expanded stage set); 23: bounded Horde ammo drops and pickup grants, the Horde map, starting wave and two-gun lists; 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         28  /* 28: online split screen (multi-slot peers, NET_MSG_LOCAL_GUEST, NetLobbySlot.owner_slot) and the No teleport host rule (NET_FUN_NO_TELEPORT); 27: the Community Edition's fixes to GoldenEye's own stage setups and tiles (gevr_romswap.c gevrRomFixData), which change what peers load; 26: force pull, catch and disarm (NET_MSG_FORCE_PULL); 25: Horde briefcase powers and consumable buys; 24: all gameplay maps in Horde and Deathmatch (older peers reject the expanded stage set); 23: bounded Horde ammo drops and pickup grants, the Horde map, starting wave and two-gun lists; 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
+#define GEVR_MAX_LOCAL_PLAYERS   4   /* protocol 28: up to four local split-screen seats per flat machine */
 #define GEVR_MAX_NAME_LEN        24
 #define GEVR_VOIP_MAX_BYTES      200 /* a 20 ms Opus frame at 24 kb/s averages ~60 bytes; VBR peaks higher */
 
@@ -124,9 +125,23 @@ typedef enum {
     NET_MSG_FRIEND_CODE = 63,   /* Player -> host -> all: str the slot's friend code, "" none (the roster's Add friend) */
     /* Additive, no bump: an older build ignores the type, and its row says nothing of its reload. */
     NET_MSG_RELOAD_MODE = 64,   /* Player -> host -> all: u8 the slot's reload, NET_RELOAD_* (the roster's Reload) */
+    /* Protocol 28 (docs/online-split-screen.md): add/remove a local guest seat in lobby or mid-match */
+    NET_MSG_LOCAL_GUEST = 65,   /* Client -> host request, host -> client reply (NET_GUEST_OP_*) */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
+#define NET_DISCONNECT_NO_ROOM 0x47454e52u  /* 'GENR': not enough open slots for all local players */
+
+/* NET_MSG_LOCAL_GUEST ops & results (protocol 28) */
+enum {
+    NET_GUEST_OP_ADD = 1,       /* Client -> host: add a local split-screen guest seat */
+    NET_GUEST_OP_REMOVE = 2,    /* Client -> host (or host -> client kick): remove one guest seat */
+};
+enum {
+    NET_GUEST_RESULT_OK = 0,
+    NET_GUEST_RESULT_FULL = 1,
+    NET_GUEST_RESULT_DENIED = 2,
+};
 
 /*
  * The content check (docs/dedicated-server.md, decision 4). HELLO ends with
@@ -639,6 +654,7 @@ typedef struct {
     uint8_t   team;         /* pending team, NET_TEAM_NONE until chosen */
     uint8_t   eliminated;   /* cannot respawn until the next match */
     uint8_t   is_bot;       /* the host runs this slot with AI input (gevr_bot.c) */
+    uint8_t   owner_slot;   /* protocol 28: primary slot (0..7) of the machine owning this slot, or 0xFF */
     uint16_t  ping_ms;
     char      name[GEVR_MAX_NAME_LEN];
 } NetLobbySlot;

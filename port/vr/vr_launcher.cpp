@@ -2219,6 +2219,108 @@ static bool gevrLauncherHostIdleTick(uint64_t nowMs, bool hosting, bool act)
     return false;
 }
 
+#ifdef GEVR_FLAT
+static int s_localDesired = 1;
+
+static void gevrLocalSplitScreenStrip(const ImVec4 &gold, const char *idSuffix) {
+    ImGui::PushID(idSuffix);
+    ImGui::Separator();
+    ImGui::TextColored(gold, "LOCAL PLAYERS (SPLIT SCREEN)");
+    if (!netIsActive()) {
+        ImGui::TextUnformatted("Seats:");
+        for (int n = 1; n <= GEVR_MAX_LOCAL_PLAYERS; n++) {
+            ImGui::SameLine();
+            char lbl[16];
+            snprintf(lbl, sizeof(lbl), "%dP##lcnt%d", n, n);
+            if (ImGui::RadioButton(lbl, s_localDesired == n)) {
+                s_localDesired = n;
+                vrSyncGuestSeatConfigs();
+                netSetLocalDesiredCount(s_localDesired);
+            }
+        }
+        if (s_localDesired > 1) {
+            if (ImGui::BeginTable("##guest-pre", 3, ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("Seat", ImGuiTableColumnFlags_WidthFixed, 34.0f);
+                ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                for (int s = 1; s < s_localDesired; s++) {
+                    int g = s - 1;
+                    char ph[32];
+                    snprintf(ph, sizeof(ph), "%s (%d)", VrPlayerName[0] ? VrPlayerName : "Player", s + 1);
+                    ImGui::PushID(s);
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("P%d", s + 1);
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::InputTextWithHint("##gname", ph, VrGuestName[g], sizeof(VrGuestName[g]),
+                                             ImGuiInputTextFlags_CallbackCharFilter, nameCharFilter);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        vrSettingsSave();
+                        vrSyncGuestSeatConfigs();
+                    }
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1);
+                    if (namedCombo("##gchr", netCharacterCount(), netCharacterName, &VrGuestChr[g], true)) {
+                        vrSettingsSave();
+                        vrSyncGuestSeatConfigs();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+    } else {
+        const int lc = netLocalSlotCount();
+        const int connected = netGetConnectedPlayerCount();
+        const int maxp = netGetMaxPlayers();
+        const bool teams = gevrLobbyHasTeams(netGetMatchConfig());
+        ImGui::SameLine();
+        ImGui::BeginDisabled(lc >= GEVR_MAX_LOCAL_PLAYERS || connected >= maxp);
+        if (ImGui::SmallButton("+ Add Local Player")) {
+            vrSyncGuestSeatConfigs();
+            netRequestAddLocalGuest(NULL, 0xFF, NET_INPUT_PAD, NULL);
+        }
+        ImGui::EndDisabled();
+        if (lc > 1 && ImGui::BeginTable("##guest-live", teams ? 4 : 3, ImGuiTableFlags_SizingStretchProp)) {
+            for (int s = 1; s < lc; s++) {
+                int sl = netSlotOfLocalSeat(s);
+                if (sl < 0) continue;
+                int g = s - 1;
+                ImGui::PushID(sl);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("P%d: %s", s + 1, netGetSlotName(sl));
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1);
+                int chr = netGetLobbyState()->slots[sl].chr_id;
+                if (namedCombo("##lgchr", netCharacterCount(), netCharacterName, &chr, true)) {
+                    if (g >= 0 && g < 3) { VrGuestChr[g] = chr; vrSettingsSave(); }
+                    netLobbySetCharacterSlot(sl, (uint8_t)chr);
+                }
+                if (teams) {
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1);
+                    int tm = netGetSlotTeam(sl);
+                    if (namedCombo("##lgtm", 3, netTeamName, &tm, false)) {
+                        netLobbySetTeamSlot(sl, (uint8_t)tm);
+                    }
+                }
+                ImGui::TableNextColumn();
+                if (ImGui::SmallButton("Remove")) {
+                    netRequestRemoveLocalGuest(sl);
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::PopID();
+}
+#endif
+
 // visibility: the lobby's own when it differs from the setting (one hosted to invite into)
 static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::string &code, const char *visibility = nullptr) {
     if (ImGui::BeginTable("host-lobby-options", 2, ImGuiTableFlags_SizingStretchSame)) {
@@ -2346,6 +2448,9 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             if (ImGui::IsItemHovered())gevrTooltip("Complete teams before countdown; warmup remains available.");
         }
     }
+#ifdef GEVR_FLAT
+    gevrLocalSplitScreenStrip(gold, "hostlobby");
+#endif
 }
 
 // Friends (docs/friends-and-invites.md): a sidebar to the right of the
@@ -2831,6 +2936,9 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
         }
         loadoutRows("mpplayer");
         gevrTeamChoiceRow("##playerteam");
+#ifdef GEVR_FLAT
+        gevrLocalSplitScreenStrip(gold, "playeropts");
+#endif
     };
     // the mic, the volumes and the voice mode: the settings table's rows (gevr_settings.c)
     auto audioOptions = [&]() {
@@ -2957,6 +3065,9 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                                     netScenarioName(cfg->scenario));
                     gevrTeamChoiceRow("##clientteam");
                     gevrLobbyRoster(gold);
+#ifdef GEVR_FLAT
+                    gevrLocalSplitScreenStrip(gold, "clientlobby");
+#endif
                     ImGui::TextDisabled("Waiting for the host to launch.");
                 } else {
                     const bool joiningOnline = !clientJoinId.empty() || s_mp.resolving.valid();
@@ -2973,6 +3084,10 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
 
                     if (joiningOnline)
                         ImGui::BeginDisabled();
+#ifdef GEVR_FLAT
+                    gevrLocalSplitScreenStrip(gold, "prejoin");
+                    ImGui::Separator();
+#endif
 
                     // 1. Public Internet Games: every game, dedicated servers or player-hosted
                     // ones (MpServerFilter), or a custom server joined by its address
@@ -3083,7 +3198,13 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                                      : game.phase == "in_progress" ? " (in progress)"
                                                                    : "",
                                      game.code.c_str());
-                            ImGui::BeginDisabled(otherCampaign && !canSwitch);
+#ifdef GEVR_FLAT
+                            const int localNeed = s_localDesired > 1 ? s_localDesired : 1;
+#else
+                            const int localNeed = 1;
+#endif
+                            const bool noRoom = (game.maxPlayers - game.players) < localNeed;
+                            ImGui::BeginDisabled((otherCampaign && !canSwitch) || noRoom);
                             const bool join = ImGui::Button(label, ImVec2(-1, 0));
                             ImGui::EndDisabled();
                             if (join) {
@@ -3104,7 +3225,9 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                                     "lobbyCommand",
                                     ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
                             }
-                            if (otherCampaign && !canSwitch && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                            if (noRoom && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                                gevrTooltip("Needs %d open slots for %d local players.", localNeed, localNeed);
+                            } else if (otherCampaign && !canSwitch && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
                                 gevrTooltip("This party plays %s. Add its ROM in the campaign dropdown beside START to join.",
                                             gevrCampaignTitle(game.campaign));
                             } else if (ImGui::IsItemHovered()) {
@@ -3161,7 +3284,13 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                                 if (!gevrLanGameListed(srv->vr_only, srv->flat_players, srv->hand_only, srv->button_players))
                                     continue;
                                 const int cap = srv->max_players;
-                                const bool full = !srv->joinable;
+#ifdef GEVR_FLAT
+                                const int localNeed = s_localDesired > 1 ? s_localDesired : 1;
+#else
+                                const int localNeed = 1;
+#endif
+                                const bool noRoom = (cap - srv->player_count) < localNeed;
+                                const bool full = !srv->joinable || noRoom;
                                 char label[260], flat[72];
                                 gevrFlatNote(flat, sizeof(flat), srv->vr_only, srv->flat_players, srv->hand_only, srv->button_players);
                                 snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s%s##srv%d",
@@ -3183,8 +3312,11 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                                     g_joinedViaInternet = false;
                                     netConnect(srv->host_ip, srv->port);
                                 }
-                                if (full)
+                                if (full) {
                                     ImGui::EndDisabled();
+                                    if (noRoom && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                                        gevrTooltip("Needs %d open slots for %d local players.", localNeed, localNeed);
+                                }
                             }
                         }
                     }

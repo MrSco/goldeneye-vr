@@ -107,6 +107,24 @@ Gfx *zbufClearCurrentPlayer(Gfx *gdl) {
     gDPSetCycleType(gdl++, G_CYC_FILL);
     gDPSetFillColor(gdl++, (GPACK_ZDZ(G_MAXFBZ, 0) << 16 | GPACK_ZDZ(G_MAXFBZ, 0)));
     gDPSetScissor(gdl++, G_SC_NON_INTERLACE, 0, 0, viGetX(), viGetY());
+#ifdef GEVR
+    {
+        extern int gevrLocalViewCount(void);
+        extern int gevrLocalViewIndex(int slot);
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vcount < 3 || vidx < 0) {
+            start_x = 0;
+            end_x = viGetX() - 1;
+        } else if ((vidx == 0) || (vidx == 2)) {
+            start_x = 0;
+            end_x = (viGetX() / 2) - 1;
+        } else {
+            start_x = viGetX() / 2;
+            end_x = viGetX() - 1;
+        }
+    }
+#else
     if (getPlayerCount() < 3) {
         start_x = 0;
         end_x = viGetX() - 1;
@@ -117,6 +135,7 @@ Gfx *zbufClearCurrentPlayer(Gfx *gdl) {
         start_x = viGetX() / 2;
         end_x = viGetX() - 1;
     }
+#endif
     gDPFillRectangle(gdl++, start_x, 0, end_x, (z_buffer_height - 1));
     gDPPipeSync(gdl++);
     return gdl;

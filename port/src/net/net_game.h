@@ -23,6 +23,9 @@ void gevrNetConfigSet(int field, int value);
 int gevrNetSlotChr(int slot);
 int gevrNetSlotIsBot(int slot);       /* the host runs this slot with AI input (gevr_bot.c) */
 int gevrNetOwnsSlot(int slot);        /* this headset decides the slot's life: its own, the host's bots */
+int gevrNetSlotIsLocalHuman(int slot); /* controlled by a local human at this machine */
+int gevrLocalViewCount(void);         /* viewports drawn on this screen (online: local humans; offline: getPlayerCount) */
+int gevrLocalViewIndex(int slot);     /* 0..3 viewport index on this screen, or -1 if remote/bot */
 int gevrNetBotFoes(int a, int b);     /* b is a's foe: not itself, not its side in a team round */
 int gevrNetBotDifficulty(void);       /* the round's NET_BOT_MEAT .. NET_BOT_DARK */
 int gevrNetBotRowsEditable(void);     /* the host's bot rows: deathmatch, outside a round in progress */

@@ -10,7 +10,7 @@
  * never touched the rule) gets it. Builds 0.4.11-0.4.13 (protocol 19) know
  * neither bit, so v0.4.14 is protocol 20. */
 enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_NO_RADAR = 16, NET_FUN_HIT_IMMUNITY = 32,
-       NET_FUN_HIT_EVERY = 64, NET_FUN_MASK = 119 };
+       NET_FUN_HIT_EVERY = 64, NET_FUN_NO_TELEPORT = 128, NET_FUN_MASK = 247 };
 #define NET_HIT_SHORT_TICKS 15
 /* 0 every hit counts, 1 short, 2 GoldenEye's */
 static inline int netHitImmunity(int flags) {

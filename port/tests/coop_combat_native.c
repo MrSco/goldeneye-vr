@@ -30,6 +30,7 @@ static int cur,local,hosting=1,downed[4],damage_events;
 static float last_damage;
 static u8 raw[64];static unsigned packet_bytes;
 int netGetLocalSlot(void) {return local;}
+bool netSlotIsLocalHuman(int slot) {return slot==local;}
 bool netIsHost(void) {return hosting;}
 int netCoopActive(void) {return 1;}
 bool netSlotOccupied(int slot) {return slot>=0 && slot<2;}

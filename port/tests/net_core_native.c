@@ -17,6 +17,7 @@ static unsigned char sent_data[1024];   /* an eight-player match snapshot is 727
 static size_t sent_size;
 static int fixture_cur=-1;   /* the player ticking, when not the local one (a bot) */
 s32 get_cur_playernum(void) { return fixture_cur>=0 ? fixture_cur : s_local_slot; }
+s32 getPlayerCount(void) { return s_max_players; }
 static int respawn_calls;
 void set_cur_player(s32 slot) { (void)slot; }
 void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn_calls++; }
@@ -29,6 +30,7 @@ int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
 int VrHordeFriendlyFire;
+int VrMpVrOnly,VrMpHandReloadOnly;
 unsigned long long VrMpFavStages;
 unsigned VrMpFavSets;
 char VrPlayerName[16]="Test";
@@ -65,8 +67,9 @@ int gevrRomPlayCampaign(void) { return fixture_campaign; }
 void vrSettingsSave(void) {}
 void netVoiceForgetSlot(uint8_t slot) { (void)slot;voice_resets++; }
 void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
+static int sent_peer_count;
 ENetPacket *enet_packet_create(const void *data,size_t size,uint32_t flags) { (void)flags;if(size<=sizeof(sent_data)) { memcpy(sent_data,data,size);sent_size=size; }return NULL; }
-int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)peer;(void)channel;(void)packet;return 0; }
+int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)peer;(void)channel;(void)packet;sent_peer_count++;return 0; }
 int enet_address_get_ip(const ENetAddress *address,char *buffer,size_t size) { (void)address;snprintf(buffer,size,"127.0.0.1");return 0; }
 static ENetPeer *disconnected_peer;
 static uint32_t disconnect_reason;
@@ -91,7 +94,9 @@ static int hud_messages;
 void hudmsgTopShow(char *mess) { (void)mess; hud_messages++; }
 static void fixture(int scenario) {
     memset(&s_round,0,sizeof(s_round)); memset(g_playerPlayerData,0,sizeof(g_playerPlayerData));
-    s_state=NET_STATE_HOSTING_LOBBY;s_local_slot=s_host_slot=0;netResetLobbyState();
+    s_state=NET_STATE_HOSTING_LOBBY;s_local_slot=s_host_slot=0;s_local_count=1;s_local_desired_count=1;
+    s_local_slots[0]=0;for(int k=1;k<GEVR_MAX_LOCAL_PLAYERS;k++)s_local_slots[k]=-1;
+    s_local_guest_notice[0]='\0';netResetLobbyState();
     s_lobby_state.config.scenario=scenario; s_lobby_state.config.stage=34;
     s_lobby_state.config.voice_mode=NET_VOICE_PROXIMITY; s_phase=NET_PHASE_WAITING;
     s_server_peer=NULL;s_host=NULL;s_match_ended=false;s_next_round_at_us=0;s_countdown_end_us=0;voice_resets=0;
@@ -662,7 +667,7 @@ static void inputClass(int slot,int value,size_t size) {
 EXPORT int test_core_flat_count(void) {
     fixture(0);
     memset(s_client_input,NET_INPUT_UNKNOWN,sizeof(s_client_input));
-    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(uintptr_t)(1u<<i);}
     CHECK(netGetFlatPlayerCount()==0);   /* the host (unknown here) and three that said nothing */
     s_client_input[1]=NET_INPUT_MOUSE;s_client_input[2]=NET_INPUT_VR;s_client_input[3]=NET_INPUT_TOUCH;
     CHECK(netGetFlatPlayerCount()==2);
@@ -855,7 +860,7 @@ EXPORT int test_core_round_prompts(void) {
 EXPORT int test_core_host_kick(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
     disconnected_peer=NULL;disconnect_reason=0;
-    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(uintptr_t)(1u<<i);}
     s_lobby_state.slots[1].spectator=1;s_lobby_state.slots[1].loaded=0;s_vote[0][1]=2;
     CHECK(!netHostKickPlayer(-1) && !netHostKickPlayer(0) && !netHostKickPlayer(8));
     /* Older protocol-17 guests interpret a server disconnect as host loss.
@@ -891,7 +896,7 @@ static void caps(int slot,unsigned value) {
 }
 EXPORT int test_core_no_radar_caps(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_HOSTING_LOBBY;
-    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(uintptr_t)(1u<<i);}
     caps(1,NET_CLIENT_CAP_KICK);                          /* v0.4.11 */
     caps(2,NET_CLIENT_CAP_KICK|NET_CLIENT_CAP_NO_RADAR);  /* this build */
     /* slot 3 has not said yet */
@@ -922,7 +927,7 @@ static void hitFixture(void) {
     for(int i=0;i<4;i++) {
         g_playerPointers[i]=&hit_players[i];s_client_peers[i]=&hit_peers[i];
         hit_peers[i].state=ENET_PEER_STATE_CONNECTED;hit_peers[i].lastReceiveTime=enet_time_get();
-        hit_peers[i].roundTripTime=i==1?20:i==2?60:180;hit_peers[i].data=(void*)(intptr_t)(i+1);
+        hit_peers[i].roundTripTime=i==1?20:i==2?60:180;hit_peers[i].data=(void*)(uintptr_t)(1u<<i);
         netClockSample(&s_clock_sync[i],clock_us-2000,clock_us-1000,clock_us-1000,clock_us);
     }
 }
@@ -1386,5 +1391,207 @@ EXPORT int test_core_full_maps(void) {
     CHECK(netRotationPick(NET_BALLOT_STAGE, last, fav, NET_NEXT_PLAYLIST) == full);
     for (int i = 0; i < 16; i++) CHECK(netRotationPick(NET_BALLOT_STAGE, full, fav, NET_NEXT_SHUFFLE) == last);
     s_state = old_state; s_round.config.stage = 34;
+    return 0;
+}
+
+/* Protocol 28: No teleport host rule (NET_FUN_NO_TELEPORT) in Deathmatch, Co-op and Horde. */
+EXPORT int test_core_no_teleport_rule(void) {
+    fixture(0);
+    s_lobby_state.config.fun_flags = 0;
+    gevrNetConfigSet(CFG_FUN_FLAGS, NET_FUN_NO_TELEPORT);
+    CHECK((s_lobby_state.config.fun_flags & NET_FUN_NO_TELEPORT) != 0);
+    CHECK((VrMpFunFlags & NET_FUN_NO_TELEPORT) != 0);
+    netLatchRoundSettings();
+    CHECK((netActiveFunFlags() & NET_FUN_NO_TELEPORT) != 0);
+    /* Co-op and Horde configs also accept NET_FUN_NO_TELEPORT. */
+    NetMatchConfig c = s_lobby_state.config;
+    c.mode = NET_MODE_COOP; c.stage = 34; c.difficulty = 0;
+    c.fun_flags = NET_FUN_NO_TELEPORT | NET_COOP_FAST_REINFORCEMENTS;
+    CHECK(netMatchConfigValid(&c));
+    c.mode = NET_MODE_HORDE; c.stage = NET_HORDE_STAGE; c.difficulty = 0;
+    c.max_players = 4; c.horde_start_wave = 1; c.bot_mode = NET_BOT_OFF;
+    c.fun_flags = NET_FUN_NO_TELEPORT;
+    CHECK(netMatchConfigValid(&c));
+    return 0;
+}
+
+/* Protocol 28: online split screen (multi-slot local humans, multi-slot remote peers,
+ * deduplicated broadcasts/clocks, NET_MSG_LOCAL_GUEST add/remove, selective guest kick,
+ * and multi-slot host migration). */
+EXPORT int test_core_online_splitscreen(void) {
+    /* 1. Host local guests: add, ownership, viewport mapping, flat count, remove. */
+    fixture(0);
+    for (int i = 1; i < GEVR_MAX_PLAYERS; i++) s_lobby_state.slots[i].connected = 0;
+    s_lobby_state.slots[0].owner_slot = 0;
+    s_lobby_state.config.max_players = 4; s_max_players = 4;
+    VrMpVrOnly = 0;
+    CHECK(netLocalSlotCount() == 1 && gevrLocalViewCount() == 1 && gevrLocalViewIndex(0) == 0);
+    int g1 = netRequestAddLocalGuest("Couch P2", 5, NET_INPUT_PAD, NULL);
+    CHECK(g1 == 1 && netLocalSlotCount() == 2 && gevrLocalViewCount() == 2);
+    CHECK(netSlotIsLocalHuman(0) && netSlotIsLocalHuman(1) && netSlotOwned(1));
+    CHECK(netLocalSeatOfSlot(1) == 1 && netSlotOfLocalSeat(1) == 1 && gevrLocalViewIndex(1) == 1);
+    CHECK(netGetSlotOwner(1) == 0 && s_lobby_state.slots[1].chr_id == 5);
+    CHECK(netGetFlatPlayerCount() == 1);
+    CHECK(netRequestRemoveLocalGuest(1));
+    CHECK(netLocalSlotCount() == 1 && !netSlotIsLocalHuman(1) && !s_lobby_state.slots[1].connected);
+    CHECK(!netRequestRemoveLocalGuest(0)); /* cannot drop primary seat via guest-remove */
+
+    /* 2. Multi-slot remote peer: deduplicated broadcast, single clock probe, shared sync,
+     * anti-spoofing, combined STAGE_READY, and single-guest vs primary kick. */
+    fixture(0);
+    s_max_players = 4; s_lobby_state.config.max_players = 4;
+    static ENetHost split_host;
+    s_host = &split_host;
+    ENetPeer peerA = {0}, peerB = {0};
+    peerA.state = peerB.state = ENET_PEER_STATE_CONNECTED;
+    peerA.lastReceiveTime = peerB.lastReceiveTime = enet_time_get();
+    peerA.roundTripTime = 30; peerB.roundTripTime = 60;
+    netPeerAttachSlot(&peerA, 1);
+    netPeerAttachSlot(&peerA, 2);
+    netPeerAttachSlot(&peerB, 3);
+    s_lobby_state.slots[0].owner_slot = 0;
+    s_lobby_state.slots[1].owner_slot = 1;
+    s_lobby_state.slots[2].owner_slot = 1;
+    s_lobby_state.slots[3].owner_slot = 3;
+    CHECK(netPeerOwnsSlot(&peerA, 1) && netPeerOwnsSlot(&peerA, 2) && !netPeerOwnsSlot(&peerA, 3));
+    CHECK(netPeerPrimarySlot(&peerA) == 1 && netSlotSyncIndex(2) == 1);
+
+    /* Broadcast sends once per unique ENetPeer (2 sends, not 3). */
+    sent_peer_count = 0;
+    u8 dummy[8] = {0};
+    netBroadcastPacket(dummy, sizeof(dummy), NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    CHECK(sent_peer_count == 2);
+
+    /* Clock tick probes peerA once (not twice) and sync covers both slots 1 and 2. */
+    s_state = NET_STATE_INGAME; s_phase = NET_PHASE_WARMUP;
+    netResetCombatEpoch();
+    sent_peer_count = 0;
+    netClockTick();
+    CHECK(sent_peer_count == 2); /* peerA (slot 1) + peerB (slot 3) */
+    netClockSample(&s_clock_sync[1], clock_us - 2000, clock_us - 1000, clock_us - 1000, clock_us);
+    netClockSample(&s_clock_sync[3], clock_us - 2000, clock_us - 1000, clock_us - 1000, clock_us);
+    CHECK(netCombatClocksReady()); /* slot 2 reuses slot 1's synced clock */
+
+    /* Anti-spoofing: peerA cannot set ready for peerB's slot 3, CAN set ready for its own slot 2. */
+    s_lobby_state.slots[2].ready = 0; s_lobby_state.slots[3].ready = 0;
+    {
+        u8 r1[1] = {1}; struct netbuf b = {.data = r1, .size = 1};
+        netbufStartReadData(&b, r1, 1); netReceiveLobbyReady(&peerA, 3, &b, 9);
+        CHECK(!s_lobby_state.slots[3].ready);
+        netbufStartReadData(&b, r1, 1); netReceiveLobbyReady(&peerA, 2, &b, 9);
+        CHECK(s_lobby_state.slots[2].ready == 1);
+    }
+
+    /* One STAGE_READY from peerA marks BOTH slots 1 and 2 loaded. */
+    s_lobby_state.slots[1].loaded = s_lobby_state.slots[2].loaded = 0;
+    fixtureStageReady(&peerA, 24);
+    CHECK(s_lobby_state.slots[1].loaded == 1 && s_lobby_state.slots[2].loaded == 1);
+
+    /* Kicking remote guest (slot 2) drops ONLY slot 2 without disconnecting peerA. */
+    {
+        u8 c1[1] = {NET_CLIENT_CAP_KICK}; struct netbuf b = {.data = c1, .size = 1};
+        netbufStartReadData(&b, c1, 1); netReceiveClientCaps(&peerA, 1, &b, 9);
+        CHECK(s_client_can_be_kicked[1] && s_client_can_be_kicked[2]);
+    }
+    disconnected_peer = NULL; disconnect_reason = 0;
+    CHECK(netHostKickPlayer(2));
+    CHECK(disconnected_peer == NULL);
+    CHECK(!s_lobby_state.slots[2].connected && s_lobby_state.slots[1].connected && netPeerOwnsSlot(&peerA, 1));
+
+    /* 3. Dynamic NET_MSG_LOCAL_GUEST ADD & REMOVE from remote peerA (mid-match drop-in). */
+    s_phase = NET_PHASE_IN_PROGRESS;
+    {
+        u8 raw[64]; struct netbuf wb = {.data = raw, .size = sizeof(raw)};
+        netbufStartWrite(&wb);
+        netbufWriteU8(&wb, NET_GUEST_OP_ADD);
+        netbufWriteU8(&wb, 1);
+        netbufWriteU8(&wb, 7);
+        netbufWriteU8(&wb, NET_INPUT_PAD);
+        for (int k = 0; k < 4; k++) netbufWriteU8(&wb, 0);
+        netbufWriteStr(&wb, "DropIn P2");
+        struct netbuf rb; netbufStartReadData(&rb, raw, wb.wp);
+        sent_size = 0;
+        netReceiveLocalGuest(&peerA, 1, &rb);
+        CHECK(sent_data[6] == NET_MSG_LOCAL_GUEST && sent_data[8] == NET_GUEST_OP_ADD && sent_data[9] == NET_GUEST_RESULT_OK);
+        int added = sent_data[11];
+        CHECK(added == 2 && netPeerOwnsSlot(&peerA, 2) && s_lobby_state.slots[2].owner_slot == 1);
+        CHECK(s_lobby_state.slots[2].loaded == 1 && !s_lobby_state.slots[2].spectator);
+    }
+    /* Match is now full (4/4): another ADD is refused with NET_GUEST_RESULT_FULL. */
+    {
+        u8 raw[64]; struct netbuf wb = {.data = raw, .size = sizeof(raw)};
+        netbufStartWrite(&wb);
+        netbufWriteU8(&wb, NET_GUEST_OP_ADD);
+        netbufWriteU8(&wb, 2); netbufWriteU8(&wb, 3); netbufWriteU8(&wb, NET_INPUT_PAD);
+        for (int k = 0; k < 4; k++) netbufWriteU8(&wb, 0);
+        netbufWriteStr(&wb, "TooMany");
+        struct netbuf rb; netbufStartReadData(&rb, raw, wb.wp);
+        sent_size = 0;
+        netReceiveLocalGuest(&peerA, 1, &rb);
+        CHECK(sent_data[6] == NET_MSG_LOCAL_GUEST && sent_data[9] == NET_GUEST_RESULT_FULL);
+    }
+    /* PeerA removes its guest slot 2; trying to remove primary slot 1 is denied. */
+    {
+        u8 raw[8] = { NET_GUEST_OP_REMOVE, 1 }; struct netbuf rb; netbufStartReadData(&rb, raw, 2);
+        sent_size = 0; netReceiveLocalGuest(&peerA, 1, &rb);
+        CHECK(sent_data[9] == NET_GUEST_RESULT_DENIED && s_lobby_state.slots[1].connected);
+        raw[1] = 2; netbufStartReadData(&rb, raw, 2);
+        sent_size = 0; netReceiveLocalGuest(&peerA, 1, &rb);
+        CHECK(sent_data[9] == NET_GUEST_RESULT_OK && !s_lobby_state.slots[2].connected && s_lobby_state.slots[1].connected);
+    }
+    /* Kicking peerA's primary slot 1 disconnects peerA cleanly. */
+    disconnected_peer = NULL; disconnect_reason = 0;
+    CHECK(netHostKickPlayer(1));
+    CHECK(disconnected_peer == &peerA && disconnect_reason == NET_DISCONNECT_KICKED && !s_lobby_state.slots[1].connected);
+
+    /* 4. Multi-slot host migration: host owns slots 0+1, client owns slots 2+3 -> host leaves ->
+     * both 0 and 1 drop, slot 2 (lowest primary human) is elected. */
+    s_host = NULL;
+    fixture(0);
+    s_state = NET_STATE_INGAME; s_local_slot = 2; s_local_count = 2;
+    s_local_slots[0] = 2; s_local_slots[1] = 3;
+    s_host_slot = 0; s_server_peer = &peerB;
+    s_lobby_state.slots[0].owner_slot = 0;
+    s_lobby_state.slots[1].owner_slot = 0;
+    s_lobby_state.slots[2].owner_slot = 2;
+    s_lobby_state.slots[3].owner_slot = 2;
+    netHostLost(&peerB);
+    CHECK(!s_lobby_state.slots[0].connected && !s_lobby_state.slots[1].connected);
+    CHECK(s_host_slot == 2 && s_takeover_pending);
+
+    /* 5. Client-side NET_MSG_LOCAL_GUEST reply handling (ADD OK, ADD FULL, REMOVE OK). */
+    s_host = NULL;
+    fixture(0);
+    s_state = NET_STATE_INGAME; s_local_slot = 1; s_local_count = 1;
+    s_local_slots[0] = 1; s_local_slots[1] = -1; s_server_peer = &peerB;
+    snprintf(s_lobby_state.slots[3].name, sizeof(s_lobby_state.slots[3].name), "Guest Three");
+    {
+        u8 rep[4] = { NET_GUEST_OP_ADD, NET_GUEST_RESULT_OK, 1, 3 };
+        struct netbuf rb; netbufStartReadData(&rb, rep, 4);
+        netReceiveLocalGuest(&peerB, 0, &rb);
+        CHECK(netLocalSlotCount() == 2 && netSlotIsLocalHuman(3) && netLocalSeatOfSlot(3) == 1);
+        const char *n = netTakeLocalGuestNotice();
+        CHECK(n != NULL && strstr(n, "Guest Three") != NULL);
+        u8 full[4] = { NET_GUEST_OP_ADD, NET_GUEST_RESULT_FULL, 2, 0xFF };
+        netbufStartReadData(&rb, full, 4);
+        netReceiveLocalGuest(&peerB, 0, &rb);
+        CHECK(netLocalSlotCount() == 2);
+        n = netTakeLocalGuestNotice();
+        CHECK(n != NULL && strstr(n, "full") != NULL);
+        u8 rem[4] = { NET_GUEST_OP_REMOVE, NET_GUEST_RESULT_OK, 0, 3 };
+        netbufStartReadData(&rb, rem, 4);
+        netReceiveLocalGuest(&peerB, 0, &rb);
+        CHECK(netLocalSlotCount() == 1 && !netSlotIsLocalHuman(3));
+    }
+
+    /* 6. Client-side NET_DISCONNECT_NO_ROOM refusal text. */
+    s_state = NET_STATE_CONNECTING; s_local_slot = -1; s_server_peer = &peerB;
+    CHECK(netClientContentRefused(&peerB, NET_DISCONNECT_NO_ROOM));
+    const char *why = netTakeJoinRefusal();
+    CHECK(why != NULL && strstr(why, "open slots") != NULL);
+
+    s_host = NULL; s_server_peer = NULL; s_local_slot = 0; s_local_count = 1;
+    s_local_slots[0] = 0; for (int k = 1; k < GEVR_MAX_LOCAL_PLAYERS; k++) s_local_slots[k] = -1;
+    s_state = NET_STATE_HOSTING_LOBBY;
     return 0;
 }

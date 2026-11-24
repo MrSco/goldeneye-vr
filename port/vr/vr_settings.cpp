@@ -478,6 +478,11 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "SfxVolume=%.2f\n", VrSfxVolume);
     iniPrintf(f, "; Your name in multiplayer, up to 15 characters.\n");
     iniPrintf(f, "PlayerName=%s\n", VrPlayerName);
+    for (int g = 0; g < 3; g++) {
+        iniPrintf(f, "Guest%dName=%s\n", g + 2, VrGuestName[g]);
+        iniPrintf(f, "Guest%dChr=%d\n", g + 2, VrGuestChr[g]);
+        for (int k = 0; k < 4; k++) iniPrintf(f, "Guest%dLoadout%d=%d\n", g + 2, k + 1, VrGuestLoadout[g][k]);
+    }
     iniPrintf(f, "; The multiplayer page's last choices. MpStage is the level id; the sets,\n");
     iniPrintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
     iniPrintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
@@ -1148,6 +1153,19 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpDifficulty") == 0) VrMpDifficulty = ival >= 0 && ival <= 3 ? ival : 0;
             else if (strncmp(key, "MpCustom", 8) == 0 && key[8] >= '1' && key[8] <= '4') VrMpCustom[key[8] - '1'] = ival;
             else if (strncmp(key, "MpLoadout", 9) == 0 && key[9] >= '1' && key[9] <= '4') VrMpLoadout[key[9] - '1'] = ival;
+            else if (strncmp(key, "Guest", 5) == 0 && key[5] >= '2' && key[5] <= '4') {
+                int g = key[5] - '2';
+                const char *rest = key + 6;
+                if (strcmp(rest, "Name") == 0) {
+                    strncpy(VrGuestName[g], eq + 1, sizeof(VrGuestName[g]) - 1);
+                    VrGuestName[g][sizeof(VrGuestName[g]) - 1] = '\0';
+                    VrGuestName[g][strcspn(VrGuestName[g], "\r\n")] = '\0';
+                } else if (strcmp(rest, "Chr") == 0) {
+                    VrGuestChr[g] = ival >= 0 ? ival : 0;
+                } else if (strncmp(rest, "Loadout", 7) == 0 && rest[7] >= '1' && rest[7] <= '4') {
+                    VrGuestLoadout[g][rest[7] - '1'] = ival;
+                }
+            }
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
             else if (strcmp(key, "ScreenPassthrough") == 0) VrScreenPassthrough = ival != 0;
             else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
@@ -1336,4 +1354,16 @@ extern "C" void vrSettingsLoad(void)
     // person are open whatever an ini from elsewhere says.
     VrPlayMode = 0;
 #endif
+    vrSyncGuestSeatConfigs();
+}
+
+extern "C" void netSetLocalSeatConfig(int seat, const char *name, uint8_t chr_id, uint8_t input_class, const uint8_t loadout[4]);
+
+void vrSyncGuestSeatConfigs(void)
+{
+    for (int g = 0; g < 3; g++) {
+        uint8_t kit[4];
+        for (int k = 0; k < 4; k++) kit[k] = (uint8_t)VrGuestLoadout[g][k];
+        netSetLocalSeatConfig(g + 1, VrGuestName[g], (uint8_t)VrGuestChr[g], 2 /* NET_INPUT_PAD */, kit);
+    }
 }

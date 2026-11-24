@@ -53,6 +53,10 @@ extern float VrMusicVolume;
 extern float VrVoiceVolume;
 extern float VrSfxVolume;
 extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launcher "Your name")
+extern char VrGuestName[3][16]; // online split-screen guest names (seats 2..4)
+extern int VrGuestChr[3];       // online split-screen guest characters (seats 2..4)
+extern int VrGuestLoadout[3][4]; // online split-screen guest loadouts (seats 2..4)
+void vrSyncGuestSeatConfigs(void);
 // The multiplayer page's choices, kept between runs (the launcher restarts the app).
 // Stage is a LEVELID; sets, scenario, length, health are net_match.c indices;
 // the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.

@@ -111,6 +111,13 @@ static void serverJoin(const char *target, int port)
 		host[colon - host] = '\0';
 	}
 	netLobbySetCharacter((uint8_t)VrMpChr);
+	if (sysArgCheck("--local-players")) {
+		int lp = sysArgGetInt("--local-players", 1);
+		if (lp < 1) lp = 1;
+		if (lp > GEVR_MAX_LOCAL_PLAYERS) lp = GEVR_MAX_LOCAL_PLAYERS;
+		netSetLocalDesiredCount(lp);
+		sysLogPrintf(LOG_NOTE, "client: requesting %d local players", lp);
+	}
 	if (!netConnect(host, (uint16_t)port)) {
 		sysFatalError("client: could not connect to %s:%d", host, port);
 	}
@@ -131,8 +138,11 @@ static void serverJoin(const char *target, int port)
 	if (netGetMatchConfig()->mode != NET_MODE_COOP) {
 		bossSetLoadedStage(g_StageNum);
 	}
-	netLobbySetReady(true);   /* as a player ticks Ready: the host's round start waits for it */
-	sysLogPrintf(LOG_NOTE, "client: in the match as slot %d, stage %d", netGetLocalSlot(), netGetMatchConfig()->stage);
+	for (int s = 0; s < netLocalSlotCount(); s++) {
+		int sl = netSlotOfLocalSeat(s);
+		if (sl >= 0) netLobbySetReadySlot(sl, true);
+	}
+	sysLogPrintf(LOG_NOTE, "client: in the match as slot %d (%d local), stage %d", netGetLocalSlot(), netLocalSlotCount(), netGetMatchConfig()->stage);
 }
 
 /* --list: the values goldeneye-vr.ini's match keys take, from the game's own

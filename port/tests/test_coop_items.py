@@ -62,7 +62,9 @@ parts = {
     "GRANT": "\n\n".join((
         block(coop, "int gevrCoopSharedGadget("),
         block(coop, "static void coopGrantLocal("),
+        block(coop, "static void coopHeaderSlot(struct netbuf *b, u8 type, int slot)\n{"),
         block(coop, "static void coopHeader(struct netbuf *b, u8 type)\n{"),
+        block(coop, "static void coopSendEventFor(int slot, u8 kind, s32 a, s32 b2, int nargs)\n{"),
         block(coop, "static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs)\n{"),
         block(coop, "static void coopBroadcastGrant("),
         block(coop, "void gevrCoopGrantItem("),

@@ -739,19 +739,31 @@ void shuffle_player_ids(void) {
 #ifdef GEVR
     if (netIsActive()) {
         /*
-         * Online only the local view is drawn, and the world's once-a-frame
-         * work (props, remote bodies, sounds) runs in that one pass when its
-         * player is first in this order (get_player_position_in_shuffled() == 0).
-         * Put the local slot first so it runs every frame, not 1 in N.
+         * Online, all local human viewports are drawn (1 in VR or solo flat,
+         * 1-4 in flat split-screen), and the world's once-a-frame work (props,
+         * remote bodies, sounds, split dividers) runs in the first pass
+         * (get_player_position_in_shuffled() == 0). Put the primary local slot
+         * first, followed by any local split-screen guests in seat order, then
+         * remote/bot occupied slots.
          */
+        extern int netLocalSlotCount(void);
+        extern int netSlotOfLocalSeat(int seat);
+        extern int gevrNetSlotIsLocalHuman(int slot);
         PLAYER_ID ordered[MAX_PLAYER_COUNT];
         s32 count = 0;
-        s32 local = netGetLocalSlot();
-        if (local >= 0 && local < MAX_PLAYER_COUNT && netSlotOccupied(local)) ordered[count++] = local;
-        for (i = 0; i < MAX_PLAYER_COUNT; i++)
-            if (netSlotOccupied(array_PLAYER_IDs[i]) && array_PLAYER_IDs[i] != local) ordered[count++] = array_PLAYER_IDs[i];
-        for (i = 0; i < MAX_PLAYER_COUNT; i++)
-            if (!netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
+        s32 local_n = netLocalSlotCount();
+        for (i = 0; i < local_n; i++) {
+            s32 sl = netSlotOfLocalSeat(i);
+            if (sl >= 0 && sl < MAX_PLAYER_COUNT && netSlotOccupied(sl)) ordered[count++] = sl;
+        }
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) {
+            PLAYER_ID pid = array_PLAYER_IDs[i];
+            if (netSlotOccupied(pid) && !gevrNetSlotIsLocalHuman(pid)) ordered[count++] = pid;
+        }
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) {
+            PLAYER_ID pid = array_PLAYER_IDs[i];
+            if (!netSlotOccupied(pid)) ordered[count++] = pid;
+        }
         for (i = 0; i < MAX_PLAYER_COUNT; i++) array_PLAYER_IDs[i] = ordered[i];
     }
 #endif

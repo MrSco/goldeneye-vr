@@ -3853,22 +3853,19 @@ void chrobjWeaponTick(struct PropRecord* prop)
             {
 #ifdef GEVR
                 extern bool netIsActive(void);
-                extern int netGetLocalSlot(void);
+                extern int gevrNetSlotIsLocalHuman(int slot);
                 extern bool netSlotOccupied(int slot);
 
                 if (netIsActive())
                 {
                     /*
-                     * Online the mine's owner sets it off. This pass runs as
-                     * the local player only, so the owner's headset tests
-                     * every player against its mines; the copies of the other
-                     * players' mines wait for their owner's explosion
-                     * (explosion.c), which also removes them.
+                     * Online the mine's owner sets it off. Local human owners
+                     * test every player against their mines here.
                      */
                     s32 owner = RUNTIME_OWNER(obj->runtime_bitflags);
                     s32 slot;
 
-                    if (owner == netGetLocalSlot())
+                    if (gevrNetSlotIsLocalHuman(owner))
                     {
                         for (slot = 0; slot < getPlayerCount(); slot++)
                         {
@@ -8739,8 +8736,9 @@ void objBounce(ObjectRecord *obj, coord3d *arg1)
 
 #ifdef GEVR
     if (gevrAmmoNetworked(obj)) {
-        /* Remote shot replay is visual; only the shooter's headset requests a bounce. */
-        if (get_cur_playernum() == netGetLocalSlot()) {
+        /* Remote shot replay is visual; only the shooter's machine requests a bounce. */
+        extern int gevrNetSlotIsLocalHuman(int slot);
+        if (gevrNetSlotIsLocalHuman(get_cur_playernum())) {
             coord3d world = *arg1;
             mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &world);
             netSendAmmoImpulse(obj, &world);
@@ -10909,10 +10907,10 @@ void apped_text_ammotype(u8 *buffer, AMMOTYPE ammotype, s32 amount)
 static void gevrPickupSfx(s32 sfx)
 {
     extern bool netIsActive(void);
-    extern int netGetLocalSlot(void);
+    extern int gevrNetSlotIsLocalHuman(int slot);
     ALSoundState *state = sndPlaySfx(g_musicSfxBufferPtr, sfx, 0);
 
-    if (state != NULL && netIsActive() && get_cur_playernum() != netGetLocalSlot() &&
+    if (state != NULL && netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()) &&
         g_CurrentPlayer != NULL && g_CurrentPlayer->prop != NULL)
     {
         extern void gevrSndPlaceFromProp(ALSoundState *state, PropRecord *source, coord3d *pos, f32 low, f32 high);

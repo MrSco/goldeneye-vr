@@ -1615,12 +1615,13 @@ void gevrStereoFrame(s32 inlevel)
     opening = gevrWatchOpeningByGesture(inlevel);
     extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
+    extern int gevrLocalViewCount(void);
     struct player *pl = (netIsActive() && netGetLocalSlot() >= 0 && g_playerPointers[netGetLocalSlot()]) ? g_playerPointers[netGetLocalSlot()] : g_CurrentPlayer;
     s32 want = inlevel
         && VrPlayMode != 0
         && gevrVrReady()
         && pl != NULL
-        && (getPlayerCount() == 1 || netIsActive())
+        && (gevrLocalViewCount() == 1)
         /* Multiplayer plays in CAMERAMODE_NONE: bondviewAdvanceCameraMode
          * leaves it there after the CAMERAMODE_MP swirl, and MoveBond runs in
          * it. Demanding FP kept an online match on the screen, and holding
@@ -8136,7 +8137,7 @@ void bondviewCalcIntroSwirlCamera(s32 index, f32 time, coord3d *pos, coord3d *lo
  * the pad's number here for the others.
  */
 s32 g_gevrCameraLookAtBondPadNum = -1;
-static s32 s_gevrCinemaOn;      /* this headset follows the host's cutscene */
+static s32 s_gevrCinemaOn[MAX_PLAYER_COUNT];      /* per local seat: following the host's cutscene */
 
 /* The host: the cutscene its player sees, NET_COOP_CINEMA_* (0 none) */
 int gevrCoopCinemaCollect(float *pos, float *pos2, int *pad, unsigned char *rgb, float *frac)
@@ -8193,30 +8194,36 @@ int gevrCoopCinemaCollect(float *pos, float *pos2, int *pad, unsigned char *rgb,
 /* A new stage: no cutscene of the last one carries over */
 void gevrCoopCinemaReset(void)
 {
-    s_gevrCinemaOn = FALSE;
+    s32 i;
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        s_gevrCinemaOn[i] = FALSE;
+    }
 }
 
-/* A teammate's headset, its own player's tick: follow the host's cutscene */
+/* A teammate's machine, each local player's tick: follow the host's cutscene */
 void gevrCoopCinemaTick(void)
 {
+    extern int gevrNetSlotIsLocalHuman(int slot);
     f32 pos[3];
     f32 pos2[3];
     f32 frac;
     s32 pad;
     u8 rgb[3];
     s32 flags;
+    s32 cur = get_cur_playernum();
 
-    if (!gevrCoopPuppets() || get_cur_playernum() != netGetLocalSlot())
+    if (!gevrCoopPuppets() || cur < 0 || cur >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(cur))
     {
         return;
     }
     flags = netCoopCinemaState(pos, pos2, &pad, rgb, &frac);
     if (flags)
     {
-        if (!s_gevrCinemaOn)
+        if (!s_gevrCinemaOn[cur])
         {
             /* as AI_BondDisableControl: no control, no sight or ammo */
-            s_gevrCinemaOn = TRUE;
+            s_gevrCinemaOn[cur] = TRUE;
             is_timer_active = FALSE;
             gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, FALSE);
             gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, FALSE);
@@ -8243,10 +8250,10 @@ void gevrCoopCinemaTick(void)
             currentPlayerAdjustFade(4.0f, rgb[0], rgb[1], rgb[2], frac);
         }
     }
-    else if (s_gevrCinemaOn)
+    else if (s_gevrCinemaOn[cur])
     {
         /* as AI_BondEnableControl and AI_CameraReturnToBond */
-        s_gevrCinemaOn = FALSE;
+        s_gevrCinemaOn[cur] = FALSE;
         is_timer_active = TRUE;
         gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, TRUE);
         gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, TRUE);
@@ -15950,8 +15957,16 @@ s16 bondviewGetCurrentPlayerViewportWidth(void)
 {
 #ifdef GEVR
     extern bool netIsActive(void);
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
     if (netIsActive())
     {
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vcount >= 3 && vidx >= 0)
+        {
+            return VIEWPORT_WIDTH_4P;
+        }
         return VIEWPORT_WIDTH_FULLSCREEN;
     }
 #endif
@@ -15983,8 +15998,16 @@ s16 get_curplayer_viewport_ulx(void)
 {
 #ifdef GEVR
     extern bool netIsActive(void);
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
     if (netIsActive())
     {
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vcount >= 3 && (vidx == 1 || vidx == 3))
+        {
+            return 0xa1;
+        }
         return 0;
     }
 #endif
@@ -16010,8 +16033,16 @@ s16 bondviewGetCurrentPlayerViewportHeight(void)
 {
 #ifdef GEVR
     extern bool netIsActive(void);
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
     if (netIsActive())
     {
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vcount >= 2 && vidx >= 0)
+        {
+            return VIEWPORT_HEIGHT_4P;
+        }
         return VIEWPORT_HEIGHT_DEFAULT;
     }
 #endif
@@ -16064,9 +16095,37 @@ s16 bondviewGetCurrentPlayerViewportUly(void)
 {
 #ifdef GEVR
     extern bool netIsActive(void);
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
     if (netIsActive())
     {
-        return VIEWPORT_ULY_DEFAULT;
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vidx < 0 || vcount <= 1)
+        {
+            return VIEWPORT_ULY_DEFAULT;
+        }
+        if (vcount == 2)
+        {
+            if (vidx == 0)
+            {
+#ifdef VERSION_EU
+                return 0;
+#else
+                return VIEWPORT_ULY_2P_PLAYER_1;
+#endif
+            }
+            return VIEWPORT_ULY_2P_PLAYER_2;
+        }
+        if (vidx < 2)
+        {
+#ifdef VERSION_EU
+            return 0;
+#else
+            return VIEWPORT_ULY_4P_PLAYER_12;
+#endif
+        }
+        return VIEWPORT_ULY_4P_PLAYER_34;
     }
 #endif
 
@@ -23236,8 +23295,8 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
             extern void gevrRumbleDamage(f32 damage_amount, s32 is_explosion);
             extern s32 s_gevrExplosionDamage;
             extern bool netIsActive(void);
-            extern int netGetLocalSlot(void);
-            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+            extern int gevrNetSlotIsLocalHuman(int slot);
+            if (!netIsActive() || gevrNetSlotIsLocalHuman(get_cur_playernum()))
             {
                 gevrRumbleDamage(damage_amount, s_gevrExplosionDamage);
             }
@@ -23402,7 +23461,8 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                 }
 #else
 #ifdef GEVR
-                if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+                extern int gevrNetSlotIsLocalHuman(int slot);
+                if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()))
                 {
                     /* Another player took the hit: heard from where they
                      * stand, not as one's own (two-headset test: everyone
@@ -23805,8 +23865,9 @@ void hudmsgBottomShow(char *string, struct fontchar *font, struct font *arg2)
     s32 abs_index;
     s32 index;
 #ifdef GEVR
-    /* the local player's row only, as the US version below */
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    /* local human player rows only, as the US version below */
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()))
     {
         return;
     }
@@ -23859,10 +23920,11 @@ void hudmsgBottomShow(char *mess)
     {
         return;
     }
-    /* Online only the local player's row is drawn (hudmsgBottomRender from
+    /* Online only local human players' rows are drawn (hudmsgBottomRender from
      * maybe_mp_interface); a host's bot or another player's copy posts nothing
      * (user: the bots' pickups showed on the host's screen) */
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()))
     {
         return;
     }
@@ -23897,8 +23959,9 @@ static s32 s_gevrLiveRow = -1;
 static char s_gevrLiveText[sizeof(stringbuffer_lowerleft[0])];
 void gevrHudmsgBottomLive(char *mess)
 {
+    extern int gevrNetSlotIsLocalHuman(int slot);
     s32 row = s_gevrLiveRow;
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()))
     {
         return;
     }
@@ -24055,7 +24118,26 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             captionfont = gevrBottomCaptionFont(status_bar_text_buffer_index);
             textMeasure(&view_top_offset, &view_left_offset ,(u8* ) stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, 0);
 
-            /* co-op (#94): one player's view, laid out as solo's, not a quarter of four */
+            /* Lay out by local viewport count/index so solo, 1P online (DM/co-op/Horde),
+             * and 2-4P split-screen (offline or online) all anchor cleanly inside their view. */
+#ifdef GEVR
+            extern int gevrLocalViewCount(void);
+            extern int gevrLocalViewIndex(int slot);
+            s32 vcount = gevrLocalViewCount();
+            s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+            if (vcount < 3 || vidx < 0)
+            {
+                view_left = viGetViewLeft() + 0x1E;
+            }
+            else if (vidx & 1)
+            {
+                view_left = viGetViewLeft() + 0xA;
+            }
+            else
+            {
+                view_left = viGetViewLeft() + 0x1E;
+            }
+#else
             if (getPlayerCount() < 3 || gevrCoopActive())
             {
                 view_left = viGetViewLeft() + 0x1E;
@@ -24068,9 +24150,29 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             {
                 view_left = viGetViewLeft() + 0x1E;
             }
+#endif
 
             view_horiz = view_left + view_left_offset;
 
+#ifdef GEVR
+            if (vcount < 3 || vidx < 0)
+            {
+                if ((get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNLEFT)) == 0) && (is_clock_drawn_onscreen() == 0))
+                {
+                    view_top = (viGetViewTop() + viGetViewHeight()) - BONDVIEW_VIEW_TOP_OFFSET_1;
+                }
+                else
+                {
+                    view_top = (viGetViewTop() + viGetViewHeight()) - BONDVIEW_VIEW_TOP_OFFSET_2;
+                }
+#if !defined(VERSION_EU)
+                if (vcount == 2 && vidx == 1)
+                {
+                    view_top -= 8;
+                }
+#endif
+            }
+#else
             if (getPlayerCount() < 3 || gevrCoopActive())
             {
                 if ((get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNLEFT)) == 0) && (is_clock_drawn_onscreen() == 0))
@@ -24088,6 +24190,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                 }
 #endif
             }
+#endif
             else
             {
                 view_top = viGetViewTop()

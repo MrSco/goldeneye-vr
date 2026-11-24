@@ -67,6 +67,8 @@ int netHordeActive(void) {return 1;}
 int netHordeRunning(void) {return 1;}
 s32 netIsHost(void) {return host;}
 s32 netGetLocalSlot(void) {return 0;}
+int gevrNetSlotIsLocalHuman(int slot) {return slot==0;}
+void netHordeRequestActionSlot(int slot,unsigned action,unsigned item) {(void)slot;netHordeRequestAction(action,item);}
 unsigned netGetRandomSeed(void) {return 123;}
 int netMpPlayerCount(int fallback) {return 1;}
 int netLobbySlotConnected(int slot) {return slot==0;}

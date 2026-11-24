@@ -95,14 +95,24 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
         }
     }
 #endif
+#ifdef GEVR
+    {
+        extern s32 g_gevrStereo;
+        extern int gevrLocalViewCount(void);
+        extern int gevrLocalViewIndex(int slot);
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(cur_playernum);
+        if (!g_gevrStereo && (vcount >= 3) && (vidx >= 0) && !(vidx & 1))
+        {
+            start_left += 0xF;
+        }
+    }
+#else
     if ((player_count >= 3) && !(cur_playernum & 1))
     {
-#ifdef GEVR
-        extern s32 g_gevrStereo;
-        if (!g_gevrStereo)
-#endif
         start_left += 0xF;
     }
+#endif
     
     texSelect(&DL, mpradarimages, 2, 0, 2);
 

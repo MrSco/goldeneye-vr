@@ -41,6 +41,9 @@ float VrMusicVolume       = 1.0f;   /* music volume (0..1) */
 float VrVoiceVolume       = 1.0f;   /* multiplayer voice chat volume (0..1) */
 float VrSfxVolume         = 1.0f;   /* multiplayer sound effects volume (0..1) */
 char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one up when empty */
+char VrGuestName[3][16]   = { "", "", "" }; /* online split-screen seats 2..4; empty -> "<PlayerName> (2)..(4)" */
+int VrGuestChr[3]         = { 1, 2, 3 };
+int VrGuestLoadout[3][4]  = { { 4, 8, 15, 26 }, { 4, 8, 15, 26 }, { 4, 8, 15, 26 } };
 /* The multiplayer page's choices (vr_settings.h): Bunker II, Power Weapons,
  * Bond, a public game, Normal, 10 minutes, normal health, no dual wielding,
  * no loadouts, votes; the Rockets set's guns as the custom set, a PP7, a

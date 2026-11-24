@@ -88,21 +88,26 @@ void netHordeReceive(struct netbuf *b)
     gevrHordeApplyState(&s);
 }
 
-void netHordeRequestAction(unsigned action, unsigned item)
+void netHordeRequestActionSlot(int slot, unsigned action, unsigned item)
 {
-    if (!netHordeRunning()) return;
+    if (!netHordeRunning() || slot < 0 || slot >= 4) return;
     if (netIsHost()) {
-        if (gevrHordeHandleAction(netGetLocalSlot(), action, item)) netHordeSend(-1);
+        if (gevrHordeHandleAction(slot, action, item)) netHordeSend(-1);
         return;
     }
     unsigned char raw[24];
     struct netbuf b = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&b);
     netbufWriteU32(&b, GEVR_NET_MAGIC); netbufWriteU16(&b, GEVR_NET_VERSION);
-    netbufWriteU8(&b, NET_MSG_HORDE_STATE); netbufWriteU8(&b, netGetLocalSlot());
+    netbufWriteU8(&b, NET_MSG_HORDE_STATE); netbufWriteU8(&b, (uint8_t)slot);
     netbufWriteU32(&b, netGetWorldEpoch());
     netbufWriteU8(&b, (uint8_t)action); netbufWriteU32(&b, item);
     netCoopBroadcast(b.data, b.wp, 1);
+}
+
+void netHordeRequestAction(unsigned action, unsigned item)
+{
+    netHordeRequestActionSlot(netGetLocalSlot(), action, item);
 }
 
 void netHordeReceiveClient(int slot, struct netbuf *b)

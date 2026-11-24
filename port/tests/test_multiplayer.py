@@ -76,6 +76,7 @@ def build_core():
                  "netGetLocalDeviceKey","netGetSlotDeviceName","netBuildOf","netGetSlotBuild","netGetLocalBuild","netGetSlotAppVersion"})
     keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady","netPveLoadGraceOver"})
+    keep.update({"netPeerSlotMask","netPeerOwnsSlot","netPeerAttachSlot","netPeerDetachSlot","netPeerPrimarySlot","netPeerSeenBefore","netSlotSyncIndex","netPeerVoiceSameGroup","netLocalSlotCount","netSlotIsLocalHuman","gevrNetSlotIsLocalHuman","netLocalSeatOfSlot","netSlotOfLocalSeat","netGetSlotOwner","gevrLocalViewCount","gevrLocalViewIndex","netSetLocalDesiredCount","netSetLocalSeatConfig","netTakeLocalGuestNotice","netLobbySetReadySlot","netLobbySetCharacterSlot","netLobbySetLoadoutSlot","netLobbySetTeamSlot","netSetVoteSlot","netRemoveLocalSlotEntry","netLocalGuestStartsSpectating","netHostDropSingleSlot","netSendLocalGuestReply","netRequestAddLocalGuest","netRequestRemoveLocalGuest","netReceiveLocalGuest","netCleanName","netSetJoinerName"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
         if m.group(1) in keep: continue
@@ -367,6 +368,8 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_bot_join_and_election(self): self.assertEqual(self.core.test_core_bot_join(),0)
     def test_bot_owner(self): self.assertEqual(self.core.test_core_bot_owner(),0)
     def test_full_maps(self): self.assertEqual(self.core.test_core_full_maps(),0)
+    def test_no_teleport_rule(self): self.assertEqual(self.core.test_core_no_teleport_rule(),0)
+    def test_online_splitscreen_protocol_and_peers(self): self.assertEqual(self.core.test_core_online_splitscreen(),0)
     def test_bot_floor_routes(self): self.assertEqual(self.botnav.test_botnav(),0)
     def test_bot_glass_routes(self): self.assertEqual(self.botnav.test_botnav_glass(),0)
     def test_sound_through_portals(self): self.assertEqual(self.sndpath.test_sndpath(),0)
