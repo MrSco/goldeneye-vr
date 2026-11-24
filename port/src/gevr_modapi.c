@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "gevr_modapi.h"
 #include "gevr_modscript.h"
@@ -962,6 +963,48 @@ static int l_padGet(lua_State *L)
     return 1;
 }
 
+/* ---- mod.mission ---- */
+
+/* difficulty(): "agent", "secretagent", "00agent" or "007"; nil without one
+ * (multiplayer) */
+static int l_missionDifficulty(lua_State *L)
+{
+    static const char *const names[] = { "agent", "secretagent", "00agent", "007" };
+    const int d = gevrModGameDifficulty();
+
+    if (d < 0 || d > 3) lua_pushnil(L);
+    else lua_pushstring(L, names[d]);
+    return 1;
+}
+
+/* folder(): the save folder the run plays from, 1 to 4 as the folder screen
+ * shows them, or nil */
+static int l_missionFolder(lua_State *L)
+{
+    const int f = gevrModGameFolder();
+
+    if (f < 0 || f > 3) lua_pushnil(L);
+    else lua_pushinteger(L, f + 1);
+    return 1;
+}
+
+/* day(): today's number, whole days since 1 January 1970 (UTC), for daily
+ * challenges; each headset reads its own clock */
+static int l_missionDay(lua_State *L)
+{
+    const time_t now = time(NULL);
+
+    lua_pushinteger(L, now > 0 ? (lua_Integer)(now / 86400) : 0);
+    return 1;
+}
+
+static const luaL_Reg s_missionFuncs[] = {
+    { "difficulty", l_missionDifficulty },
+    { "folder", l_missionFolder },
+    { "day", l_missionDay },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_padFuncs[] = {
     { "count", l_padCount },
     { "get", l_padGet },
@@ -1768,6 +1811,9 @@ void gevrModApiOpen(lua_State *L)
     lua_newtable(L);
     luaL_setfuncs(L, s_padFuncs, 0);
     lua_setfield(L, -2, "pads");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_missionFuncs, 0);
+    lua_setfield(L, -2, "mission");
     lua_newtable(L);
     luaL_setfuncs(L, s_playerFuncs, 0);
     lua_setfield(L, -2, "player");

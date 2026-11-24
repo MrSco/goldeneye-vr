@@ -1033,6 +1033,19 @@ int gevrModGameGoTo(int id, int pad, int speed)
     return chrGoToPad(chr, pad, speed == 2 ? SPEED_SPRINT : speed == 1 ? SPEED_RUN : SPEED_WALK);
 }
 
+extern s32 selected_folder_num;          /* front.c: the folder the run plays from */
+extern DIFFICULTY selected_difficulty;   /* front.c */
+
+int gevrModGameDifficulty(void)
+{
+    return selected_difficulty >= DIFFICULTY_AGENT && selected_difficulty <= DIFFICULTY_007 ? (int)selected_difficulty : -1;
+}
+
+int gevrModGameFolder(void)
+{
+    return selected_folder_num >= 0 && selected_folder_num < 4 ? selected_folder_num : -1;
+}
+
 extern PropRecord *hatCreateForChr(ChrRecord *chr, s32 modelnum, u32 flags);   /* propobj.c */
 
 /* the hats in mod.guards.giveHat's order */

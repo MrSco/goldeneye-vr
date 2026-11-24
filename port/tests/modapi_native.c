@@ -399,6 +399,8 @@ int gevrModGameGoTo(int id, int pad, int speed)
     printf("GOTO %d %d %d\n", id, pad, speed);
     return guardAlive(id) && (pad < 3 || pad == 10000);
 }
+int gevrModGameDifficulty(void) { return 2; }   /* 00 Agent */
+int gevrModGameFolder(void) { return 3; }       /* the fourth folder */
 int gevrModGameGiveHat(int id, int hat)
 {
     printf("HAT %d %d\n", id, hat);

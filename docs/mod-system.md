@@ -285,6 +285,15 @@ files.sha256        checksum list of every other file
     default's type, else the default.
   - `mod.capabilities()`: `vr`, `hands`, `headless`, `platform` (`quest`,
     `android`, `pc`, `ios`, `tvos`, `visionos`, `server`).
+  - `mod.mission.difficulty()`: `"agent"`, `"secretagent"`, `"00agent"` or
+    `"007"`, the one chosen (`selected_difficulty`); nil without one, as
+    in multiplayer. `mod.mission.folder()`: the save folder the run plays
+    from, 1 to 4 as the folder screen shows them (`selected_folder_num`),
+    or nil, so a mod can keep its progress per folder in its data.
+    `mod.mission.day()`: today's number, whole days since 1 January 1970
+    (UTC), for daily challenges; each headset reads its own clock, so a
+    co-op mod sends the host's. Marking a mission complete in the mod
+    campaign's save isn't built.
   - `mod.random([m [, n]])`, also `math.random`: seeded each mission, in
     co-op from the seed every headset shares.
   - `mod.save.read/write/remove(name)`: files in its data folder; names are

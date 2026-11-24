@@ -484,6 +484,11 @@ int gevrModGameFace(int id, int pad);
  * names' order (PROP_HATFURRY to PROP_HATPEAKED); 1 when it's on */
 #define GEVR_MODAPI_HATS 12
 int gevrModGameGiveHat(int id, int hat);
+
+/* mod.mission: the difficulty chosen (0 Agent to 3 007; -1 none, as in
+ * multiplayer) and the save folder the run plays from (0 to 3, -1 none) */
+int gevrModGameDifficulty(void);
+int gevrModGameFolder(void);
 /* This machine's player's health and armour, 0 to 1; 0 when no player is in a stage */
 int gevrModGamePlayerHealth(float *health, float *armour);
 /* Set them: health more than 0 to 1, armour 0 to 1; 0 when the player is
