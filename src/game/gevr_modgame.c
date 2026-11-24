@@ -930,6 +930,12 @@ static ChrRecord *guardById(int id)
     return NULL;
 }
 
+/* gevr_modattach.c: a guard's record by id (alive or dead), for mod.attach */
+ChrRecord *gevrModGameGuardChr(int id)
+{
+    return guardById(id);
+}
+
 /* ---- the pickups a mod drops, and the weapons the game drops ---- */
 
 extern AmmoCrateRecord *ammocrateAllocate(void);   /* propobj.c: a runtime ammo box's slot */

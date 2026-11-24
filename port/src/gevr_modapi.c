@@ -69,6 +69,13 @@ static const char *const s_anchorNames[GEVR_MODAPI_ANCHORS] = {
     "hip_gun", "hip_off", "back_gun", "back_off", "chest", "belt",
 };
 
+/* A guard's parts for mod.attach, in the game's hit part order (HIT_LEFT_FOOT 1
+ * to HIT_CHEST 15, bondaicommands.h) */
+static const char *const s_bodyPartNames[GEVR_MODAPI_GUARD_PARTS + 1] = {
+    "left_foot", "left_leg", "left_thigh", "right_foot", "right_leg", "right_thigh", "pelvis", "head",
+    "left_hand", "left_arm", "left_shoulder", "right_hand", "right_arm", "right_shoulder", "chest", NULL,
+};
+
 /* GEVR_MODALERT_*, GEVR_MODKILL_*: guard_alerted's how, guard_killed's */
 static const char *const s_alertNames[] = { NULL, "saw", "heard", "shot", "alarm", "other" };
 static const char *const s_killNames[] = { NULL, "shot", "explosion" };
@@ -1946,13 +1953,15 @@ static void attachPlacement(lua_State *L, int t, const char *call, float offset[
 }
 
 /*
- * add(t): t = { model, like, on, hand, at, turn, scale }. model is the pack's
- * assets/models/<model>, built over the cartridge's model file like (a G gun
- * or P prop file: its header). on is "gun" or "hand" (with hand "right" or
- * "left"), or a body anchor (hip_gun, hip_off, back_gun, back_off, chest,
- * belt). at (model units), turn (degrees about the anchor's X, Y, Z) and scale
- * place it in the anchor's frame. Its id, or nil when the model won't load or
- * 16 are attached already.
+ * add(t): t = { model, like, on, hand, guard, part, at, turn, scale }. model
+ * is the pack's assets/models/<model>, built over the cartridge's model file
+ * like (a G gun or P prop file: its header). on is "gun" or "hand" (with hand
+ * "right" or "left"), a body anchor (hip_gun, hip_off, back_gun, back_off,
+ * chest, belt), or "guard" (with guard, its id, and part, one of the game's
+ * hit parts: chest, head, pelvis...). at (model units), turn (degrees about
+ * the anchor's X, Y, Z) and scale place it in the anchor's frame. Its id, or
+ * nil when the model won't load, there's no such guard or part, or all are
+ * attached already.
  */
 static int l_attachAdd(lua_State *L)
 {
@@ -1965,9 +1974,29 @@ static int l_attachAdd(lua_State *L)
     memset(&a, 0, sizeof(a));
     attachName(L, "model", a.model, sizeof(a.model));
     attachName(L, "like", a.like, sizeof(a.like));
-    if (lua_getfield(L, 1, "on") != LUA_TSTRING) luaL_error(L, "mod.attach.add: on is \"gun\", \"hand\" or a body anchor");
+    if (lua_getfield(L, 1, "on") != LUA_TSTRING) {
+        luaL_error(L, "mod.attach.add: on is \"gun\", \"hand\", a body anchor or \"guard\"");
+    }
     on = lua_tostring(L, -1);
-    if (!strcmp(on, "gun") || !strcmp(on, "hand")) {
+    if (!strcmp(on, "guard")) {
+        int whole;
+        lua_Integer g;
+
+        if (lua_getfield(L, 1, "node") != LUA_TNIL) luaL_error(L, "mod.attach.add: node is for the gun only");
+        lua_pop(L, 1);
+        lua_getfield(L, 1, "guard");
+        g = lua_tointegerx(L, -1, &whole);
+        if (!whole || g < 0 || g > 32767) luaL_error(L, "mod.attach.add: guard is a guard's id");
+        lua_pop(L, 1);
+        if (lua_getfield(L, 1, "part") != LUA_TSTRING) luaL_error(L, "mod.attach.add: part is a guard's body part (chest, head...)");
+        for (i = 0; i < GEVR_MODAPI_GUARD_PARTS && strcmp(lua_tostring(L, -1), s_bodyPartNames[i]); i++) {
+        }
+        if (i == GEVR_MODAPI_GUARD_PARTS) luaL_error(L, "mod.attach.add: no part %s (chest, head, pelvis ...)", lua_tostring(L, -1));
+        lua_pop(L, 1);
+        a.on = GEVR_MODATTACH_GUARD;
+        a.where = (int)g;
+        a.node = i + 1;   /* HIT_LEFT_FOOT 1 ... */
+    } else if (!strcmp(on, "gun") || !strcmp(on, "hand")) {
         a.on = !strcmp(on, "gun") ? GEVR_MODATTACH_GUN : GEVR_MODATTACH_HAND;
         lua_getfield(L, 1, "hand");
         if (lua_type(L, -1) == LUA_TSTRING && !strcmp(lua_tostring(L, -1), "right")) a.where = 0;
@@ -2012,6 +2041,15 @@ static int l_attachAdd(lua_State *L)
     }
     lua_pushinteger(L, id);
     return 1;
+}
+
+void gevrModApiAttachGone(int id)
+{
+    int i;
+
+    for (i = 0; id > 0 && i < GEVR_MODAPI_ATTACH_MAX; i++) {
+        if (s_attachOwners[i].id == id) s_attachOwners[i].id = 0;
+    }
 }
 
 /* this mod's attachment's place in s_attachOwners, or -1 */

@@ -22,6 +22,11 @@
  *  - a body slot: the slot's centre on the torso (gevr_bodyslots.c
  *    gevrBodySlotFrame), kept while a mod runs even with body slots off.
  * The local player's view only; another player doesn't see them.
+ *  - a guard's body part: the matrix of the part the game's hits name
+ *    (its bounding box's ModelNumber, HIT_*), as drawn (chr.c
+ *    chrRenderProp, after the body and what's stuck to it), in every view
+ *    the guard's drawn in; kept on its body, dead or alive, until the body
+ *    is removed (chrpropCleanupForRemoval).
  */
 
 #include <ultra64.h>
@@ -75,7 +80,10 @@ typedef struct
     s32 id;                      /* 0 free */
     AttachFile *file;
     s32 on, where, shown;
-    s32 node;                    /* on the gun: the matrix of its model it rides */
+    s32 node;                    /* on the gun: the matrix of its model it rides; on a guard: the part */
+    ChrRecord *chr;              /* on a guard: its record, kept past its id's retiring */
+    ModelFileHeader *partOf;     /* and the body the part's matrix was found in */
+    s32 partMtx;
     Mtxf offset;
     Model model;
     ModelFileHeader *modelOf;    /* the header model was set up for */
@@ -215,6 +223,40 @@ static s32 attachNodes(ModelNode *node)
     return n;
 }
 
+/* a character model's body part (HIT_*): the matrix of its bounding box's
+ * node, or -1 */
+static s32 attachPartMtx(ModelFileHeader *h, s32 part)
+{
+    ModelNode *node = h != NULL ? h->RootNode : NULL;
+
+    while (node != NULL)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_BBOX && node->Data != NULL
+            && (s32) node->Data->BoundingBox.ModelNumber == part)
+        {
+            const s32 index = modelFindNodeMtxIndex(node, 0);
+
+            return index >= 0 && index < h->numMatrices ? index : -1;
+        }
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            if (node != NULL)
+            {
+                node = node->Next;
+            }
+        }
+    }
+    return -1;
+}
+
 static Attachment *attachFind(s32 id)
 {
     s32 i;
@@ -233,6 +275,7 @@ int gevrModGameAttach(const GevrModAttach *a)
 {
     Attachment *slot = NULL;
     AttachFile *f;
+    ChrRecord *chr = NULL;
     s32 i, j;
 
     for (i = 0; i < GEVR_MODAPI_ATTACH_MAX && slot == NULL; i++)
@@ -246,6 +289,17 @@ int gevrModGameAttach(const GevrModAttach *a)
     {
         return -1;
     }
+    if (a->on == GEVR_MODATTACH_GUARD)
+    {
+        /* a guard with that body part now; kept by its record from here */
+        extern ChrRecord *gevrModGameGuardChr(int id);   /* gevr_modgame.c */
+
+        chr = gevrModGameGuardChr(a->where);
+        if (chr == NULL || chr->model == NULL || attachPartMtx(chr->model->obj, a->node) < 0)
+        {
+            return 0;
+        }
+    }
     if ((f = attachLoad(a->model, a->like)) == NULL)
     {
         return 0;
@@ -256,6 +310,8 @@ int gevrModGameAttach(const GevrModAttach *a)
     slot->on = a->on;
     slot->where = a->where;
     slot->node = a->node;
+    slot->chr = chr;
+    slot->partOf = NULL;
     slot->shown = TRUE;
     for (i = 0; i < 4; i++)
     {
@@ -400,6 +456,64 @@ Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun
     return gdl;
 }
 
+/* chr.c chrRenderProp, after a chr's body and what's stuck to it, in each of
+ * its passes (body's flags: the solid parts, the see-through, or a fading
+ * body's all): what a mod put on that guard, at its parts' matrices as just
+ * drawn, drawn as the objects stuck to it are */
+Gfx *gevrModAttachDrawGuard(ChrRecord *chr, ModelRenderData *body, s32 fadealpha, Gfx *gdl)
+{
+    ModelRenderData objdata;
+    Mtxf node;
+    s32 i;
+
+    if (chr == NULL || chr->model == NULL || chr->model->render_pos == NULL || chr->prop == NULL
+        || chr->prop->type != PROP_TYPE_CHR)
+    {
+        return gdl;
+    }
+    objdata = *body;
+    objdata.PropType = fadealpha < 0xFF ? 5 : 9;   /* as gevrChrEmbeddedRender's objects */
+    objdata.envcolour.word = fadealpha < 0xFF ? (u32) fadealpha : 0;
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
+    {
+        Attachment *a = &s_attach[i];
+
+        if (a->id == 0 || !a->shown || a->on != GEVR_MODATTACH_GUARD || a->chr != chr)
+        {
+            continue;
+        }
+        if (a->partOf != chr->model->obj)
+        {
+            a->partMtx = attachPartMtx(chr->model->obj, a->node);   /* found again for another body */
+            a->partOf = chr->model->obj;
+        }
+        if (a->partMtx < 0)
+        {
+            continue;
+        }
+        node = ((Mtxf *) chr->model->render_pos)[a->partMtx];
+        objdata.gdl = gdl;
+        gdl = attachDraw(gdl, &objdata, a, &node);
+    }
+    return gdl;
+}
+
+/* chr.c chrpropCleanupForRemoval: the guard's body goes, and what a mod put on
+ * it with it (its record may hold another guard next) */
+void gevrModAttachChrGone(ChrRecord *chr)
+{
+    s32 i;
+
+    for (i = 0; chr != NULL && i < GEVR_MODAPI_ATTACH_MAX; i++)
+    {
+        if (s_attach[i].id != 0 && s_attach[i].on == GEVR_MODATTACH_GUARD && s_attach[i].chr == chr)
+        {
+            gevrModApiAttachGone(s_attach[i].id);
+            s_attach[i].id = 0;
+        }
+    }
+}
+
 /* gevr_bodyslots.c, with what the body holds: what sits on a hand or the body
  * (VR: a controller's frame, and the torso's, kept while a mod runs) */
 Gfx *gevrModAttachDrawBody(Gfx *gdl)
@@ -423,7 +537,7 @@ Gfx *gevrModAttachDrawBody(Gfx *gdl)
         Mtxf frame;
         s32 ok;
 
-        if (a->id == 0 || !a->shown || a->on == GEVR_MODATTACH_GUN)
+        if (a->id == 0 || !a->shown || (a->on != GEVR_MODATTACH_HAND && a->on != GEVR_MODATTACH_BODY))
         {
             continue;
         }

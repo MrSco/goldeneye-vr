@@ -1781,6 +1781,11 @@ void chrpropCleanupForRemoval(PropRecord *prop)
     model = chr->model;
 #ifdef GEVR
     gevrRagdollForgetChr(chr);
+    {
+        extern void gevrModAttachChrGone(ChrRecord *chr);   /* gevr_modattach.c: what a mod put on him */
+
+        gevrModAttachChrGone(chr);
+    }
 #endif
 
     if (chr->field_160[0].ptr_SEbuffer1 != NULL && sndGetPlayingState(chr->field_160[0].ptr_SEbuffer1) != 0) {
@@ -3320,6 +3325,12 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
             }
             /* mines stuck to him */
             mrData.gdl = gevrChrEmbeddedRender(chr, &mrData, chrfadealpha, withalpha);
+            {
+                /* and what a mod put on him (mod.attach on a guard) */
+                extern Gfx *gevrModAttachDrawGuard(ChrRecord *chr, ModelRenderData *body, s32 fadealpha, Gfx *gdl);
+
+                mrData.gdl = gevrModAttachDrawGuard(chr, &mrData, chrfadealpha, mrData.gdl);
+            }
             if (chrfadealpha < 0xFF)
             {
                 gDPNoOpTag(mrData.gdl++, 0x56620000 | 0xFF);

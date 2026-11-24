@@ -1577,6 +1577,56 @@ end)
         "(Y to Z), scaled; a model that won't load; placed again; show and remove once: "
         + str(answers(out, "ATTACH", "DETACH")))
 
+    # on a guard's body part
+    lua = r"""
+mod.on("mission_start", function()
+  local bad = 0
+  local function try(t) if not pcall(mod.attach.add, t) then bad = bad + 1 end end
+  try({ model = "PvestZ", like = "PcartonZ", on = "guard", part = "chest" })
+  try({ model = "PvestZ", like = "PcartonZ", on = "guard", guard = 5000 })
+  try({ model = "PvestZ", like = "PcartonZ", on = "guard", guard = 5000, part = "tail" })
+  try({ model = "PvestZ", like = "PcartonZ", on = "guard", guard = -1, part = "chest" })
+  try({ model = "PvestZ", like = "PcartonZ", on = "guard", guard = 1.5, part = "chest" })
+  try({ model = "PvestZ", like = "PcartonZ", on = "guard", guard = 5000, part = "chest", node = 2 })
+  print("bad", bad)
+  local vest = mod.attach.add({ model = "PvestZ", like = "PcartonZ", on = "guard", guard = 5000, part = "chest",
+                                at = { 0, 0, 30 } })
+  local pouch = mod.attach.add({ model = "PpouchZ", like = "PcartonZ", on = "guard", guard = 5000, part = "left_foot" })
+  print("guard", vest, pouch, mod.attach.add({ model = "PvestZ", like = "PcartonZ", on = "guard", guard = 99,
+                                                part = "head" }))
+end)
+mod.on("tick", function() print("tick", mod.attach.show(1, false), mod.attach.remove(2)) end)
+"""
+    out = run(exe, temp, "attachguard", lua, *play, "attachgone", 1, "frame")
+    check(logs(out) == ["bad 6", "guard 1 2 nil", "tick false true"],
+          "a guard's part: refusals, ids, none for a guard that isn't there; one gone with its body is no "
+          "mod's: " + str(logs(out)))
+    check(answers(out, "ATTACH")[1:4] == ["ATTACH 1 3 5000 15 PvestZ PcartonZ |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 0 30 1",
+                                         "ATTACH 2 3 5000 1 PpouchZ PcartonZ |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 0 0 1",
+                                         "ATTACH 0 3 99 8 PvestZ PcartonZ |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 0 0 1"],
+          "the game side: on guard 5000's chest (15) and left foot (1), the game's hit parts: "
+          + str(answers(out, "ATTACH")))
+    mine = (ROOT / "src/game/gevr_modattach.c").read_bytes().decode()
+    part = function(mine, "static s32 attachPartMtx(ModelFileHeader *h, s32 part)")
+    check("MODELNODE_OPCODE_BBOX" in part and "BoundingBox.ModelNumber == part" in part
+          and "modelFindNodeMtxIndex(node, 0)" in part, "a part's matrix: its bounding box's node, as hits name it")
+    guard = function(mine, "Gfx *gevrModAttachDrawGuard(")
+    check("a->chr != chr" in guard and "node = ((Mtxf *) chr->model->render_pos)[a->partMtx];" in guard
+          and "objdata.PropType = fadealpha < 0xFF ? 5 : 9;" in guard and "chr->prop->type != PROP_TYPE_CHR" in guard,
+          "drawn on that guard's record at its part's matrix as drawn, as stuck objects are; never a player's body")
+    gone = function(mine, "void gevrModAttachChrGone(ChrRecord *chr)")
+    check("gevrModApiAttachGone(s_attach[i].id);" in gone, "gone with the body, and no mod's")
+    chr = (ROOT / "src/game/chr.c").read_bytes().decode()
+    render = function(chr, "Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)")
+    check(render.index("drawjointlist(&mrData, chr->field_20);")
+          < render.index("mrData.gdl = gevrChrEmbeddedRender(chr, &mrData, chrfadealpha, withalpha);")
+          < render.index("mrData.gdl = gevrModAttachDrawGuard(chr, &mrData, chrfadealpha, mrData.gdl);")
+          < render.index("bondviewTransformManyPosToViewMatrix(chr->model->render_pos, chr->model->obj->numMatrices);"),
+          "after the body and what's stuck to it, while its matrices are still floats")
+    cleanup = function(chr, "void chrpropCleanupForRemoval(PropRecord *prop)")
+    check(cleanup.index("gevrModAttachChrGone(chr);") < cleanup.index("chr->model = NULL;"),
+          "a body's removal takes its attachments")
+
     # another mod's attachment isn't this one's to hide or remove
     lua = r"""
 mod.on("mission_start", function()
@@ -1905,7 +1955,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "Scopes: mod.weapon.scope's lens, none and the game's own, its limits, a draw's reset; mod.weapon.look; "
           "the hand's scope wherever the game read the item's. Gun models: mod.weapon.model's choices, refusals "
           "and reset; the hand's load, load_resource's name and the fits. Attachments: mod.attach on the gun, a hand "
-          "and the body or a gun model's node, its offset, refusals, place, show and remove (the owner's only); the "
+          "and the body or a gun model's node or a guard's body part, its offset, refusals, place, show and remove (the owner's only), one gone with its guard's body; the "
           "draws, frames and load; a measured loadout's size twice over, the limits, and a frame without room skipping one")
 
 

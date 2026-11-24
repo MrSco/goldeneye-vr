@@ -38,6 +38,7 @@
  *     slotid|slottaken|slotfreed <kind> <slot>   gevr_modgame.c: a runtime pickup named (SLOTID id),
  *                                  taken by this player, freed (propobj.c objFree)
  *     netpickup <mod> <from> <kind> <hex>   net_core.c: a shared pickup's drop (2) or take (3)
+ *     attachgone <id>              gevr_modattach.c: a guard's attachment gone with its body
  *     panel <0|1>                  this build has the in-game screen (input.c gevrPanelAvailable)
  *     ui                           the pages the in-game screen shows now (UIPAGE, UIROW, UIBUTTON, UIASKED)
  *     uiset <page> <row> <value> | uiclick <page> <button> | uiopened   the screen's side
@@ -182,7 +183,9 @@ static int attachFileLoads(const char *model)
 }
 int gevrModGameAttach(const GevrModAttach *a)
 {
-    int id = strncmp(a->model, "Gno", 3) == 0 ? 0 : s_attached >= GEVR_MODAPI_ATTACH_MAX ? -1
+    /* guard 99 isn't there */
+    int id = strncmp(a->model, "Gno", 3) == 0 || (a->on == GEVR_MODATTACH_GUARD && a->where == 99) ? 0
+           : s_attached >= GEVR_MODAPI_ATTACH_MAX ? -1
            : !attachFileLoads(a->model) ? 0 : s_attachNext++;
     int i;
 
@@ -651,6 +654,8 @@ int main(int argc, char **argv)
             gevrModApiItemPickup(&got);
         } else if (!strcmp(cmd, "campaign") && i + 1 < argc) {
             s_modCampaign = atoi(argv[++i]);   /* a mod campaign runs (its own save) */
+        } else if (!strcmp(cmd, "attachgone") && i + 1 < argc) {
+            gevrModApiAttachGone(atoi(argv[++i]));
         } else if (!strcmp(cmd, "netpickup") && i + 4 < argc) {
             unsigned char bytes[64];
             int len = 0;

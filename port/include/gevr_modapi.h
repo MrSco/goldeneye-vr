@@ -436,22 +436,30 @@ void gevrModGameGunModelReset(void);
 #define GEVR_MODAPI_ATTACH_SCALE_MIN 0.01f
 #define GEVR_MODAPI_ATTACH_SCALE_MAX 100.0f
 #define GEVR_MODAPI_ATTACH_NODES 256       /* node: a gun model's matrix, 0 to 255 */
-enum { GEVR_MODATTACH_GUN, GEVR_MODATTACH_HAND, GEVR_MODATTACH_BODY };
+enum { GEVR_MODATTACH_GUN, GEVR_MODATTACH_HAND, GEVR_MODATTACH_BODY, GEVR_MODATTACH_GUARD };
+/* A guard's body parts, as the game numbers them for hits (bondaicommands.h
+ * HITTARGET, HIT_LEFT_FOOT 1 to HIT_CHEST 15): each part's bounding box in
+ * a character model carries its number (ModelNumber) */
+#define GEVR_MODAPI_GUARD_PARTS 15
 typedef struct GevrModAttach {
     char model[64];        /* assets/models/<model> */
     char like[64];         /* the cartridge model file it's built over (a G gun or P prop) */
     int on;                /* GEVR_MODATTACH_* */
-    int where;             /* the hand (0 right, 1 left), or the body slot (the anchors' order) */
-    int node;              /* on the gun: the matrix of its model it rides (0 the root) */
+    int where;             /* the hand (0 right, 1 left), the body slot (the anchors' order), or a guard's id */
+    int node;              /* on the gun: the matrix of its model it rides (0 the root); on a guard: the part */
     float offset[4][4];    /* in the anchor's frame, its units: rows the model's axes, then its place */
 } GevrModAttach;
 /* attach: its id from 1; 0 when the model won't load (no file, no such like,
- * a file the like's header doesn't fit); -1 with all attached */
+ * a file the like's header doesn't fit) or there's no such guard or part; -1
+ * with all attached */
 int gevrModGameAttach(const GevrModAttach *a);
 int gevrModGameDetach(int id);
 int gevrModGameAttachShow(int id, int shown);
 int gevrModGameAttachPlace(int id, const float offset[4][4]);   /* a new offset, from the next frame */
 void gevrModGameAttachReset(void);   /* none attached (a new mission, a mod stopped) */
+/* gevr_modattach.c: a guard's attachment gone with its body (chr.c
+ * chrpropCleanupForRemoval): its id isn't any mod's now */
+void gevrModApiAttachGone(int id);
 /* A gun or thrown weapon with a model in this cartridge: what a swap or
  * mod.inventory.give/take may use */
 int gevrModGameSwappable(int item);

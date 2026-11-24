@@ -979,7 +979,20 @@ in-game screen). We maintain the adapters, not the mods.
     isn't drawn on a gun model without that matrix. `"hand"` with `hand`: on that controller's grip (VR). A
     body anchor (`hip_gun`, `hip_off`, `back_gun`, `back_off`, `chest`,
     `belt`, as `mod.hands.anchor`): on the slot's centre on the torso, kept
-    while a mod runs even with body slots off (VR).
+    while a mod runs even with body slots off (VR). `"guard"` with
+    `guard` (a guard's id) and `part`, one of the body parts the game's
+    hits name (`bondaicommands.h` `HITTARGET`): `chest`, `head`,
+    `pelvis`, `left_shoulder`, `right_shoulder`, `left_arm`,
+    `right_arm`, `left_hand`, `right_hand`, `left_thigh`,
+    `right_thigh`, `left_leg`, `right_leg`, `left_foot`, `right_foot`:
+    on that part's matrix as the guard is drawn (the node of the part's
+    bounding box, whose `ModelNumber` is the part), so a vest moves with
+    the chest and a pouch with the thigh. Drawn as the objects stuck to a
+    guard are, fading with the body, in every view the guard is drawn in,
+    flat or VR; kept on the body, alive or dead (after its id retires
+    too), until the body is removed, when it's gone and its id is no
+    mod's. Nil for no such guard, or a body without that part. The frame
+    is the part's own, in the character model's units.
   - `at` (model units, ±4000), `turn` (degrees about the anchor's X, Y
     and Z, in that order) and `scale` (0.01 to 100) lay it in the anchor's
     frame. Every frame is a gun model's units at the player's gun size,
@@ -998,8 +1011,10 @@ in-game screen). We maintain the adapters, not the mods.
     gun's animation, so a model built over one is drawn rigid at its root,
     as the body slots draw a gun: build parts over a prop file. Nothing on
     an attachment moves of itself.
-  - The local player's view only: another player sees none, and a guard's
-    gun none.
+  - The gun, the hands and the body: the local player's view only;
+    another player sees none, and a guard's gun none. A guard's: on this
+    headset, so in co-op each headset's mod attaches the same (a guard's
+    id is the same on every headset).
 
 ### Pickup swaps
 
