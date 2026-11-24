@@ -38,8 +38,15 @@ void gevrModApiReset(void);
 int gevrModApiFireAttempt(int hand, int item);
 /* weapon_fire: the round spent (loaded is after it) */
 void gevrModApiFired(int hand, int item);
+/* reload_attempt before a reload takes rounds from the reserve (the native
+ * reload as it starts, a hand reload's fresh magazine or round): 1 when a mod
+ * declines it. reserve: the hand's spare rounds now, kept with the answer */
+int gevrModApiReloadAttempt(int hand, int item, int reserve);
+/* gunfire.c's automatic reload of an empty gun, which asks every tick: 1 while
+ * the hand's last reload_attempt declined this item at this reserve */
+int gevrModApiReloadDeclined(int hand, int item, int reserve);
 /* reload_start: a reload begins (the native one lowers the gun; a hand
- * reload's magazine leaves it) */
+ * reload's magazine leaves it, or a magazine goes in without that) */
 void gevrModApiReloadStart(int hand, int item);
 /* reload_end: rounds are in (the native reload's ammo move; a magazine seated) */
 void gevrModApiReloadEnd(int hand, int item);
