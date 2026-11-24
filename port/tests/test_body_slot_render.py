@@ -38,6 +38,8 @@ static struct {int slot;float ms;} s_bodyHand[2]={{-1,0},{-1,0}};
 static f32 s_bodyCentre[GEVR_BODY_SLOTS][3],D_800364CC=1;
 static int items[GEVR_BODY_SLOTS],visible=1,reload[2]={-1,-1},draws,roots,instances[4],drawn[4];
 static Gfx *gevrReloadBeltDraw(Gfx*g){return g;}
+/* gevr_modattach.c: a mod's models on the hands and the body (mod.attach): none here */
+Gfx *gevrModAttachDrawBody(Gfx*g){return g;}
 static int gevrBodyShownItem(int s,int*by){*by=-1;return items[s];}
 static void gevrBodyToView(const float*p,float k,float*out){(void)k;for(int i=0;i<3;i++)out[i]=p[i];}
 static int gevrBodyInView(const float*p){(void)p;return visible;}
