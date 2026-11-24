@@ -465,10 +465,14 @@ in-game screen). We maintain the adapters, not the mods.
     gives the item's own back. True when set, false when the mod has no
     such file (a file that won't load leaves the cartridge's, and the log
     says why). Every hand's own come back at a mission's start and when a
-    mod stops. What stays the item's: its stats, sounds, muzzle point,
-    Gun fit places and hand reload's magazine (a mod's model has none of
-    the cartridge's measured magazines, so its gestures run the game's own
-    reload). `gun.c` keeps the choices as a table, and each tick a hand
+    mod stops. The muzzle is the model's own: the flash and the shots
+    start at its flash node (the position node on switch 3, which
+    `gunfire.c` reads from the drawn model, as GoldenEye X's models give
+    theirs), so a longer gun puts its muzzle at its own barrel's end; the
+    item's Gun fit muzzle trim still adds. What stays the item's: its
+    stats, sounds, Gun fit places (the two-handed hold's among them) and
+    hand reload's magazine (a mod's model has none of the cartridge's
+    measured magazines, so its gestures run the game's own reload). `gun.c` keeps the choices as a table, and each tick a hand
     showing another model than its gun's choice loads it again, so a
     choice never touches a player mid-load (`gevrModGunReconcile()`).
   - Known gaps: on a pump gun a lower `setLoaded` reads as a shot (the
