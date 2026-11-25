@@ -41,15 +41,15 @@ footer = ('        if (launcherTabs.top != GEVR_LTAB_ONLINE) footerTop = ImGui::
           '        startBottom = ImGui::GetItemRectMax().y;\n        }\n')
 row = source[source.index('enum {\n    GEVR_START_ROW_NONE,'):source.index('static void gevrModsPage(')]
 cheats = function('static void gevrCheatsPage(')
-# Multiplayer's Audio and Host > Fun, as gevrMultiplayerPage draws them
+# Multiplayer's Audio and Host > Advanced (the fun rules beside the live settings), as gevrMultiplayerPage draws them
 audio_at = source.index('    auto audioOptions = [&]() {')
 audio = source[audio_at:balanced(source, source.index('{', audio_at)) + 1]
 assert audio.endswith('};')
-fun_at = source.index('if (ImGui::BeginTabItem("Fun")) {')
-fun = source[source.index('{', fun_at) + 1:balanced(source, source.index('{', fun_at)) - 1]
-fun = fun.replace('ImGui::EndTabItem();', '')
+assert 'gevrHostAdvancedOptions(gold);' in source[source.index('if (ImGui::BeginTabItem("Advanced")) {'):]
+advanced = function('static void gevrHostAdvancedOptions(')
 fixture = (root / 'port/tests/launcher_frame_native.cpp').read_text(encoding='utf-8')
-fixture = fixture.replace('/* AUDIO_OPTIONS */', audio).replace('/* FUN_PAGE */', fun)
+fixture = fixture.replace('/* AUDIO_OPTIONS */', audio).replace('/* ADVANCED_OPTIONS */', advanced)
+fixture = fixture.replace('/* FUN_PAGE */', 'gevrHostAdvancedOptions(ImVec4(1.0f, 0.84f, 0.47f, 1.0f));')
 fixture = fixture.replace('/* CHEATS */', cheats).replace('/* START_ROW */', row).replace('/* FRAME */', page + '\n' + footer)
 with tempfile.TemporaryDirectory(prefix='gevr-launcher-frame-') as temp:
     temp = Path(temp)

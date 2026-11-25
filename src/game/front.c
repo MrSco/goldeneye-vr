@@ -5464,6 +5464,27 @@ void init_menu0f_mpcharsel(void)
 
 
 
+#ifdef GEVR
+/*
+ * The Select Character panel inside one player's view of a match (online,
+ * mpmenu.c): the same panel, its 440 x 330 folder coordinates mapped onto
+ * the view. The portraits take the mapping as their projection, the text
+ * and the scissor as a scale and an offset; the front end's is the whole
+ * screen as ever. Online anyone may play anyone (the launcher's list), so
+ * no portrait dims for being taken.
+ */
+static f32 s_charSelOrtho[4] = { 0.0f, 440.0f, 0.0f, 330.0f };
+static f32 s_charSelScale = 1.0f;
+static s32 s_charSelOffX;
+static s32 s_charSelOffY;
+static s32 s_charSelAnyone;
+#define CHARSEL_X(x) (s_charSelOffX + (s32)((x) * s_charSelScale))
+#define CHARSEL_Y(y) (s_charSelOffY + (s32)((y) * s_charSelScale))
+#else
+#define CHARSEL_X(x) (x)
+#define CHARSEL_Y(y) (y)
+#endif
+
 //********************************************************************************************************
 //MULTIPLAYER CHARACTER SELECT
 //********************************************************************************************************
@@ -5474,6 +5495,129 @@ void update_menu0F_mpcharsel(void)
 }
 
 
+/*
+ * One player's turn of the Select Character screen, player i's pad on panel
+ * i: B takes a choice back, the d-pad, the C buttons and the stick move along
+ * the strip of count portraits, A, Z or START chooses one nobody else has,
+ * and the strip slides 12 pixels a frame towards the one shown. Returns
+ * whether the player has chosen and the portrait has grown to full size.
+ * (GEVR: the online panel, mpmenu.c, runs it for a match slot; there anyone
+ * may play anyone, and the choice is the caller's to apply.)
+ */
+static s32 frontCharSelectPlayerTick(s32 i, s32 count)
+{
+    s32 temp_v1_3;
+
+    if (player_has_selected_char[i])
+    {
+        if ((size_mp_select_image_player[i] < 0xb) && (mp_char_prev_select_player[i] == mp_char_cur_select_player[i]))
+        {
+            size_mp_select_image_player[i] = size_mp_select_image_player[i] + 1;
+        }
+
+        if (joyGetButtonsPressedThisFrame(i, B_BUTTON))
+        {
+            player_has_selected_char[i] = 0;
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+        }
+    }
+
+    if (player_has_selected_char[i] == 0 && size_mp_select_image_player[i] > 0)
+    {
+        size_mp_select_image_player[i] = size_mp_select_image_player[i] - 1;
+    }
+    else if (player_has_selected_char[i] == 0)
+    {
+        if (joyGetButtonsPressedThisFrame(i, L_JPAD|L_CBUTTONS)) // 0x202
+        {
+            if (mp_char_cur_select_player[i] > 0)
+            {
+                mp_char_cur_select_player[i]--;
+            }
+        }
+        else if (joyGetButtonsPressedThisFrame(i, R_JPAD|R_CBUTTONS)) // 0x101
+        {
+            if (mp_char_cur_select_player[i] < (count - 1))
+            {
+                mp_char_cur_select_player[i]++;
+            }
+        }
+        else if (joyGetButtonsPressedThisFrame(i, A_BUTTON|Z_TRIG|START_BUTTON)) // 0xb000
+        {
+#ifdef GEVR
+            if (s_charSelAnyone)
+            {
+                size_mp_select_image_player[i] = 1;
+                player_has_selected_char[i] = 1;
+                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+            }
+            else
+#endif
+            if (get_players_who_have_selected_mp_char(mp_char_cur_select_player[i]) == 0)
+            {
+                player_char[i] = mp_char_cur_select_player[i];
+                size_mp_select_image_player[i] = 1;
+                player_has_selected_char[i] = 1;
+
+                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+            }
+        }
+#ifdef GEVR
+        /*
+         * A flat pad's d-pad (bound to the C buttons) is also its stick in the menus (input.c
+         * inputFlatPadSticks), so a press held past the portrait's slide
+         * (about 7 frames) stepped once as the button and again as the
+         * stick's hold-to-repeat, two characters for one press (owner,
+         * 2026-11-24). On the N64 the d-pad never moved the stick: while it
+         * is held, only its press counts.
+         */
+        else if (joyGetButtons(i, L_JPAD | R_JPAD | L_CBUTTONS | R_CBUTTONS))
+        {
+        }
+#endif
+        else if (joyGetStickXInRange(i, -2, 1) > 0)
+        {
+            if (mp_char_select_scroll_offset[i] == 0)
+            {
+                if (mp_char_cur_select_player[i] < (count - 1))
+                {
+                    mp_char_cur_select_player[i]++;
+                }
+            }
+        }
+        else if ((joyGetStickXInRange(i, -2, 1) < -1) && (mp_char_select_scroll_offset[i] == 0))
+        {
+            if (mp_char_cur_select_player[i] > 0)
+            {
+                mp_char_cur_select_player[i]--;
+            }
+        }
+    }
+
+    temp_v1_3 = (mp_char_prev_select_player[i] * 0x54) + mp_char_select_scroll_offset[i];
+
+    if (mp_char_cur_select_player[i] * 0x54 < temp_v1_3)
+    {
+        mp_char_select_scroll_offset[i] -= 0xc;
+        if (mp_char_select_scroll_offset[i] < 0)
+        {
+            mp_char_select_scroll_offset[i] += 0x54;
+            mp_char_prev_select_player[i]--;
+        }
+    }
+    else if (temp_v1_3 < mp_char_cur_select_player[i] * 0x54)
+    {
+        mp_char_select_scroll_offset[i] += 0xC;
+        if (mp_char_select_scroll_offset[i] >= 0x54)
+        {
+            mp_char_select_scroll_offset[i] -= 0x54;
+            mp_char_prev_select_player[i]++;
+        }
+    }
+
+    return player_has_selected_char[i] != 0 && size_mp_select_image_player[i] == 0xb;
+}
+
 // Address 0x7F011ED4 NTSC
 void interface_menu0F_mpcharsel(void)
 {
@@ -5482,7 +5626,6 @@ void interface_menu0F_mpcharsel(void)
     s32 ready_players;
     s32 padding2;
     s32 i;
-    s32 temp_v1_3;
 
     numplayers = get_selected_num_players();
     ready_players = 0;
@@ -5493,92 +5636,7 @@ void interface_menu0F_mpcharsel(void)
 
     for (i = 0; i < numplayers; i++)
     {
-        if (player_has_selected_char[i])
-        {
-            if ((size_mp_select_image_player[i] < 0xb) && (mp_char_prev_select_player[i] == mp_char_cur_select_player[i]))
-            {
-                size_mp_select_image_player[i] = size_mp_select_image_player[i] + 1;
-            }
-
-            if (joyGetButtonsPressedThisFrame(i, B_BUTTON))
-            {
-                player_has_selected_char[i] = 0;
-                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
-            }
-        }
-
-        if (player_has_selected_char[i] == 0 && size_mp_select_image_player[i] > 0)
-        {
-            size_mp_select_image_player[i] = size_mp_select_image_player[i] - 1;
-        }
-        else if (player_has_selected_char[i] == 0)
-        {
-            if (joyGetButtonsPressedThisFrame(i, L_JPAD|L_CBUTTONS)) // 0x202
-            {
-                if (mp_char_cur_select_player[i] > 0)
-                {
-                    mp_char_cur_select_player[i]--;
-                }
-            }
-            else if (joyGetButtonsPressedThisFrame(i, R_JPAD|R_CBUTTONS)) // 0x101
-            {
-                if (mp_char_cur_select_player[i] < (num_chars_selectable_mp - 1))
-                {
-                    mp_char_cur_select_player[i]++;
-                }
-            }
-            else if (joyGetButtonsPressedThisFrame(i, A_BUTTON|Z_TRIG|START_BUTTON)) // 0xb000
-            {
-                if (get_players_who_have_selected_mp_char(mp_char_cur_select_player[i]) == 0)
-                {
-                    player_char[i] = mp_char_cur_select_player[i];
-                    size_mp_select_image_player[i] = 1;
-                    player_has_selected_char[i] = 1;
-
-                    sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
-                }
-            }
-            else if (joyGetStickXInRange(i, -2, 1) > 0)
-            {
-                if (mp_char_select_scroll_offset[i] == 0)
-                {
-                    if (mp_char_cur_select_player[i] < (num_chars_selectable_mp - 1))
-                    {
-                        mp_char_cur_select_player[i]++;
-                    }
-                }
-            }
-            else if ((joyGetStickXInRange(i, -2, 1) < -1) && (mp_char_select_scroll_offset[i] == 0))
-            {
-                if (mp_char_cur_select_player[i] > 0)
-                {
-                    mp_char_cur_select_player[i]--;
-                }
-            }
-        }
-
-        temp_v1_3 = (mp_char_prev_select_player[i] * 0x54) + mp_char_select_scroll_offset[i];
-
-        if (mp_char_cur_select_player[i] * 0x54 < temp_v1_3)
-        {
-            mp_char_select_scroll_offset[i] -= 0xc;
-            if (mp_char_select_scroll_offset[i] < 0)
-            {
-                mp_char_select_scroll_offset[i] += 0x54;
-                mp_char_prev_select_player[i]--;
-            }
-        }
-        else if (temp_v1_3 < mp_char_cur_select_player[i] * 0x54)
-        {
-            mp_char_select_scroll_offset[i] += 0xC;
-            if (mp_char_select_scroll_offset[i] >= 0x54)
-            {
-                mp_char_select_scroll_offset[i] -= 0x54;
-                mp_char_prev_select_player[i]++;
-            }
-        }
-
-        if (player_has_selected_char[i] != 0 && size_mp_select_image_player[i] == 0xb)
+        if (frontCharSelectPlayerTick(i, num_chars_selectable_mp))
         {
             ready_players++;
         }
@@ -5643,7 +5701,11 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
     spCC = dynAllocateVertices(16);
     DL = microcode_constructor(DL);
 
+#ifdef GEVR
+    guOrtho(spD4, s_charSelOrtho[0], s_charSelOrtho[1], s_charSelOrtho[2], s_charSelOrtho[3], 1.0f, 10.0f, 1.0f);
+#else
     guOrtho(spD4, 0.0f, 440.0f, 0.0f, 330.0f, 1.0f, 10.0f, 1.0f);
+#endif
     guRotate(spD0, 3.1415927f, 1.0f, 0.0f, 0.0f);
 
     vtx_index = 0;
@@ -5659,7 +5721,11 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
             var_s3 = (j >= 2) ? j - 1 : j;
             var_s2 = (i >= 2) ? i - 1 : i;
 
+#ifdef GEVR
+            if (!s_charSelAnyone && (get_players_who_have_selected_mp_char(arg5)) && (arg6 == 0))
+#else
             if ((get_players_who_have_selected_mp_char(arg5)) && (arg6 == 0))
+#endif
             {
                 var_v0 = 0x6E;
             }
@@ -5681,6 +5747,27 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
             {
                 spCC[vtx_index].s = 0;
             }
+
+#ifdef GEVR
+            if (s_charSelAnyone)
+            {
+                /*
+                 * In a match the scissor does not hold the strip in the
+                 * player's view (fast3d draws the watch layer unclipped:
+                 * a portrait faded at the panel's edge ran on into the next
+                 * player's view, 2026-11-24). Cut each half portrait at the
+                 * fade's ends instead, its texture with it: the alpha below
+                 * is 0 there, as the panel's scissor left it on the N64.
+                 */
+                s32 x = spCC[vtx_index].coord.AsArray[0];
+                s32 half_left = (j < 2) ? arg3 - sp58 : arg3;
+
+                if (x < arg1) x = arg1;
+                if (x > arg2) x = arg2;
+                spCC[vtx_index].coord.AsArray[0] = x;
+                spCC[vtx_index].s = ((x - half_left) * 0x1000) / sp58;
+            }
+#endif
 
             if (i & 1)
             {
@@ -5741,17 +5828,15 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
 }
 
 
-Gfx *constructor_menu0F_mpcharsel(Gfx *DL)
+/*
+ * One player's panel of the Select Character screen, in folder coordinates:
+ * "Select Character" until they choose, the name of the character shown, and
+ * the strip of count portraits sliding under it (the chosen portrait alone
+ * once chosen, growing).
+ */
+static Gfx *frontCharSelectPanel(Gfx *DL, s32 playernum, s32 panel_left, s32 panel_top, s32 panel_width, s32 count)
 {
-    s32 numplayers;
-    s32 playernum;
     u8 *text;
-    s32 panel_left;  // X position where the portraits completely fade out on the left.
-    s32 panel_top;   
-    s32 panel_width; // Width of the character portrait panel (1 panel per player)
-    s32 grid_offset; // Distance between the portrait panels
-    s32 stackpad;
-    s32 stackpad2;
     s32 portrait_y_base;
     s32 select_char_height;
     s32 select_char_width;
@@ -5763,8 +5848,77 @@ Gfx *constructor_menu0F_mpcharsel(Gfx *DL)
     s32 name_x;
     s32 name_y;
 
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, CHARSEL_X(panel_left + 6), CHARSEL_Y(panel_top + 5), CHARSEL_X(panel_left + panel_width - 6), CHARSEL_Y(panel_top + 0x8C - 5));
+
+    panel_center_x = (panel_width >> 1) + panel_left;
+
+    if ((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0))
+    {
+        text = langGet(getStringID(LTITLE, TITLE_STR_85_SELECTCHARACTER));
+        textMeasure(&select_char_height, &select_char_width, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        select_char_x = CHARSEL_X(panel_center_x) - (select_char_width >> 1);
+        select_char_y = CHARSEL_Y(panel_top + 5);
+        DL = microcode_constructor(DL);
+        DL = frontPrintText(DL, &select_char_x, &select_char_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    }
+
+    text = langGet(mp_chr_setup[mp_char_cur_select_player[playernum]].text_preset);
+    textMeasure(&name_height, &name_width, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    portrait_y_base = panel_top;
+    name_x = CHARSEL_X(panel_center_x) - (name_width >> 1);
+    name_y = CHARSEL_Y((portrait_y_base + 0x46) + 0x32);
+    DL = microcode_constructor(DL);
+    DL = frontPrintText(DL, &name_x, &name_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, panel_center_x - mp_char_select_scroll_offset[playernum], portrait_y_base + 0x46, mp_char_prev_select_player[playernum], size_mp_select_image_player[playernum]);
+
+    if (((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0)) || (mp_char_prev_select_player[playernum] != mp_char_cur_select_player[playernum]))
+    {
+        if (mp_char_prev_select_player[playernum] >= 3)
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0xFC, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 3, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] >= 2)
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0xA8, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 2, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] >= 1)
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0x54, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 1, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] < (count - 1))
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0x54, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 1, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] < (count - 2))
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0xA8, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 2, size_mp_select_image_player[playernum]);
+        }
+
+        if (mp_char_prev_select_player[playernum] < (count - 3))
+        {
+            DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0xFC, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 3, size_mp_select_image_player[playernum]);
+        }
+    }
+
+    return DL;
+}
+
+
+Gfx *constructor_menu0F_mpcharsel(Gfx *DL)
+{
+    s32 numplayers;
+    s32 playernum;
+    s32 panel_left;  // X position where the portraits completely fade out on the left.
+    s32 panel_top;
+    s32 panel_width; // Width of the character portrait panel (1 panel per player)
+    s32 grid_offset; // Distance between the portrait panels
+
     numplayers = get_selected_num_players();
-    
+
     DL = viSetFillColor(DL, 0, 0, 0);
     DL = viFillScreen(DL);
     DL = frontSetupMenuBackground(DL);
@@ -5795,68 +5949,140 @@ Gfx *constructor_menu0F_mpcharsel(Gfx *DL)
             grid_offset = (playernum & 1) ? (0xAF) : (0);
             panel_left = grid_offset + 0x26;
         }
-        
-        gDPSetScissor(DL++, G_SC_NON_INTERLACE, (panel_left + 6), panel_top + 5, (panel_left + panel_width - 6), (panel_top + 0x8C - 5));
 
-        panel_center_x = (panel_width >> 1) + panel_left;
-
-        if ((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0))
-        {
-            text = langGet(getStringID(LTITLE, TITLE_STR_85_SELECTCHARACTER));
-            textMeasure(&select_char_height, &select_char_width, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
-            select_char_x = panel_center_x - (select_char_width >> 1);
-            select_char_y = panel_top + 5;
-            DL = microcode_constructor(DL);
-            DL = frontPrintText(DL, &select_char_x, &select_char_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
-        }
-        
-        text = langGet(mp_chr_setup[mp_char_cur_select_player[playernum]].text_preset);
-        textMeasure(&name_height, &name_width, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
-        portrait_y_base = panel_top;
-        name_x = panel_center_x - (name_width >> 1);
-        name_y = (portrait_y_base + 0x46) + 0x32;
-        DL = microcode_constructor(DL);
-        DL = frontPrintText(DL, &name_x, &name_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
-        DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, panel_center_x - mp_char_select_scroll_offset[playernum], portrait_y_base + 0x46, mp_char_prev_select_player[playernum], size_mp_select_image_player[playernum]);
-
-        if (((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0)) || (mp_char_prev_select_player[playernum] != mp_char_cur_select_player[playernum]))
-        {
-            if (mp_char_prev_select_player[playernum] >= 3)
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0xFC, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 3, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] >= 2)
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0xA8, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 2, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] >= 1)
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) - 0x54, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] - 1, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] < (num_chars_selectable_mp - 1))
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0x54, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 1, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] < (num_chars_selectable_mp - 2))
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0xA8, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 2, size_mp_select_image_player[playernum]);
-            }
-
-            if (mp_char_prev_select_player[playernum] < (num_chars_selectable_mp - 3))
-            {
-                DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, (panel_center_x - mp_char_select_scroll_offset[playernum]) + 0xFC, portrait_y_base + 0x46, mp_char_prev_select_player[playernum] + 3, size_mp_select_image_player[playernum]);
-            }
-        }
+        DL = frontCharSelectPanel(DL, playernum, panel_left, panel_top, panel_width, num_chars_selectable_mp);
     }
 
     DL = combiner_bayer_lod_perspective(DL);
 
     return DL;
 }
+
+
+#ifdef GEVR
+/*
+ * The Select Character panel in a match (online, mpmenu.c): the front end's
+ * own screen for one match slot, with its pad, drawn into that player's view.
+ * It keeps its state in the front end's arrays, which have a row for every
+ * slot and are idle in a match. count is the online list's length
+ * (net_match.c), front.c's mp_chr_setup rows one for one, so a hack's own
+ * characters (gevr_romcampaign.c installMpChars) show their own names and
+ * portraits.
+ */
+void frontCharSelectBegin(s32 slot, s32 chr, s32 count)
+{
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    if (count > gevrMpCharRows) count = gevrMpCharRows;
+    if (chr < 0 || chr >= count) chr = 0;
+
+    /* Each portrait is four textures, as init_menu0f_mpcharsel loads them. */
+    for (i = 0; i < count * 4; i++)
+    {
+        s32 image = mp_chr_setup[i >> 2].select_photo * 4 + (i & 3);
+
+        if (mpcharselimages[image].index < (u32)(MAX_TEXTURES - 1))
+        {
+            texLoadFromTextureNum(mpcharselimages[image].index, 0);
+        }
+    }
+
+    mp_char_cur_select_player[slot] = chr;
+    mp_char_prev_select_player[slot] = chr;
+    mp_char_select_scroll_offset[slot] = 0;
+    player_has_selected_char[slot] = 0;
+    size_mp_select_image_player[slot] = 0;
+}
+
+/* A frame of the slot's panel: 1 chosen (frontCharSelectShown has it), -1 B
+ * before choosing (leave it as it was), 0 still choosing. */
+s32 frontCharSelectTick(s32 slot, s32 count)
+{
+    s32 done;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return -1;
+    if (count > gevrMpCharRows) count = gevrMpCharRows;
+    if (!player_has_selected_char[slot] && size_mp_select_image_player[slot] == 0
+        && joyGetButtonsPressedThisFrame(slot, B_BUTTON))
+    {
+        return -1;
+    }
+    s_charSelAnyone = 1;
+    done = frontCharSelectPlayerTick(slot, count);
+    s_charSelAnyone = 0;
+    return done ? 1 : 0;
+}
+
+s32 frontCharSelectShown(s32 slot)
+{
+    return slot >= 0 && slot < MAX_PLAYER_COUNT ? mp_char_cur_select_player[slot] : 0;
+}
+
+/*
+ * The slot's panel over the view at (vx, vy), vw x vh screen pixels: a sheet
+ * of the folder's paper, and on it the panel at the 4-player size (175 x 140)
+ * scaled to the view's height, widened to its shape so a wide view shows
+ * more of the strip. The text keeps its size; the portraits scale.
+ */
+Gfx *frontCharSelectDraw(Gfx *DL, s32 slot, s32 count, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    extern u8 g_ViBackIndex;
+    Vp *viewport;
+    f32 scale;
+    s32 panel_width;
+    s32 sw = viGetX();
+    s32 sh = viGetY();
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0) return DL;
+    if (count > gevrMpCharRows) count = gevrMpCharRows;
+
+    scale = (f32)vh / 140.0f;
+    if ((f32)vw / scale < 175.0f) scale = (f32)vw / 175.0f;
+    panel_width = (s32)((f32)vw / scale);
+    if (panel_width > 440) panel_width = 440;
+    s_charSelScale = scale;
+    s_charSelOffX = vx + (vw - (s32)(panel_width * scale)) / 2;
+    s_charSelOffY = vy + (vh - (s32)(140 * scale)) / 2;
+    /* folder x = (screen x - offset) / scale; folder y counts up from 330 at the panel's top */
+    s_charSelOrtho[0] = -(f32)s_charSelOffX / scale;
+    s_charSelOrtho[1] = (f32)(sw - s_charSelOffX) / scale;
+    s_charSelOrtho[2] = 330.0f - (f32)(sh - s_charSelOffY) / scale;
+    s_charSelOrtho[3] = 330.0f + (f32)s_charSelOffY / scale;
+    s_charSelAnyone = 1;
+
+    /* The portraits are shaded triangles: the whole screen's viewport, no depth test. */
+    viewport = dynAllocate(sizeof(Vp));
+    *viewport = g_CurrentPlayer->viewports[g_ViBackIndex];
+    viewport->vp.vscale[0] = viewport->vp.vtrans[0] = sw * 2;
+    viewport->vp.vscale[1] = viewport->vp.vtrans[1] = sh * 2;
+
+    gDPPipeSync(DL++);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    DL = microcode_constructor(DL);
+    DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+    gSPViewport(DL++, osVirtualToPhysical(viewport));
+    gSPClearGeometryMode(DL++, G_CULL_BOTH | G_LIGHTING | G_ZBUFFER);
+    DL = frontCharSelectPanel(DL, slot, 0, 0, panel_width, count);
+    DL = combiner_bayer_lod_perspective(DL);
+    gDPPipeSync(DL++);
+    /* depth back on for the next view, as bondview2.c gevrRenderRadarGauges: the frame sets it once (lv.c) */
+    gSPSetGeometryMode(DL++, G_ZBUFFER);
+    gSPMatrix(DL++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPViewport(DL++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+
+    s_charSelAnyone = 0;
+    s_charSelScale = 1.0f;
+    s_charSelOffX = 0;
+    s_charSelOffY = 0;
+    s_charSelOrtho[0] = 0.0f;
+    s_charSelOrtho[1] = 440.0f;
+    s_charSelOrtho[2] = 0.0f;
+    s_charSelOrtho[3] = 330.0f;
+    return DL;
+}
+#endif
 
 
 //********************************************************************************************************
@@ -6589,6 +6815,1322 @@ Gfx * constructor_menu12_mpstage(Gfx *DL)
 }
 
 
+
+
+#ifdef GEVR
+/*
+ * The Select Stage photo grid in a match (online, mpmenu.c): the screen
+ * above (the dark band behind each row of photos, the photos tinted grey,
+ * the highlighted one lit, the names on them) for one match slot, inside
+ * that player's own view and driven by their pad, while the others play
+ * on. Online offers every gameplay stage (net_match.c), not the screen's
+ * eleven: a stage the multiplayer screen has no photo of in its menu shows
+ * its level's picture from the same set (the ROM keeps one for every
+ * mission level, level/damicon, level/siloicon ..., all 68 x 44 like the
+ * screen's), a "(Full)" stage its map's photo marked FULL, and a stage with
+ * no picture at all (a texture the ROM lacks) a card of the same size with
+ * its name.
+ * It is the same texture set the screen's table (oddtextures.c
+ * s_mpstageselimages) points into, so a Bean game shows XBLA's pictures
+ * (gevr_bean_images.c "the stage pictures").
+ *
+ * The caller (mpmenu.c) fills the tiles each frame: the host's MAP grid
+ * has a tile per stage, the NEXT MAP vote grid the screen's Random photo
+ * first, as No vote. The state is the slot's cursor and scroll here.
+ */
+static const struct { u8 level; u16 image; } s_stageSelPhotos[] = {
+    /* the eleven the screen's menu offers (multi_stage_setups' photos) */
+    { LEVELID_TEMPLE, IMAGE_MP_TEMPLE },     { LEVELID_COMPLEX, IMAGE_MP_COMPLEX },
+    { LEVELID_CAVES, IMAGE_MP_CAVES },       { LEVELID_LIBRARY, IMAGE_MP_BASEMENT },
+    { LEVELID_BASEMENT, IMAGE_MP_BASEMENT }, { LEVELID_STACK, IMAGE_MP_BASEMENT },
+    { LEVELID_FACILITY, IMAGE_MP_FACILITY }, { LEVELID_BUNKER2, IMAGE_MP_BUNKER2 },
+    { LEVELID_ARCHIVES, IMAGE_MP_ARCHIVES }, { LEVELID_CAVERNS, IMAGE_MP_CAVERNS },
+    { LEVELID_EGYPT, IMAGE_MP_EGYPT },
+    /* in the screen's table, cut from its menu */
+    { LEVELID_DAM, IMAGE_MP_DAM },           { LEVELID_RUNWAY, IMAGE_MP_RUNWAY },
+    { LEVELID_FRIGATE, IMAGE_MP_FRIGATE },   { LEVELID_STATUE, IMAGE_MP_STATUE },
+    { LEVELID_CRADLE, IMAGE_MP_CRADLE },     { LEVELID_AZTEC, IMAGE_MP_AZTEC },
+    { LEVELID_DEPOT, IMAGE_MP_DEPOT },
+    /* the other mission levels' pictures, never in the screen's table */
+    { LEVELID_SURFACE, IMAGE_MP_SURFACE },   { LEVELID_SURFACE2, IMAGE_MP_SURFACE2 },
+    { LEVELID_BUNKER1, IMAGE_MP_BUNKER },    { LEVELID_SILO, IMAGE_MP_SILO },
+    { LEVELID_STREETS, IMAGE_MP_STREETS },   { LEVELID_TRAIN, IMAGE_MP_TRAIN },
+    { LEVELID_JUNGLE, IMAGE_MP_JUNGLE },     { LEVELID_CONTROL, IMAGE_MP_CONTROL },
+};
+
+/* A stage's picture, a texture id; -1 none. The No vote tile (level -1) is the screen's Random. */
+s32 frontStageSelectPhoto(s32 level)
+{
+    s32 i;
+
+    if (level < 0) return IMAGE_MP_RANDOM;
+    for (i = 0; i < (s32)(sizeof(s_stageSelPhotos) / sizeof(s_stageSelPhotos[0])); i++)
+    {
+        if (s_stageSelPhotos[i].level == level) return s_stageSelPhotos[i].image;
+    }
+    return -1;
+}
+
+/* The tile pitch and the dark band's height, in the screen's pixels at scale 1 */
+#define STAGESEL_PITCH_X 76
+#define STAGESEL_PITCH_Y 58
+#define STAGESEL_BAND    52
+#define STAGESEL_PHOTO_W 68
+#define STAGESEL_PHOTO_H 44
+
+/*
+ * The grid for a view vw wide with gridh for its rows: four photos across as
+ * the screen has them, at least two rows tall, at most twice the screen's
+ * size; a view with width to spare (a wide half of a split screen) takes
+ * more columns. The rows past those shown scroll.
+ */
+void frontStageSelectLayout(s32 vw, s32 gridh, s32 count, f32 *scale, s32 *cols, s32 *rows)
+{
+    f32 s = (f32)(vw - 8) / (f32)(4 * STAGESEL_PITCH_X);
+    f32 sh = (f32)gridh / (f32)(STAGESEL_PITCH_Y + STAGESEL_BAND);   /* two rows: a pitch and a band */
+    s32 c;
+    s32 r;
+    s32 total;
+
+    if (s > sh) s = sh;
+    if (s > 2.0f) s = 2.0f;
+    if (s < 0.25f) s = 0.25f;
+    c = (s32)((f32)(vw - 8) / (STAGESEL_PITCH_X * s) + 0.001f);
+    if (c > 8) c = 8;
+    if (c < 1) c = 1;
+    if (count > 0 && c > count) c = count;
+    total = count > 0 ? (count + c - 1) / c : 1;
+    r = 1 + (s32)(((f32)gridh - STAGESEL_BAND * s) / (STAGESEL_PITCH_Y * s) + 0.001f);
+    if (r > total) r = total;
+    if (r < 1) r = 1;
+    *scale = s;
+    *cols = c;
+    *rows = r;
+}
+
+/*
+ * The cursor moved dx along or dy rows down a grid cols wide, onto the next
+ * tile that may be chosen that way; at an edge it stays. Down onto a short
+ * last row it takes that row's last tile.
+ */
+s32 frontStageSelectStep(const FrontStageTile *tiles, s32 count, s32 cols, s32 cur, s32 dx, s32 dy)
+{
+    s32 next;
+
+    if (count <= 0) return 0;
+    if (cur < 0 || cur >= count) cur = 0;
+    if (cols < 1) cols = 1;
+    if (dx != 0)
+    {
+        for (next = cur + dx; next >= 0 && next < count; next += dx)
+        {
+            if (tiles[next].eligible) return next;
+        }
+        return cur;
+    }
+    if (dy != 0)
+    {
+        next = cur + dy * cols;
+        if (dy > 0 && next >= count && cur / cols < (count - 1) / cols) next = count - 1;
+        while (next >= 0 && next < count)
+        {
+            s32 k;
+
+            if (tiles[next].eligible) return next;
+            /* the nearest along that row, then the next row */
+            for (k = 1; k < cols; k++)
+            {
+                if (next - k >= 0 && (next - k) / cols == next / cols && tiles[next - k].eligible) return next - k;
+                if (next + k < count && (next + k) / cols == next / cols && tiles[next + k].eligible) return next + k;
+            }
+            next += dy * cols;
+        }
+    }
+    return cur;
+}
+
+static s32 s_stageSelCursor[MAX_PLAYER_COUNT];
+static s32 s_stageSelScroll[MAX_PLAYER_COUNT];
+static s32 s_stageSelCols[MAX_PLAYER_COUNT];
+static s32 s_stageSelStick[MAX_PLAYER_COUNT];
+static s32 s_stageSelHeld[MAX_PLAYER_COUNT];
+
+void frontStageSelectBegin(s32 slot, const FrontStageTile *tiles, s32 count, s32 cursor)
+{
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    /* the pictures now, not a stall at the first frame drawn */
+    for (i = 0; i < count; i++)
+    {
+        s32 image = frontStageSelectPhoto(tiles[i].level);
+
+        if (image >= 0 && image < (s32)NUM_TEXTURES) texLoadFromTextureNum(image, 0);
+    }
+    s_stageSelCursor[slot] = cursor >= 0 && cursor < count ? cursor : 0;
+    s_stageSelScroll[slot] = 0;
+    s_stageSelCols[slot] = 4;
+    s_stageSelStick[slot] = 0;
+    s_stageSelHeld[slot] = 0;
+}
+
+s32 frontStageSelectShown(s32 slot)
+{
+    return slot >= 0 && slot < MAX_PLAYER_COUNT ? s_stageSelCursor[slot] : 0;
+}
+
+/*
+ * A frame of the slot's grid: 1 chosen (frontStageSelectShown has the tile),
+ * -1 B (leave it as it was), 0 still choosing. A, Z or START chooses, as on
+ * the screen. The stick moves the highlight, repeating while held; the
+ * d-pad and the C buttons step once a press: a flat pad's d-pad is its stick
+ * in the menus too (input.c inputFlatPadSticks), and a press held stepped
+ * as the button and again as the stick's repeat (front.c's Select
+ * Character, 2026-11-24).
+ */
+s32 frontStageSelectTick(s32 slot, const FrontStageTile *tiles, s32 count)
+{
+    extern void mpwatchPlayBeep(void);
+    const u16 pad = L_JPAD | R_JPAD | U_JPAD | D_JPAD | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS;
+    s32 cur;
+    s32 next;
+    s32 dx = 0;
+    s32 dy = 0;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || count <= 0) return -1;
+    cur = s_stageSelCursor[slot];
+    if (cur < 0 || cur >= count) cur = 0;
+    s_stageSelCursor[slot] = cur;
+
+    if (joyGetButtonsPressedThisFrame(slot, B_BUTTON)) return -1;
+    if (joyGetButtonsPressedThisFrame(slot, A_BUTTON | Z_TRIG | START_BUTTON))
+    {
+        if (!tiles[cur].eligible) return 0;
+        sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+        return 1;
+    }
+
+    if (joyGetButtons(slot, pad))
+    {
+        u16 pressed = joyGetButtonsPressedThisFrame(slot, pad);
+
+        if (pressed & (L_JPAD | L_CBUTTONS)) dx = -1;
+        else if (pressed & (R_JPAD | R_CBUTTONS)) dx = 1;
+        else if (pressed & (U_JPAD | U_CBUTTONS)) dy = -1;
+        else if (pressed & (D_JPAD | D_CBUTTONS)) dy = 1;
+        s_stageSelStick[slot] = 0;
+        s_stageSelHeld[slot] = 0;
+    }
+    else
+    {
+        s32 sx = joyGetStickX(slot);
+        s32 sy = joyGetStickY(slot);
+        s32 ax = sx < 0 ? -sx : sx;
+        s32 ay = sy < 0 ? -sy : sy;
+        s32 dir = 0;
+
+        if (ax > 30 && ax >= ay) dir = sx > 0 ? 1 : -1;
+        else if (ay > 30) dir = sy > 0 ? -2 : 2;   /* up the stick: a row up */
+        if (dir != s_stageSelStick[slot])
+        {
+            s_stageSelStick[slot] = dir;
+            s_stageSelHeld[slot] = 0;
+        }
+        else if (dir == 0 || ++s_stageSelHeld[slot] < 18 || (s_stageSelHeld[slot] - 18) % 6 != 0)
+        {
+            dir = 0;
+        }
+        if (dir == 1 || dir == -1) dx = dir;
+        else if (dir) dy = dir / 2;
+    }
+
+    if (dx || dy)
+    {
+        next = frontStageSelectStep(tiles, count, s_stageSelCols[slot], cur, dx, dy);
+        if (next != cur)
+        {
+            s_stageSelCursor[slot] = next;
+            mpwatchPlayBeep();
+        }
+    }
+    return 0;
+}
+
+/* tile i's picture loaded into entry (its decoded address); 0 none */
+static s32 frontStageSelectTexture(const FrontStageTile *tile, struct sImageTableEntry *entry)
+{
+    s32 image = frontStageSelectPhoto(tile->level);
+
+    if (image < 0 || image >= (s32)NUM_TEXTURES) return 0;
+    /* a copy each frame: the static tables' slots are reset at a stage load, this one is the frame's */
+    entry->index = (uintptr_t)image;
+    entry->width = STAGESEL_PHOTO_W;
+    entry->height = STAGESEL_PHOTO_H;
+    entry->level = 0;
+    entry->format = G_IM_FMT_I;
+    entry->depth = G_IM_SIZ_8b;
+    entry->flagsS = G_TX_CLAMP;
+    entry->flagsT = G_TX_CLAMP;
+    entry->pad = 0;
+    texLoad(&entry->index, NULL);
+    return entry->index >= NUM_TEXTURES;
+}
+
+/* A font's line, as textRender spaces lines (textMeasure counts only the breaks) */
+#define STAGESEL_LINE(chars) ((chars)['['].height + (chars)['['].baseline)
+
+/* text in a black box, its top left at (x, y) */
+static Gfx *frontStageSelectLabel(Gfx *DL, s32 x, s32 y, char *text, u32 colour)
+{
+    s32 h;
+    s32 w;
+
+    textMeasure(&h, &w, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    h = STAGESEL_LINE(ptrFontBankGothicChars);
+    DL = microcode_constructor_related_to_menus(DL, x, y, x + w, y + h, 0x000000C0);
+    DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+    return DL;
+}
+
+/*
+ * The slot's grid over the view at (vx, vy), vw x vh screen pixels: a sheet
+ * of the folder's paper as Select Character's, the title, the rows of
+ * photos that fit, and under them the highlighted stage's name, its votes
+ * and the buttons. The photo of the stage the player already has (their
+ * vote, or the host's map) is framed in green; each photo with votes shows
+ * how many in its corner. Only rectangles and text: the view's depth and
+ * geometry are left as they were.
+ */
+Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 count, const char *title,
+                          const char *verb, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    struct sImageTableEntry entries[65];   /* No vote and the 64 stages a ballot holds (net_match.c) */
+    u8 loaded[65];
+    char text[80];
+    f32 s;
+    s32 cols;
+    s32 rows;
+    s32 total;
+    s32 cur;
+    s32 scroll;
+    s32 th;
+    s32 tw;
+    s32 headh;
+    s32 gridh;
+    s32 gx;
+    s32 gy;
+    s32 top;
+    s32 pitchx;
+    s32 pitchy;
+    s32 band;
+    s32 frame;
+    s32 i;
+    s32 x;
+    s32 y;
+    f32 halfw;
+    f32 halfh;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0 || count <= 0) return DL;
+    if (count > 65) count = 65;
+    cur = s_stageSelCursor[slot];
+    if (cur < 0 || cur >= count) cur = 0;
+
+    headh = STAGESEL_LINE(ptrFontZurichBoldChars) + 2;
+    frontStageSelectLayout(vw, vh - 2 * headh - 6, count, &s, &cols, &rows);
+    s_stageSelCols[slot] = cols;
+    total = (count + cols - 1) / cols;
+    scroll = s_stageSelScroll[slot];
+    if (scroll > cur / cols) scroll = cur / cols;
+    if (scroll < cur / cols - rows + 1) scroll = cur / cols - rows + 1;
+    if (scroll > total - rows) scroll = total - rows;
+    if (scroll < 0) scroll = 0;
+    s_stageSelScroll[slot] = scroll;
+
+    pitchx = (s32)(STAGESEL_PITCH_X * s);
+    pitchy = (s32)(STAGESEL_PITCH_Y * s);
+    band = (s32)(STAGESEL_BAND * s);
+    halfw = STAGESEL_PHOTO_W * 0.5f * s;
+    halfh = STAGESEL_PHOTO_H * 0.5f * s;
+    frame = s >= 1.0f ? 2 : 1;
+    gridh = (rows - 1) * pitchy + band;
+    gx = vx + (vw - cols * pitchx) / 2;
+    top = vy + (vh - (2 * headh + gridh + 6)) / 2;
+    if (top < vy) top = vy;
+    gy = top + headh + 3;
+
+    gDPPipeSync(DL++);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    DL = microcode_constructor(DL);
+    DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+
+    /* the bands, the frames, and the cards of stages without a picture */
+    for (i = 0; i < rows; i++)
+    {
+        s32 last = (scroll + i + 1) * cols < count ? cols : count - (scroll + i) * cols;
+
+        y = gy + i * pitchy;
+        DL = microcode_constructor_related_to_menus(DL, gx + 2, y, gx + last * pitchx - 2, y + band, 0x101010FF);
+    }
+    for (i = scroll * cols; i < count && i < (scroll + rows) * cols; i++)
+    {
+        s32 cx = gx + (i % cols) * pitchx + pitchx / 2;
+        s32 cy = gy + (i / cols - scroll) * pitchy + band / 2;
+        s32 l = cx - (s32)halfw;
+        s32 t = cy - (s32)halfh;
+        s32 r = cx + (s32)halfw;
+        s32 b = cy + (s32)halfh;
+
+        loaded[i] = (u8)frontStageSelectTexture(&tiles[i], &entries[i]);
+        if (tiles[i].mine)
+        {
+            DL = microcode_constructor_related_to_menus(DL, l - frame - 1, t - frame - 1, r + frame + 1, b + frame + 1, 0x00E000FF);
+        }
+        else if (i == cur)
+        {
+            DL = microcode_constructor_related_to_menus(DL, l - frame, t - frame, r + frame, b + frame, 0xFFFFFFC0);
+        }
+        if (!loaded[i])
+        {
+            DL = microcode_constructor_related_to_menus(DL, l, t, r, b,
+                                                        i == cur ? 0x707070FF : tiles[i].eligible ? 0x383838FF : 0x181818FF);
+        }
+    }
+
+    /* the photos, as the screen draws them */
+    DL = combiner_bayer_lod_perspective(DL);
+    gDPSetTextureFilter(DL++, s > 0.95f && s < 1.05f ? G_TF_POINT : G_TF_BILERP);
+    for (i = scroll * cols; i < count && i < (scroll + rows) * cols; i++)
+    {
+        f32 pos[2];
+        f32 size[2];
+
+        if (!loaded[i]) continue;
+        pos[0] = (f32)(gx + (i % cols) * pitchx + pitchx / 2);
+        pos[1] = (f32)(gy + (i / cols - scroll) * pitchy + band / 2);
+        size[0] = halfw;
+        size[1] = halfh;
+        texSelect(&DL, &entries[i], 1, 0, 2);
+        if (i == cur)
+        {
+            gDPSetCycleType(DL++, G_CYC_2CYCLE);
+            gDPSetFogColor(DL++, 0xff, 0xff, 0xff, 0x0a);
+            gDPSetRenderMode(DL++, G_RM_FOG_PRIM_A, G_RM_AA_OPA_SURF2);
+            display_image_at_position(&DL, pos, size, STAGESEL_PHOTO_W, STAGESEL_PHOTO_H, 0, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0, 1);
+        }
+        else if (tiles[i].eligible)
+        {
+            display_image_at_position(&DL, pos, size, STAGESEL_PHOTO_W, STAGESEL_PHOTO_H, 0, 0, 1, 0x6E, 0x6E, 0x6E, 0xFF, 0, 0);
+        }
+        else
+        {
+            display_image_at_position(&DL, pos, size, STAGESEL_PHOTO_W, STAGESEL_PHOTO_H, 0, 0, 1, 0xF, 0xF, 0xF, 0xFF, 0, 0);
+        }
+    }
+
+    /* on the photos: the name where it fits (a card always), FULL, the votes */
+    DL = microcode_constructor(DL);
+    for (i = scroll * cols; i < count && i < (scroll + rows) * cols; i++)
+    {
+        s32 cx = gx + (i % cols) * pitchx + pitchx / 2;
+        s32 cy = gy + (i / cols - scroll) * pitchy + band / 2;
+        s32 l = cx - (s32)halfw;
+        s32 t = cy - (s32)halfh;
+        s32 r = cx + (s32)halfw;
+        s32 b = cy + (s32)halfh;
+        u32 colour = i == cur ? 0xFFFFFFFF : tiles[i].eligible ? 0x969696FF : 0x505050FF;
+
+        snprintf(text, sizeof(text), "%s", tiles[i].name);
+        if (tiles[i].full)
+        {
+            char *paren = strstr(text, " (");
+
+            if (paren != NULL) *paren = '\0';
+        }
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        th = STAGESEL_LINE(ptrFontBankGothicChars);
+        if (tw <= r - l - 2 && th <= (b - t) / 2 && (s >= 0.8f || !loaded[i]))
+        {
+            DL = frontStageSelectLabel(DL, l + 1, loaded[i] ? b - th - 1 : cy - th / 2, text, colour);
+        }
+        if (tiles[i].full)
+        {
+            snprintf(text, sizeof(text), "FULL");
+            textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            if (tw <= r - l - 10) DL = frontStageSelectLabel(DL, l + 1, t + 1, text, 0xFFD040FF);
+        }
+        if (tiles[i].votes > 0)
+        {
+            snprintf(text, sizeof(text), "%d", tiles[i].votes);
+            textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            DL = frontStageSelectLabel(DL, r - tw - 1, t + 1, text, 0x40FF40FF);
+        }
+    }
+
+    /* the title, the scroll arrows, the highlighted stage and the buttons */
+    snprintf(text, sizeof(text), "%s", title);
+    textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    x = vx + (vw - tw) / 2;
+    y = top;
+    DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    if (scroll > 0)
+    {
+        x = gx + cols * pitchx + 1;
+        y = gy;
+        if (x > vx + vw - 8) x = vx + vw - 8;
+        DL = textRender(DL, &x, &y, "^", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
+    }
+    if (scroll + rows < total)
+    {
+        th = STAGESEL_LINE(ptrFontBankGothicChars);
+        x = gx + cols * pitchx + 1;
+        y = gy + gridh - th;
+        if (x > vx + vw - 8) x = vx + vw - 8;
+        DL = textRender(DL, &x, &y, "v", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
+    }
+    {
+        char name[48];
+
+        if (tiles[cur].votes > 0) snprintf(name, sizeof(name), "%s - %d vote%s", tiles[cur].name, tiles[cur].votes, tiles[cur].votes == 1 ? "" : "s");
+        else snprintf(name, sizeof(name), "%s", tiles[cur].name);
+        snprintf(text, sizeof(text), "%s   A:%s  B:BACK", name, verb);
+        textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        if (tw > vw - 4)
+        {
+            snprintf(text, sizeof(text), "%s", name);
+            textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        }
+        x = vx + (vw - tw) / 2;
+        if (x < vx + 2) x = vx + 2;
+        y = gy + gridh + 3;
+        DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, tiles[cur].eligible ? 0xFF : 0x80,
+                            viGetX(), viGetY(), 0, 0);
+    }
+
+    DL = combiner_bayer_lod_perspective(DL);
+    gDPPipeSync(DL++);
+    gDPSetCycleType(DL++, G_CYC_1CYCLE);
+    gDPSetTextureFilter(DL++, G_TF_BILERP);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    return DL;
+}
+#endif
+
+
+#ifdef GEVR
+/*
+ * The Handicap and Teams screens in a match (online, mpmenu.c): GoldenEye's
+ * multiplayer Select Handicap and Select Teams screens above (the folder's
+ * paper, the Zurich titles, "Health -1 (Veteran)" as the game words it, the
+ * red and blue team names in their colours) for one match slot, inside that
+ * player's own view and driven by their pad, while the others play on, as
+ * Select Character and Select Stage are. Online each shows the whole match:
+ * the original gave each of four players a quarter of the screen; here the
+ * roster is a list under the one being changed, and the teams are columns
+ * of names, so a player sees who is on which side. The caller (mpmenu.c)
+ * keeps the choice and fills the entries each frame; these only draw, with
+ * rectangles and text: the view's depth and geometry are left as they were.
+ */
+
+/* The pad in either panel: the stick moves, repeating while held; the d-pad
+ * and the C buttons step once a press (a flat pad's d-pad is its stick in
+ * the menus too, input.c inputFlatPadSticks). 1 A, Z or START; -1 B; 0 else. */
+static s32 s_panelStick[MAX_PLAYER_COUNT];
+static s32 s_panelHeld[MAX_PLAYER_COUNT];
+static s32 s_panelBlink[MAX_PLAYER_COUNT];
+
+void frontPanelPadReset(s32 slot)
+{
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    s_panelStick[slot] = 0;
+    s_panelHeld[slot] = 0;
+    s_panelBlink[slot] = 0;
+}
+
+s32 frontPanelPad(s32 slot, s32 *dx, s32 *dy)
+{
+    const u16 pad = L_JPAD | R_JPAD | U_JPAD | D_JPAD | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS;
+
+    *dx = 0;
+    *dy = 0;
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    if (joyGetButtonsPressedThisFrame(slot, B_BUTTON)) return -1;
+    if (joyGetButtonsPressedThisFrame(slot, A_BUTTON | Z_TRIG | START_BUTTON)) return 1;
+    if (joyGetButtons(slot, pad))
+    {
+        u16 pressed = joyGetButtonsPressedThisFrame(slot, pad);
+
+        if (pressed & (L_JPAD | L_CBUTTONS)) *dx = -1;
+        else if (pressed & (R_JPAD | R_CBUTTONS)) *dx = 1;
+        else if (pressed & (U_JPAD | U_CBUTTONS)) *dy = -1;
+        else if (pressed & (D_JPAD | D_CBUTTONS)) *dy = 1;
+        s_panelStick[slot] = 0;
+        s_panelHeld[slot] = 0;
+    }
+    else
+    {
+        s32 sx = joyGetStickX(slot);
+        s32 sy = joyGetStickY(slot);
+        s32 ax = sx < 0 ? -sx : sx;
+        s32 ay = sy < 0 ? -sy : sy;
+        s32 dir = 0;
+
+        if (ax > 30 && ax >= ay) dir = sx > 0 ? 1 : -1;
+        else if (ay > 30) dir = sy > 0 ? -2 : 2;   /* up the stick: a row up */
+        if (dir != s_panelStick[slot])
+        {
+            s_panelStick[slot] = dir;
+            s_panelHeld[slot] = 0;
+        }
+        else if (dir == 0 || ++s_panelHeld[slot] < 18 || (s_panelHeld[slot] - 18) % 6 != 0)
+        {
+            dir = 0;
+        }
+        if (dir == 1 || dir == -1) *dx = dir;
+        else if (dir) *dy = dir / 2;
+    }
+    return 0;
+}
+
+/* the screens' choosing sound */
+void frontPanelChosenSound(void)
+{
+    sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+}
+
+/*
+ * text cut to w pixels in font, a '.' where it was cut. A last "(...)" stays
+ * whole, the name before it cut: a split screen's guests are all "Name (2)",
+ * "Name (3)"..., and bots "Character (Bot)", told apart by it.
+ */
+static void frontPanelFit(char *out, s32 size, const char *text, s32 w, struct fontchar *chars, struct font *font)
+{
+    const char *src = text != NULL ? text : "";
+    const char *tail = strrchr(src, '(');
+    s32 th;
+    s32 tw;
+    s32 n;
+
+    snprintf(out, size, "%s", src);
+    textMeasure(&th, &tw, out, chars, font, 0);
+    if (tw <= w) return;
+    n = (s32)strlen(src);
+    if (tail != NULL && tail > src && n > 0 && src[n - 1] == ')')
+    {
+        s32 keep = (s32)(tail - src);
+
+        while (keep > 1)
+        {
+            keep--;
+            snprintf(out, size, "%.*s.%s", (int)keep, src, tail);
+            textMeasure(&th, &tw, out, chars, font, 0);
+            if (tw <= w) return;
+        }
+        snprintf(out, size, "%s", src);   /* not even with the name cut: cut the end */
+    }
+    n = (s32)strlen(out);
+    while (tw > w && n > 1)
+    {
+        n--;
+        out[n - 1] = '.';
+        out[n] = '\0';
+        textMeasure(&th, &tw, out, chars, font, 0);
+    }
+}
+
+/*
+ * A screen's list of names cut alike (the Handicap and Teams screens): a
+ * split screen's guests are "Name (2)", "Name (3)"... and cut one by one they
+ * came out "AGENT 44." beside "AGENT 446.(2)" (owner, 2026-11-24). Here each
+ * name's own part (before a last "(...)", less its space) is cut to the same
+ * length, the longest every name of the list fits within w with, a '.' where
+ * cut, the "(...)" kept whole; a name that fits as it is stays whole. Past
+ * that (a view too narrow for "A.(2)"), each is cut as frontPanelFit cuts it.
+ */
+#define PANEL_NAME_LEN 48
+static s32 frontPanelNameBase(const char *name, const char **tail)
+{
+    s32 n = (s32)strlen(name);
+    const char *t = strrchr(name, '(');
+    s32 base = n;
+
+    *tail = "";
+    if (t != NULL && t > name && n > 0 && name[n - 1] == ')')
+    {
+        *tail = t;
+        base = (s32)(t - name);
+        while (base > 0 && name[base - 1] == ' ') base--;
+    }
+    return base;
+}
+static void frontPanelNameCut(char *out, const char *name, s32 keep, struct fontchar *chars, struct font *font, s32 w)
+{
+    const char *tail;
+    s32 base = frontPanelNameBase(name, &tail);
+    s32 th;
+    s32 tw;
+
+    snprintf(out, PANEL_NAME_LEN, "%s", name);
+    textMeasure(&th, &tw, out, chars, font, 0);
+    if (tw <= w || keep >= base) return;
+    while (keep > 1 && name[keep - 1] == ' ') keep--;   /* "AGENT.(2)", not "AGENT .(2)" */
+    snprintf(out, PANEL_NAME_LEN, "%.*s.%s", (int)keep, name, tail);
+}
+static void frontPanelFitNames(char (*out)[PANEL_NAME_LEN], const char *const *names, s32 n, s32 w,
+                               struct fontchar *chars, struct font *font)
+{
+    s32 keep = 0;
+    s32 i;
+
+    for (i = 0; i < n; i++)
+    {
+        const char *tail;
+        s32 base = frontPanelNameBase(names[i] != NULL ? names[i] : "", &tail);
+        if (base > keep) keep = base;
+    }
+    for (; keep >= 1; keep--)
+    {
+        s32 fits = 1;
+
+        for (i = 0; i < n && fits; i++)
+        {
+            s32 th;
+            s32 tw;
+
+            frontPanelNameCut(out[i], names[i] != NULL ? names[i] : "", keep, chars, font, w);
+            textMeasure(&th, &tw, out[i], chars, font, 0);
+            fits = tw <= w;
+        }
+        if (fits) return;
+    }
+    for (i = 0; i < n; i++) frontPanelFit(out[i], PANEL_NAME_LEN, names[i] != NULL ? names[i] : "", w, chars, font);
+}
+
+/* the sheet and its title; the next line's top */
+static Gfx *frontPanelSheet(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh, char *title, s32 *top)
+{
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+
+    gDPPipeSync(DL++);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    DL = microcode_constructor(DL);
+    DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+    *top = vy + 2;
+    if (title == NULL) return DL;   /* a view too short for it */
+    textMeasure(&th, &tw, title, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    x = vx + (vw - tw) / 2;
+    y = vy + 2;
+    DL = frontPrintText(DL, &x, &y, (s8 *)title, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    *top = vy + 2 + STAGESEL_LINE(ptrFontZurichBoldChars) + 2;
+    return DL;
+}
+
+/* the buttons (and the note before them, where both fit) along the bottom */
+static Gfx *frontPanelFooter(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh, const char *note, const char *buttons)
+{
+    char text[96];
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+
+    if (note != NULL && note[0]) snprintf(text, sizeof(text), "%s   %s", note, buttons);
+    else snprintf(text, sizeof(text), "%s", buttons);
+    textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    if (tw > vw - 4 && note != NULL && note[0])
+    {
+        /* the note a line above the buttons, in the small font */
+        frontPanelFit(text, sizeof(text), note, vw - 4, ptrFontBankGothicChars, ptrFontBankGothic);
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = vx + (vw - tw) / 2;
+        y = vy + vh - STAGESEL_LINE(ptrFontZurichBoldChars) - STAGESEL_LINE(ptrFontBankGothicChars) - 3;
+        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
+        snprintf(text, sizeof(text), "%s", buttons);
+        textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    }
+    x = vx + (vw - tw) / 2;
+    if (x < vx + 2) x = vx + 2;
+    y = vy + vh - STAGESEL_LINE(ptrFontZurichBoldChars) - 2;
+    DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    return DL;
+}
+
+/* the state the frame's drawing leaves, as the Select Stage grid */
+static Gfx *frontPanelEnd(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    DL = combiner_bayer_lod_perspective(DL);
+    gDPPipeSync(DL++);
+    gDPSetCycleType(DL++, G_CYC_1CYCLE);
+    gDPSetTextureFilter(DL++, G_TF_BILERP);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    return DL;
+}
+
+/* the footer's height: the buttons and, room permitting, a note line */
+static s32 frontPanelFooterHeight(s32 vw, const char *note, const char *buttons)
+{
+    char text[96];
+    s32 th;
+    s32 tw;
+
+    if (note == NULL || !note[0]) return STAGESEL_LINE(ptrFontZurichBoldChars) + 2;
+    snprintf(text, sizeof(text), "%s   %s", note, buttons);
+    textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    if (tw <= vw - 4) return STAGESEL_LINE(ptrFontZurichBoldChars) + 2;
+    return STAGESEL_LINE(ptrFontZurichBoldChars) + STAGESEL_LINE(ptrFontBankGothicChars) + 5;
+}
+/* the title's height, where the view has room for it above need more */
+static s32 frontPanelTitled(s32 vy, s32 bottom, s32 need)
+{
+    return bottom - (vy + 2 + STAGESEL_LINE(ptrFontZurichBoldChars) + 2) >= need;
+}
+
+/*
+ * The Handicap screen over the view at (vx, vy), vw x vh screen pixels: the
+ * title, the health of the player under the cursor in the screen's own words
+ * ("Health -1" over "(Veteran)") between arrows where it may change, then
+ * the match's players, each with their health, the cursor's row on a dark
+ * band. The match's own health reads MATCH; one the host set is starred.
+ */
+Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count, s32 cursor, const char *note,
+                       s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    char text[80];
+    char name[48];
+    const FrontHandicapEntry *cur;
+    const char *buttons;
+    s32 bank = STAGESEL_LINE(ptrFontBankGothicChars);
+    s32 zline = STAGESEL_LINE(ptrFontZurichBoldChars);
+    s32 top;
+    s32 bottom;
+    s32 rows;
+    s32 first;
+    s32 big;
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0 || count <= 0) return DL;
+    if (cursor < 0 || cursor >= count) cursor = 0;
+    cur = &e[cursor];
+    buttons = cur->editable ? "A:OK  B:BACK" : "B:BACK";
+    bottom = vy + vh - frontPanelFooterHeight(vw, note, buttons);
+    snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, TITLE_STR_86_SELECTHANDICAP)));
+    DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, (count < 2 ? count : 2) * (bank + 1)) ? text : NULL, &top);
+
+    /* the cursor's health, as the screen shows it, where every player's row (or four) still fits under it */
+    big = bottom - top >= 2 * zline + 2 + bank + 3 + (count < 4 ? count : 4) * (bank + 1);
+    if (big)
+    {
+        s32 index = cur->index >= 0 && cur->index < 11 ? cur->index : 5;
+        u32 colour = cur->editable ? 0xFF : 0x80;
+
+        snprintf(text, sizeof(text), "%s", langGet(MP_handicap_table[index].text_preset));
+        textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        x = vx + (vw - tw) / 2;
+        y = top;
+        DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, colour, viGetX(), viGetY(), 0, 0);
+        if (cur->editable)
+        {
+            s32 aw;
+
+            /* the arrows beside it, where a step that way is left */
+            textMeasure(&th, &aw, "<", ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+            if (index > 0)
+            {
+                x = vx + (vw - tw) / 2 - aw - 8;
+                y = top + zline / 2;
+                if (x < vx + 2) x = vx + 2;
+                DL = frontPrintText(DL, &x, &y, (s8 *)"<", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+            }
+            if (index < 10)
+            {
+                x = vx + (vw + tw) / 2 + 8;
+                y = top + zline / 2;
+                if (x > vx + vw - aw - 2) x = vx + vw - aw - 2;
+                DL = frontPrintText(DL, &x, &y, (s8 *)">", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+            }
+        }
+        top += 2 * zline + 2;
+        /* whose, when not the player's own, and where it comes from */
+        if (!cur->me) snprintf(name, sizeof(name), "%s: ", cur->name);
+        else name[0] = '\0';
+        snprintf(text, sizeof(text), "%s%s", name, cur->host ? "SET BY THE HOST" : cur->match ? "THE MATCH'S HEALTH" : "OWN PICK");
+        frontPanelFit(name, sizeof(name), text, vw - 6, ptrFontBankGothicChars, ptrFontBankGothic);
+        textMeasure(&th, &tw, name, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = vx + (vw - tw) / 2;
+        y = top;
+        DL = textRender(DL, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, 0x202020FF, viGetX(), viGetY(), 0, 0);
+        top += bank + 3;
+    }
+
+    /* the players, a window of them around the cursor where they do not all fit */
+    rows = (bottom - top) / (bank + 1);
+    if (rows > count) rows = count;
+    if (rows < 1) rows = 1;
+    first = cursor - rows / 2;
+    if (first > count - rows) first = count - rows;
+    if (first < 0) first = 0;
+    {
+        /* every name cut alike, to the room the widest health shown leaves */
+        static char names[MAX_PLAYER_COUNT][PANEL_NAME_LEN];
+        const char *list[MAX_PLAYER_COUNT];
+        s32 widest = 0;
+        s32 lw;
+        s32 n = 0;
+
+        for (i = first; i < first + rows && i < count && n < MAX_PLAYER_COUNT; i++)
+        {
+            snprintf(text, sizeof(text), "%s%s%s%s", !big && i == cursor && e[i].editable ? "< " : "", e[i].match ? "MATCH" : e[i].label,
+                     e[i].host ? " *" : "", !big && i == cursor && e[i].editable ? " >" : "");
+            textMeasure(&th, &lw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            if (lw > widest) widest = lw;
+            list[n++] = e[i].name;
+        }
+        frontPanelFitNames(names, list, n, vw - 8 - widest - 8, ptrFontBankGothicChars, ptrFontBankGothic);
+        for (i = first; i < first + rows && i < count; i++)
+        {
+            s32 left = vx + 4;
+            s32 right = vx + vw - 4;
+            u32 colour = i == cursor ? 0xFFFFFFFF : 0x000000FF;
+
+            y = top + (i - first) * (bank + 1);
+            if (i == cursor) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x101010E0);
+            else if (e[i].me) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x00000030);
+            snprintf(text, sizeof(text), "%s%s%s%s", !big && i == cursor && e[i].editable ? "< " : "", e[i].match ? "MATCH" : e[i].label,
+                     e[i].host ? " *" : "", !big && i == cursor && e[i].editable ? " >" : "");
+            textMeasure(&th, &lw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            x = right - lw;
+            DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+            x = left;
+            y = top + (i - first) * (bank + 1);
+            DL = textRender(DL, &x, &y, names[i - first], ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+        }
+    }
+
+    DL = frontPanelFooter(DL, vx, vy, vw, vh, note, buttons);
+    return frontPanelEnd(DL, vx, vy, vw, vh);
+}
+
+/*
+ * The Teams screen over the view: the title, then Red Team and Blue Team in
+ * their colours side by side, each over its players and its open places,
+ * then the players on neither. The player at this screen is on a dark band
+ * in the column they are choosing, blinking as the screen's changing team
+ * does while it is not yet theirs; a player whose team changes at the next
+ * round is starred.
+ */
+static char s_teamNames[MAX_PLAYER_COUNT][PANEL_NAME_LEN];   /* frontTeamSelectDraw's names, cut alike */
+
+Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, s32 pick, s32 cap_red, s32 cap_blue,
+                         const char *note, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    static const u32 colours[2] = { 0xFF0000FF, 0x0000FFFF };
+    char text[80];
+    char name[48];
+    s32 bank = STAGESEL_LINE(ptrFontBankGothicChars);
+    s32 zline = STAGESEL_LINE(ptrFontZurichBoldChars);
+    s32 caps[2];
+    s32 colw = (vw - 6) / 2;
+    s32 top;
+    s32 bottom;
+    s32 room;
+    s32 blink;
+    s32 t;
+    s32 i;
+    s32 k;
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0) return DL;
+    caps[0] = cap_red;
+    caps[1] = cap_blue;
+    blink = (s_panelBlink[slot] = (s_panelBlink[slot] + 1) % 20) < 10;
+    /* the two sides, each as many rows as its places, a line left under them for the unassigned;
+     * the title where a short view has room for it too */
+    room = caps[0] > caps[1] ? caps[0] : caps[1];
+    if (room < 1) room = 1;
+    bottom = vy + vh - frontPanelFooterHeight(vw, note, "A:OK  B:BACK");
+    snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, TITLE_STR_88_SELECTTEAMS)));
+    DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, zline + 1 + room * (bank + 1) + bank + 2) ? text : NULL, &top);
+    if (room > (bottom - top - zline - 1 - bank - 2) / (bank + 1)) room = (bottom - top - zline - 1 - bank - 2) / (bank + 1);
+    if (room < 1) room = 1;
+    {
+        /* every name cut alike to a column's room, less the star a change gets where one shows */
+        const char *list[MAX_PLAYER_COUNT];
+        s32 n = count < MAX_PLAYER_COUNT ? count : MAX_PLAYER_COUNT;
+        s32 star = 0;
+
+        for (i = 0; i < n; i++)
+        {
+            list[i] = e[i].name;
+            star |= e[i].next || (e[i].me && pick != e[i].team);
+        }
+        tw = 0;
+        if (star) textMeasure(&th, &tw, "*", ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        frontPanelFitNames(s_teamNames, list, n, colw - 6 - tw, ptrFontBankGothicChars, ptrFontBankGothic);
+    }
+    for (t = 0; t < 2; t++)
+    {
+        s32 cx = vx + 3 + t * colw;
+        s32 shown;
+        s32 rows = room;
+
+        snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, t == 0 ? TITLE_STR_89_RED : TITLE_STR_90_BLUE)));
+        textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        x = cx + (colw - tw) / 2;
+        y = top;
+        DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, colours[t], viGetX(), viGetY(), 0, 0);
+        y = top + zline + 1;
+        shown = 0;
+        for (k = 0; k < 3 * count; k++)
+        {
+            /* the player at this screen, then the other players, then the bots: the player is never cut */
+            s32 pass = k / count;
+            s32 team;
+            s32 band;
+
+            i = k % count;
+            if (pass != (e[i].me ? 0 : e[i].bot ? 2 : 1)) continue;
+            team = e[i].me ? pick : e[i].team;
+            if (team != t || shown >= rows) continue;
+            band = e[i].me;
+            x = cx + 2;
+            if (band) DL = microcode_constructor_related_to_menus(DL, cx, y, cx + colw - 1, y + bank, 0x101010E0);
+            if (!(e[i].me && pick != e[i].team && !blink))
+            {
+                snprintf(name, sizeof(name), "%s%s", e[i].next || (e[i].me && pick != e[i].team) ? "*" : "",
+                         i < MAX_PLAYER_COUNT ? s_teamNames[i] : e[i].name);
+                DL = textRender(DL, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, band ? 0xFFFFFFFF : 0x000000FF,
+                                viGetX(), viGetY(), 0, 0);
+            }
+            y = top + zline + 1 + (++shown) * (bank + 1);
+        }
+        /* the open places */
+        for (; shown < rows && shown < caps[t]; shown++)
+        {
+            x = cx + 2;
+            y = top + zline + 1 + shown * (bank + 1);
+            DL = textRender(DL, &x, &y, "- OPEN -", ptrFontBankGothicChars, ptrFontBankGothic, 0x00000090, viGetX(), viGetY(), 0, 0);
+        }
+    }
+
+    /* the players on neither side, on a line (or as many as fit) */
+    {
+        s32 left = vx + 4;
+        s32 none = 0;
+
+        y = top + zline + 1 + room * (bank + 1) + 2;
+        x = left;
+        snprintf(text, sizeof(text), "%s:", "UNASSIGNED");
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000A0, viGetX(), viGetY(), 0, 0);
+        x = left + tw + 6;
+        for (i = 0; i < count; i++)
+        {
+            s32 team = e[i].me ? pick : e[i].team;
+            s32 nw;
+
+            if (team == 0 || team == 1) continue;
+            snprintf(text, sizeof(text), "%s%s", none ? ", " : "", e[i].name);
+            textMeasure(&th, &nw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            if (x + nw > vx + vw - 4)
+            {
+                y += bank + 1;
+                if (y + bank > bottom) break;
+                x = left;
+                snprintf(text, sizeof(text), "%s", e[i].name);
+                textMeasure(&th, &nw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            }
+            {
+                s32 ty = y;
+                s32 tx = x;
+
+                if (e[i].me) DL = microcode_constructor_related_to_menus(DL, tx - 1, ty, tx + nw + 1, ty + bank, 0x101010E0);
+                if (!(e[i].me && pick != e[i].team && !blink))
+                {
+                    DL = textRender(DL, &tx, &ty, text, ptrFontBankGothicChars, ptrFontBankGothic, e[i].me ? 0xFFFFFFFF : 0x000000FF,
+                                    viGetX(), viGetY(), 0, 0);
+                }
+            }
+            x += nw;
+            none++;
+        }
+        if (none == 0)
+        {
+            DL = textRender(DL, &x, &y, "-", ptrFontBankGothicChars, ptrFontBankGothic, 0x00000060, viGetX(), viGetY(), 0, 0);
+        }
+    }
+
+    DL = frontPanelFooter(DL, vx, vy, vw, vh, note, "A:OK  B:BACK");
+    return frontPanelEnd(DL, vx, vy, vw, vh);
+}
+
+/*
+ * The Multiplayer Options folder in a match (online, mpmenu.c): GoldenEye's
+ * menu0E (constructor_menu0E_mpoptions above: the Zurich title, the labels in
+ * a column and their values in a second, the selected row on a band, a locked
+ * row dimmed 0x70, START and PREVIOUS on tabs down the right edge) drawn on
+ * the folder's paper inside one player's view, as the Handicap and Teams
+ * screens are. The 3D folder model and the front end's single cursor are the
+ * title stage's (front.c frontSetupMenuBackground, frontChangeMenu), so this
+ * is rectangles and text, and the rows are whatever the caller fills each
+ * frame; it changes nothing. Text keeps its size: a short or narrow view
+ * scrolls the rows, and a quarter view puts each row's label and value on one
+ * line in the small font.
+ */
+#define MPOPT_PITCH_MAX 0x14   /* the original's row pitch */
+
+void frontMpOptionsLayout(s32 vw, s32 vh, s32 count, s32 zline, s32 bline, FrontOptionsLayout *out)
+{
+    s32 line;
+    s32 avail;
+    s32 head = zline + 4;
+
+    out->compact = vw < 220;
+    out->small = out->compact || vh < 150;
+    line = out->small ? bline : zline;
+    out->tabw = bline + 6;
+    out->foot = bline + 4;
+    avail = vh - out->foot - 2;
+    /* the title where at least three rows still fit under it, or all of a short list */
+    out->titled = (avail - head) / (line + 2) >= (count < 3 ? count : 3);
+    if (out->titled) avail -= head;
+    out->top = 2 + (out->titled ? head : 0);
+    out->pitch = count > 0 ? avail / count : line + 2;
+    if (out->pitch > MPOPT_PITCH_MAX) out->pitch = MPOPT_PITCH_MAX;
+    if (out->pitch < line + 2) out->pitch = line + 2;
+    out->shown = avail / out->pitch;
+    if (out->shown > count) out->shown = count;
+    if (out->shown < 1) out->shown = 1;
+    out->line = line;
+}
+
+/* the first row shown, keeping the cursor (a row, or count: the START tab) in view */
+s32 frontMpOptionsScroll(s32 scroll, s32 cursor, s32 count, s32 shown)
+{
+    if (cursor >= count) cursor = count - 1;
+    if (scroll > cursor) scroll = cursor;
+    if (scroll < cursor - shown + 1) scroll = cursor - shown + 1;
+    if (scroll > count - shown) scroll = count - shown;
+    if (scroll < 0) scroll = 0;
+    return scroll;
+}
+
+static s32 s_mpOptScroll[MAX_PLAYER_COUNT];
+
+/* a tab's word down the right edge, BankGothic turned 90 degrees as the front end's tabs */
+static Gfx *frontMpOptionsTab(Gfx *DL, const char *word, s32 x0, s32 y0, s32 x1, s32 y1, s32 lit, s32 dim)
+{
+    char text[32];
+    s32 glyph;
+    s32 len;
+    s32 v;
+    s32 h;
+
+    if (lit) DL = microcode_constructor_related_to_menus(DL, x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0x101010E0);
+    setTextSpacingInverted(TRUE);
+    /* sideways: the measured height is the word's length, the width its glyphs' height;
+     * "LONG|SHORT": the first form that fits, the last cut */
+    do
+    {
+        const char *bar = strchr(word, '|');
+        s32 n = bar != NULL ? (s32)(bar - word) : (s32)strlen(word);
+
+        snprintf(text, sizeof(text), "%.*s", (int)n, word);
+        textMeasure(&glyph, &len, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        word = bar != NULL ? bar + 1 : NULL;
+    } while (word != NULL && len > y1 - y0 - 4);
+    while (len > y1 - y0 - 4 && strlen(text) > 1)
+    {
+        text[strlen(text) - 1] = '\0';
+        textMeasure(&glyph, &len, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    }
+    glyph = STAGESEL_LINE(ptrFontBankGothicChars);
+    setTextOrientation(ROT_90CW);
+    v = (y0 + y1) / 2 - len / 2;
+    h = (x0 + x1) / 2 + glyph / 2;
+    DL = textRender(DL, &v, &h, text, ptrFontBankGothicChars, ptrFontBankGothic,
+                    lit ? (dim ? 0xFFFFFF90 : 0xFFFFFFFF) : (dim ? 0x00000070 : 0x000000FF), viGetY(), viGetX(), 0, 0);
+    setTextOrientation(ROT_NORMAL);
+    setTextSpacingInverted(FALSE);
+    return DL;
+}
+
+/*
+ * The folder over the view at (vx, vy), vw x vh screen pixels: title (the
+ * game's "Multiplayer Options" unless given), rows, the cursor's row on a
+ * band (cursor == count: the START tab), the START tab (start: its word, NULL
+ * for none: a list has PREVIOUS only), and an info line along the bottom
+ * (the match's state, the lobby code). A row that opens a screen reads as
+ * the original's "Character..." (the caller's label).
+ */
+Gfx *frontMpOptionsDraw(Gfx *DL, s32 slot, const char *title, const FrontOptionRow *rows, s32 count, s32 cursor,
+                        const char *start, s32 startdim, const char *info, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    FrontOptionsLayout lay;
+    char text[96];
+    char value[64];
+    s32 zline = STAGESEL_LINE(ptrFontZurichBoldChars);
+    s32 bline = STAGESEL_LINE(ptrFontBankGothicChars);
+    struct fontchar *chars;
+    struct font *font;
+    s32 right;
+    s32 valuex;
+    s32 scroll;
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0) return DL;
+    if (cursor < 0 || cursor > count) cursor = 0;
+    frontMpOptionsLayout(vw, vh, count, zline, bline, &lay);
+    chars = lay.small ? ptrFontBankGothicChars : ptrFontZurichBoldChars;
+    font = lay.small ? ptrFontBankGothic : ptrFontZurichBold;
+    right = vx + vw - lay.tabw;
+    scroll = frontMpOptionsScroll(s_mpOptScroll[slot], cursor, count, lay.shown);
+    s_mpOptScroll[slot] = scroll;
+
+    gDPPipeSync(DL++);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    DL = microcode_constructor(DL);
+    DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+    if (lay.titled)
+    {
+        snprintf(text, sizeof(text), "%s", title != NULL ? title : (char *)langGet(getStringID(LTITLE, TITLE_STR_76_MPOPTIONS)));
+        frontPanelFit(value, sizeof(value), text, right - vx - 8, ptrFontZurichBoldChars, ptrFontZurichBold);
+        x = vx + 6;
+        y = vy + 2;
+        DL = frontPrintText(DL, &x, &y, (s8 *)value, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    }
+
+    /* the value column: past the longest label shown, up to half the sheet */
+    valuex = 0;
+    if (!lay.compact)
+    {
+        for (i = scroll; i < scroll + lay.shown && i < count; i++)
+        {
+            textMeasure(&th, &tw, (char *)rows[i].label, chars, font, 0);
+            if (tw > valuex) valuex = tw;
+        }
+        valuex += 12;
+        if (valuex > (right - vx) / 2) valuex = (right - vx) / 2;
+    }
+
+    for (i = scroll; i < scroll + lay.shown && i < count; i++)
+    {
+        const FrontOptionRow *r = &rows[i];
+        const s32 lit = i == cursor;
+        const u32 colour = lit ? (r->dim ? 0xFFFFFF90 : 0xFFFFFFFF) : (r->dim ? 0x00000070 : 0x000000FF);
+        const s32 left = vx + 6;
+        const s32 ty = vy + lay.top + (i - scroll) * lay.pitch;
+        s32 vw2;
+
+        y = ty + (lay.pitch - lay.line) / 2;
+        if (lit) DL = microcode_constructor_related_to_menus(DL, left - 3, y - 1, right - 3, y + lay.line, 0x101010E0);
+        if (lay.compact)
+        {
+            /* one line: the value against the right, the label cut before it */
+            s32 lw;
+
+            value[0] = '\0';
+            if (r->value != NULL && r->value[0]) frontPanelFit(value, sizeof(value), r->value, (right - left) / 2, chars, font);
+            textMeasure(&th, &vw2, value, chars, font, 0);
+            frontPanelFit(text, sizeof(text), r->label, right - left - 6 - vw2 - (vw2 ? 6 : 0), chars, font);
+            textMeasure(&th, &lw, text, chars, font, 0);
+            x = left;
+            DL = textRender(DL, &x, &y, text, chars, font, colour, viGetX(), viGetY(), 0, 0);
+            if (value[0])
+            {
+                x = right - 6 - vw2;
+                y = ty + (lay.pitch - lay.line) / 2;
+                DL = textRender(DL, &x, &y, value, chars, font, colour, viGetX(), viGetY(), 0, 0);
+            }
+            continue;
+        }
+        /* a row without a value (a screen's row, a list's) has the width */
+        frontPanelFit(text, sizeof(text), r->label, r->value != NULL && r->value[0] ? valuex - 8 : right - left - 6, chars, font);
+        x = left;
+        DL = textRender(DL, &x, &y, text, chars, font, colour, viGetX(), viGetY(), 0, 0);
+        if (r->value != NULL && r->value[0])
+        {
+            frontPanelFit(value, sizeof(value), r->value, right - left - valuex - 6, chars, font);
+            x = left + valuex;
+            y = ty + (lay.pitch - lay.line) / 2;
+            DL = textRender(DL, &x, &y, value, chars, font, colour, viGetX(), viGetY(), 0, 0);
+        }
+    }
+    /* rows out of view above or below */
+    if (scroll > 0)
+    {
+        x = right - 10;
+        y = vy + lay.top - bline / 2;
+        DL = textRender(DL, &x, &y, "^", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000C0, viGetX(), viGetY(), 0, 0);
+    }
+    if (scroll + lay.shown < count)
+    {
+        x = right - 10;
+        y = vy + lay.top + lay.shown * lay.pitch - bline / 2;
+        DL = textRender(DL, &x, &y, "v", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000C0, viGetX(), viGetY(), 0, 0);
+    }
+
+    /* the tabs: START above PREVIOUS (a list: PREVIOUS alone), PREVIOUS as BACK where it is cut */
+    DL = microcode_constructor_related_to_menus(DL, right, vy, right + 1, vy + vh, 0x00000060);
+    snprintf(value, sizeof(value), "%s|BACK", (char *)langGet(getStringID(LTITLE, TITLE_STR_06_PREVIOUS)));
+    if (start != NULL)
+    {
+        DL = frontMpOptionsTab(DL, start, right, vy, vx + vw, vy + vh / 2, cursor == count, startdim);
+        DL = microcode_constructor_related_to_menus(DL, right, vy + vh / 2, vx + vw, vy + vh / 2 + 1, 0x00000060);
+        DL = frontMpOptionsTab(DL, value, right, vy + vh / 2, vx + vw, vy + vh, 0, 0);
+    }
+    else
+    {
+        DL = frontMpOptionsTab(DL, value, right, vy, vx + vw, vy + vh, 0, 0);
+    }
+
+    /* the info line */
+    if (info != NULL && info[0])
+    {
+        frontPanelFit(text, sizeof(text), info, right - vx - 6, ptrFontBankGothicChars, ptrFontBankGothic);
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = vx + (right - vx - tw) / 2;
+        y = vy + vh - lay.foot + 1;
+        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x202020FF, viGetX(), viGetY(), 0, 0);
+    }
+    return frontPanelEnd(DL, vx, vy, vw, vh);
+}
+
+/*
+ * The Scenario list (menu13, constructor_menu13_mpscenario above: the title
+ * over the scenarios, one the party cannot play dimmed 0x70) on the same
+ * sheet: every online scenario, 3v3 and 4v4 too; the match's own is marked.
+ */
+Gfx *frontScenarioSelectDraw(Gfx *DL, s32 slot, const char *const *names, const u8 *eligible, s32 count, s32 cursor,
+                             s32 current, const char *info, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    FrontOptionRow rows[16];
+    s32 i;
+
+    if (count > 16) count = 16;
+    for (i = 0; i < count; i++)
+    {
+        rows[i].label = names[i];
+        rows[i].value = i == current ? "*" : NULL;
+        rows[i].dim = !eligible[i];
+        rows[i].more = 0;
+    }
+    return frontMpOptionsDraw(DL, slot, (char *)langGet(getStringID(LTITLE, TITLE_STR_87_SCENARIO2)), rows, count,
+                              cursor, NULL, 0, info, vx, vy, vw, vh);
+}
+#endif
 
 
 MPSCENARIOS get_scenario(void)

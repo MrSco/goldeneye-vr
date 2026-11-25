@@ -128,6 +128,10 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
 void flatLauncherInit(ImGuiIO &io);
 void flatLauncherFeedInput(ImGuiIO &io);
 static bool s_enterHeldAtOpen = false;   // the Enter (Start) that opened the pause
+/* A pad's A or B, or Escape, still held as the window comes back from the game's
+ * own screen (Select Character, Select Stage: mpmenu.c): the B that left the
+ * screen also closed the window, the A reopened the screen. Not a press until let go. */
+static bool s_faceAHeldAtOpen = false, s_faceBHeldAtOpen = false, s_escHeldAtOpen = false;
 extern "C" void gevrFeedPauseInput(int opening)
 {
     static bool watching = false;
@@ -139,6 +143,7 @@ extern "C" void gevrFeedPauseInput(int opening)
     if (opening) {
         s_clickCount = 0;   // presses from before it opened
         s_enterHeldAtOpen = true;   // its Enter, still down, would press the focused Resume (5.25 report)
+        s_faceAHeldAtOpen = s_faceBHeldAtOpen = s_escHeldAtOpen = true;   // cleared below once up
     }
     flatLauncherFeedInput(io);
 }
@@ -368,7 +373,9 @@ void flatLauncherFeedInput(ImGuiIO &io)
     io.AddKeyEvent(ImGuiKey_RightArrow, key(SDL_SCANCODE_RIGHT));
     io.AddKeyEvent(ImGuiKey_Tab, key(SDL_SCANCODE_TAB));
     io.AddKeyEvent(ImGuiKey_Space, key(SDL_SCANCODE_SPACE));
-    io.AddKeyEvent(ImGuiKey_Escape, key(SDL_SCANCODE_ESCAPE));
+    const bool escDown = key(SDL_SCANCODE_ESCAPE);
+    if (!escDown) s_escHeldAtOpen = false;
+    io.AddKeyEvent(ImGuiKey_Escape, escDown && !s_escHeldAtOpen);
     io.AddKeyEvent(ImGuiKey_LeftShift, key(SDL_SCANCODE_LSHIFT));
     io.AddKeyEvent(ImGuiKey_LeftCtrl, key(SDL_SCANCODE_LCTRL));
     // Return activates; in a text box the launcher's queue types it, and ImGui
@@ -438,6 +445,10 @@ void flatLauncherFeedInput(ImGuiIO &io)
         moved = true;
     }
 #endif
+    if (!faceA) s_faceAHeldAtOpen = false;
+    if (!faceB) s_faceBHeldAtOpen = false;
+    faceA = faceA && !s_faceAHeldAtOpen;
+    faceB = faceB && !s_faceBHeldAtOpen;
     if (padSeen) {
         io.AddKeyEvent(ImGuiKey_GamepadDpadUp, up);
         io.AddKeyEvent(ImGuiKey_GamepadDpadDown, down);

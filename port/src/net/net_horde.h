@@ -11,11 +11,19 @@ struct netbuf;
 int netHordeActive(void);
 int netHordeRunning(void); /* loaded, all players ready, not migrating */
 void netHordeRetry(void);
+/* The setup break (horde_rules.h hordeHoldSetup, protocol 29). */
+int netHordeSetupBreak(void);        /* this run waits for its START WAVE */
+int netHordeRestartPending(void);    /* the host's pending map differs from the run's: START restarts */
+int netHordeHostCanStart(void);      /* the host, in the setup break, everyone loaded */
+void netHordeHostStart(void);        /* START WAVE, or the restart on the pending map */
+int gevrHordeStartRun(unsigned ticks);        /* the host: release the setup break */
+int gevrHordeSetStartWave(unsigned wave);     /* the host: a new first wave, in the setup break */
 void netHordeAdmitPlayers(void);
 void netHordeTick(void);
 void netHordeReceive(struct netbuf *b);
 void netHordeReceiveClient(int slot, struct netbuf *b);
 void netHordeRequestAction(unsigned action, unsigned item);
+void netHordeRequestActionSlot(int slot, unsigned action, unsigned item);
 void netHordeSend(int slot); /* -1 broadcasts, otherwise late-join snapshot */
 void gevrHordePrepareSetup(void);
 int gevrHordeSkipProp(int type);

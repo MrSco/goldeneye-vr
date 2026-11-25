@@ -20,6 +20,13 @@ u64 sysGetMicroseconds(void) {return 1000000;}
 const HordeState *gevrHordeState(void) {return &state;}
 void gevrHordeApplyState(const HordeState *s) {state=*s;applied++;}
 unsigned gevrHordeGuardId(const struct ChrRecord *chr) {return chr?123:0;}
+/* a dedicated server's setup break (net_horde.c netHordeTick) */
+static bool dedicated;
+static int playing;
+static unsigned started;
+bool netIsDedicated(void) {return dedicated;}
+int netGetPlayingCount(void) {return playing;}
+int gevrHordeStartRun(unsigned ticks) {if(!hordeStartRun(&state,ticks))return 0;started=ticks;return 1;}
 int gevrHordeHandleAction(int slot, unsigned action, unsigned item) {
     observed_item=item;
     if (action == HORDE_ACT_BOX) return hordeUseBox(&state, (unsigned)slot, 20, 0) != 0;
@@ -85,6 +92,18 @@ int main(void)
     state.powers[1].id=state.powers[0].id;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     state.powers[0].kind=HORDE_POWER_COUNT;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     state.instakill_ticks=HORDE_INSTAKILL_TICKS+1;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    /* Protocol 29: the setup break rides in the snapshot (a late joiner and a
+     * new host learn it there); held outside the preparation, or not 0/1, is refused. */
+    HordeState held;hordeInit(&held,77);hordeHoldSetup(&held);held.revision=state.revision+1;
+    state=held;hosting=true;netHordeSend(-1);memset(&state,0,sizeof(state));hosting=false;receive();
+    assert(applied==3 && hordeInSetup(&state) && !memcmp(&state,&held,sizeof(state)));
+    state.setup=2;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==3);state=held;
+    state.phase=HORDE_WAVE;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==3);state=held;
+    /* A dedicated server has no host player: the break ends once one is in, into the full break */
+    hosting=true;playing=0;dedicated=true;netHordeTick();assert(!started && hordeInSetup(&state));
+    playing=1;dedicated=false;netHordeTick();assert(!started && hordeInSetup(&state));
+    dedicated=true;netHordeTick();assert(started==HORDE_BREAK_TICKS && !hordeInSetup(&state));
+    hosting=false;dedicated=false;playing=0;state=valid;
     assert(gevrHordeGuardToken((struct ChrRecord *)1)==(((uint64_t)7<<32)|123));
     assert(gevrHordeTokenCurrent(((uint64_t)7<<32)|123));
     assert(!gevrHordeTokenCurrent(((uint64_t)6<<32)|123));
@@ -122,6 +141,6 @@ int main(void)
     netbufStartWrite(&b);netbufWriteChrState(&b,&actor);assert(!b.error && b.wp==sizeof(raw));
     netbufStartReadData(&b,raw,sizeof(raw));assert(netbufReadChrState(&b,&copy));
     assert(!netbufReadLeft(&b) && copy.generation==actor.generation);
-    puts("PASS: Horde snapshot round trips, client Mystery Box / Wall Buy requests, migration seed, epoch/malformed rejection, mode validation and guard identities");
+    puts("PASS: Horde snapshot round trips, the setup break and a dedicated server's release, client Mystery Box / Wall Buy requests, migration seed, epoch/malformed rejection, mode validation and guard identities");
     return 0;
 }

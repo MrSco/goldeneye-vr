@@ -65,7 +65,10 @@ typedef struct {
     /* Two guns a player (the starting PP7 one of them), oldest first, as item
      * IDs; a grant's replaced gun for the player's headset to drop (0: none). */
     uint8_t guns[4][HORDE_GUN_SLOTS], grant_replace[4];
-    uint8_t reserved[1]; /* identical layout even under the game's packed AI headers */
+    /* Protocol 29: 1 while a fresh run waits in its setup break (preparation,
+     * its clock held) for the host's START WAVE; one byte, so the layout stays
+     * identical even under the game's packed AI headers. */
+    uint8_t setup;
 } HordeState;
 static inline uint32_t hordeRandom(HordeState *s) {
     uint32_t x = s->rng ? s->rng : 1;
@@ -186,6 +189,46 @@ static inline void hordeInitAt(HordeState *s, uint32_t seed, uint32_t start_wave
     for (unsigned i = 0; i < 4; i++) s->credits[i] = hordeStartCredits(start_wave);
 }
 static inline void hordeInit(HordeState *s, uint32_t seed) { hordeInitAt(s, seed, 1); }
+/*
+ * The setup break (owner, 2026-11-24: "the first wave waits for the host"):
+ * a fresh run (launch, retry, a new map) loads in its preparation with the
+ * clock held. Players move, buy and look around; nothing spawns and nothing
+ * hurts them (net_core.c netDamageAllowed). The host's START WAVE releases
+ * it into a short countdown; a dedicated server, with no host player,
+ * releases it into the full break once a player is in (net_horde.c).
+ */
+#define HORDE_START_TICKS (5 * 60)   /* START WAVE: wave in 5 seconds */
+static inline void hordeHoldSetup(HordeState *s) {
+    if (s->phase != HORDE_PREPARE || s->setup) return;
+    s->setup = 1; s->timer = HORDE_BREAK_TICKS; s->revision++;
+}
+static inline int hordeInSetup(const HordeState *s) { return s->setup && s->phase == HORDE_PREPARE; }
+/* ticks: the countdown to the first wave (clamped to a break). 1 when released. */
+static inline int hordeStartRun(HordeState *s, unsigned ticks) {
+    if (!hordeInSetup(s)) return 0;
+    s->setup = 0;
+    s->timer = ticks && ticks < HORDE_BREAK_TICKS ? ticks : HORDE_BREAK_TICKS;
+    s->revision++; return 1;
+}
+/* A new starting wave before anything has started (the host, in the setup
+ * break): the skipped waves' points follow it, both ways, on top of whatever
+ * the players have spent or earned meanwhile. 1 when it changed. */
+static inline int hordeSetStartWave(HordeState *s, uint32_t start_wave) {
+    if (!hordeInSetup(s)) return 0;
+    if (start_wave < 1) start_wave = 1;
+    if (start_wave > HORDE_MAX_START_WAVE) start_wave = HORDE_MAX_START_WAVE;
+    uint32_t old_wave = s->completed + 1;
+    if (old_wave == start_wave) return 0;
+    uint32_t before = hordeStartCredits(old_wave), after = hordeStartCredits(start_wave);
+    for (unsigned i = 0; i < 4; i++) {
+        uint32_t c = s->credits[i];
+        if (after >= before) c = HORDE_MAX_CREDITS - c < after - before ? HORDE_MAX_CREDITS : c + (after - before);
+        else c = c > before - after ? c - (before - after) : 0;
+        s->credits[i] = c;
+    }
+    s->wave = s->completed = start_wave - 1;
+    s->revision++; return 1;
+}
 static inline void hordeTickBox(HordeState *s, unsigned ticks) {
     if (s->box_state == HORDE_BOX_IDLE) return;
     if (s->box_state == HORDE_BOX_ROLLING) {
@@ -286,6 +329,7 @@ static inline int hordeBuyWall(HordeState *s, unsigned slot, unsigned wall_idx, 
 static inline int hordeAdvance(HordeState *s, unsigned ticks, unsigned players) {
     if (s->phase == HORDE_DEFEAT || !ticks) return 0;
     if (ticks > 15) ticks = 15; /* no burst after suspend/loading */
+    if (hordeInSetup(s)) { hordeTickBox(s, ticks); return 0; } /* the run's clock waits too */
     if (UINT32_MAX - s->elapsed >= ticks) s->elapsed += ticks;
     hordeTickBox(s, ticks);
     if (s->instakill_ticks) {
@@ -352,6 +396,7 @@ static inline int hordeStateValid(const HordeState *s) {
             || (s->powers[i].id && !s->powers[i].ticks)) return 0;
         for (unsigned j=0;j<i;j++) if (s->powers[i].id && s->powers[i].id==s->powers[j].id) return 0;
     }
+    if (s->setup > 1 || (s->setup && s->phase != HORDE_PREPARE)) return 0;
     return s->phase <= HORDE_DEFEAT && s->players <= 4
         && s->remaining <= HORDE_MAX_QUOTA && s->alive <= HORDE_MAX_ALIVE
         && s->timer <= HORDE_BREAK_TICKS && s->spawn_timer <= 90
@@ -364,6 +409,8 @@ static inline void hordePlayerStatus(const HordeState *s, unsigned slot, char *t
     uint32_t pts = slot < 4 ? s->credits[slot] : 0;
     if (s->phase == HORDE_DEFEAT)
         snprintf(text, size, "HORDE OVER - %u WAVES - %u KILLS - %u PTS", s->completed, s->kills, pts);
+    else if (hordeInSetup(s))
+        snprintf(text, size, "HORDE SETUP - WAVE %u - %u PTS", s->completed + 1, pts);
     else if (s->phase == HORDE_WAVE) {
         static const char *kinds[] = { "WAVE", "ODDJOB SWARM - WAVE", "BOSS WAVE" };
         snprintf(text, size, "%s %u - %u ENEMIES LEFT - %u PTS", kinds[hordeWaveKind(s->wave)], s->wave,
@@ -372,5 +419,18 @@ static inline void hordePlayerStatus(const HordeState *s, unsigned slot, char *t
 }
 static inline void hordeStatus(const HordeState *s, char *text, unsigned size) {
     hordePlayerStatus(s, 0, text, size);
+}
+/* The setup break's line on a player's screen: who starts the run. host: the
+ * host's own seat (it has START WAVE); narrow: a quarter split-screen view,
+ * in a few words as net_core.c netRoundNoticeTextFit's. */
+static inline void hordeSetupStatus(const HordeState *s, int host, int narrow, char *text, unsigned size) {
+    unsigned wave = s->completed + 1;
+    if (host) {
+        if (narrow) snprintf(text, size, "MENU: START WAVE %u", wave);
+        else snprintf(text, size, "HORDE SETUP - MENU: START WAVE %u", wave);
+    } else {
+        if (narrow) snprintf(text, size, "WAITING FOR HOST");
+        else snprintf(text, size, "HORDE SETUP - WAITING FOR HOST");
+    }
 }
 #endif

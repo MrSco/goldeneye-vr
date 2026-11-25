@@ -371,7 +371,7 @@ int main(void)
     /* Multiplayer's Fun: the host's preference offline; online the match's, the host's only */
     {
         int ids[48];
-        check(gevrSettingSectionRows(GEVR_LSEC_MP_FUN, GEVR_SET_LAUNCHER, ids, 48) == 6, "Fun: four switches, hit immunity, gun size");
+        check(gevrSettingSectionRows(GEVR_LSEC_MP_FUN, GEVR_SET_LAUNCHER, ids, 48) == 7, "Fun: five switches, hit immunity, gun size");
         check(gevrSettingSectionRows(GEVR_LSEC_MP_AUDIO, GEVR_SET_LAUNCHER, ids, 48) == 5, "Audio: the mic, three volumes, the voice mode (music and effects on Play too)");
         int dk = -1, immunity = -1, gun = -1, music = -1, sfx = -1;
         for (int id = 0; id < gevrSettingCount(); id++) {

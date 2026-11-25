@@ -352,5 +352,83 @@ void unlock_all_mp_chars(void);
 u8 get_player_mp_char_gender(int player);
 s32 pull_and_display_text_for_folder_a0(s32 arg0);
 void set_players_team_or_scenario_item_flag(int player, s32 flag);
+#ifdef GEVR
+/* The Select Character panel for one match slot (online, mpmenu.c) */
+void frontCharSelectBegin(s32 slot, s32 chr, s32 count);
+s32 frontCharSelectTick(s32 slot, s32 count);
+s32 frontCharSelectShown(s32 slot);
+Gfx *frontCharSelectDraw(Gfx *DL, s32 slot, s32 count, s32 vx, s32 vy, s32 vw, s32 vh);
+/* The Select Stage photo grid for one match slot (online, mpmenu.c): a tile
+ * per stage the caller offers, filled each frame. level: the LEVELID, -1 the
+ * No vote tile (the screen's Random photo); full: a "(Full)" stage; mine: the
+ * player's own (their vote, the host's map); votes: how many vote for it. */
+typedef struct {
+    s32 level;
+    const char *name;
+    u8 eligible;
+    u8 full;
+    u8 mine;
+    u8 votes;
+} FrontStageTile;
+s32 frontStageSelectPhoto(s32 level);
+void frontStageSelectLayout(s32 vw, s32 gridh, s32 count, f32 *scale, s32 *cols, s32 *rows);
+s32 frontStageSelectStep(const FrontStageTile *tiles, s32 count, s32 cols, s32 cur, s32 dx, s32 dy);
+void frontStageSelectBegin(s32 slot, const FrontStageTile *tiles, s32 count, s32 cursor);
+s32 frontStageSelectTick(s32 slot, const FrontStageTile *tiles, s32 count);
+s32 frontStageSelectShown(s32 slot);
+Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 count, const char *title,
+                          const char *verb, s32 vx, s32 vy, s32 vw, s32 vh);
+/* The Handicap and Teams screens for one match slot (online, mpmenu.c): the
+ * pad (1 A, -1 B, 0 else; the steps in dx, dy), the chosen sound, and each
+ * screen's drawing from the entries the caller fills each frame. */
+void frontPanelPadReset(s32 slot);
+s32 frontPanelPad(s32 slot, s32 *dx, s32 *dy);
+void frontPanelChosenSound(void);
+typedef struct {
+    const char *name;
+    const char *label;   /* the health's short name ("-1 (Veteran)") */
+    s8 index;            /* MP_handicap_table: the health shown */
+    u8 match;            /* no pick of their own: the match's health */
+    u8 host;             /* the host set it */
+    u8 editable;         /* the player at this screen may change it */
+    u8 me;               /* the player at this screen */
+} FrontHandicapEntry;
+Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count, s32 cursor, const char *note,
+                       s32 vx, s32 vy, s32 vw, s32 vh);
+typedef struct {
+    const char *name;
+    s8 team;             /* the team chosen for the next round: 0 red, 1 blue, else none */
+    u8 next;             /* not the team played now: it changes at the next round */
+    u8 bot;              /* listed after the players */
+    u8 me;               /* the player at this screen (drawn in the column of their pick, first) */
+} FrontTeamEntry;
+Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, s32 pick, s32 cap_red, s32 cap_blue,
+                         const char *note, s32 vx, s32 vy, s32 vw, s32 vh);
+/* The Multiplayer Options folder for one match slot (online, mpmenu.c): the
+ * rows the caller fills each frame, drawn in menu0E's look in any view. */
+typedef struct {
+    const char *label;   /* the folder's words: "Scenario:", "Character..." */
+    const char *value;   /* NULL or "": none */
+    u8 dim;              /* read-only at this seat: the original's 0x70 locked row */
+    u8 more;             /* opens another screen */
+} FrontOptionRow;
+typedef struct {
+    s32 compact;   /* a narrow (quarter) view: label and value on one line */
+    s32 small;     /* rows in the small font (compact, or a short view) */
+    s32 titled;    /* the title fits above the rows */
+    s32 tabw;      /* the START / PREVIOUS strip down the right edge */
+    s32 foot;      /* the info line along the bottom */
+    s32 top;       /* the first row, from the view's top */
+    s32 pitch;     /* row to row */
+    s32 line;      /* a row's text height */
+    s32 shown;     /* the rows that fit; the rest scroll */
+} FrontOptionsLayout;
+void frontMpOptionsLayout(s32 vw, s32 vh, s32 count, s32 zline, s32 bline, FrontOptionsLayout *out);
+s32 frontMpOptionsScroll(s32 scroll, s32 cursor, s32 count, s32 shown);
+Gfx *frontMpOptionsDraw(Gfx *DL, s32 slot, const char *title, const FrontOptionRow *rows, s32 count, s32 cursor,
+                        const char *start, s32 startdim, const char *info, s32 vx, s32 vy, s32 vw, s32 vh);
+Gfx *frontScenarioSelectDraw(Gfx *DL, s32 slot, const char *const *names, const u8 *eligible, s32 count, s32 cursor,
+                             s32 current, const char *info, s32 vx, s32 vy, s32 vw, s32 vh);
+#endif
 
 #endif

@@ -836,6 +836,7 @@ FUN_BIT(funDk, NET_FUN_DK)
 FUN_BIT(funPaint, NET_FUN_PAINTBALL)
 FUN_BIT(funLine, NET_FUN_LINE)
 FUN_BIT(funRadar, NET_FUN_NO_RADAR)
+FUN_BIT(funTeleport, NET_FUN_NO_TELEPORT)
 static int twoPositions(void) { return 2; }
 static int threePositions(void) { return 3; }
 static void onOffText(int i, char *b, int n) { snprintf(b, n, "%s", i ? "On" : "Off"); }
@@ -1186,6 +1187,7 @@ static const Row s_rows[] = {
     FUN("Paintball", funPaintGet, funPaintSet, "Shots leave paint."),
     FUN("Line mode", funLineGet, funLineSet, "Bullets leave lines in the air."),
     FUN("No radar", funRadarGet, funRadarSet, "No radar on anyone's watch or screen."),
+    FUN("No teleport", funTeleportGet, funTeleportSet, "Disables VR teleport movement for the match (stick walking is used instead)."),
 #undef FUN
     { .label = "Hit immunity", .tooltip = "A hit is ignored for a while after the last: none, a quarter second, "
                                           "or GoldenEye's half second to a second.", .kind = GEVR_SET_CHOICE,

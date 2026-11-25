@@ -21,6 +21,38 @@ extern bool netIsActive(void);
  * PAL address 0x7F0C55A0.
 */
 
+#ifdef GEVR
+/*
+ * Where the top message (bondview2.c gevrTopMessageLayout) stops: the canvas x
+ * left of this view's radar and the health and armour arcs drawn round it,
+ * or -1 when no radar shows. The radar's own tests and place, below.
+ */
+s32 gevrRadarClearX(void)
+{
+    extern s32 g_gevrStereo;
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
+    s32 left;
+    s32 vidx;
+
+    if (getPlayerCount() == 1 || g_CurrentPlayer == NULL || g_CurrentPlayer->mpmenuon || g_CurrentPlayer->bonddead)
+    {
+        return -1;
+    }
+    if (!gevrWatchShowsStandard(g_gevrStereo, FALSE, VrWatchFaceStatus) || cheatIsActive(CHEAT_NO_RADAR_MP))
+    {
+        return -1;
+    }
+    left = (viGetViewLeft() + viGetViewWidth()) - 0x29;
+    vidx = gevrLocalViewIndex(get_cur_playernum());
+    if (gevrLocalViewCount() >= 3 && vidx >= 0 && !(vidx & 1))
+    {
+        left += 0xF;
+    }
+    return left - 30;   /* the arcs reach about 24 left of the radar's centre */
+}
+#endif
+
 Gfx *display_red_blue_on_radar(Gfx *DL)
 {
     s32 padding[4];
@@ -95,14 +127,24 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
         }
     }
 #endif
+#ifdef GEVR
+    {
+        extern s32 g_gevrStereo;
+        extern int gevrLocalViewCount(void);
+        extern int gevrLocalViewIndex(int slot);
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(cur_playernum);
+        if (!g_gevrStereo && (vcount >= 3) && (vidx >= 0) && !(vidx & 1))
+        {
+            start_left += 0xF;
+        }
+    }
+#else
     if ((player_count >= 3) && !(cur_playernum & 1))
     {
-#ifdef GEVR
-        extern s32 g_gevrStereo;
-        if (!g_gevrStereo)
-#endif
         start_left += 0xF;
     }
+#endif
     
     texSelect(&DL, mpradarimages, 2, 0, 2);
 

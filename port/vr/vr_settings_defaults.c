@@ -42,6 +42,9 @@ float VrMusicVolume       = 1.0f;   /* music volume (0..1) */
 float VrVoiceVolume       = 1.0f;   /* multiplayer voice chat volume (0..1) */
 float VrSfxVolume         = 1.0f;   /* multiplayer sound effects volume (0..1) */
 char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one up when empty */
+char VrGuestName[3][16]   = { "", "", "" }; /* online split-screen seats 2..4; empty -> "<PlayerName> (2)..(4)" */
+int VrGuestChr[3]         = { 1, 2, 3 };
+int VrGuestLoadout[3][4]  = { { 4, 8, 15, 26 }, { 4, 8, 15, 26 }, { 4, 8, 15, 26 } };
 /* The multiplayer page's choices (vr_settings.h): Bunker II, Power Weapons,
  * Bond, a public game, Normal, 10 minutes, normal health, no dual wielding,
  * no loadouts, votes; the Rockets set's guns as the custom set, a PP7, a
@@ -68,6 +71,7 @@ int VrGexGuns = 0;          /* GoldenEye X's first-person models: guns, items, h
                                screen and in the headset (gevr_gexmodel.c, gun.c); off, as the original */
 int VrCampaign = 0;         /* 0 GoldenEye, 1 Goldfinger 64 (data/goldfinger64.z64), 2 Tomorrow Never Dies, 3 Mirror Mode, 4 Mario Characters (data/mario.z64) */
 int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
+int VrMpHandicaps = 0;   /* the host's Handicaps rule: each player picks their own health (protocol 29); off */
 int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
 int VrMpLoadout[4] = { 4, 8, 15, 26 };  /* ITEM_WPPK, ITEM_AK47, ITEM_SHOTGUN, ITEM_GRENADE */
 unsigned long long VrMpFavStages = 0; /* a bit per stage list position (net_match.c) */

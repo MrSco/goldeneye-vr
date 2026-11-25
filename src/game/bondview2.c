@@ -1615,12 +1615,13 @@ void gevrStereoFrame(s32 inlevel)
     opening = gevrWatchOpeningByGesture(inlevel);
     extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
+    extern int gevrLocalViewCount(void);
     struct player *pl = (netIsActive() && netGetLocalSlot() >= 0 && g_playerPointers[netGetLocalSlot()]) ? g_playerPointers[netGetLocalSlot()] : g_CurrentPlayer;
     s32 want = inlevel
         && VrPlayMode != 0
         && gevrVrReady()
         && pl != NULL
-        && (getPlayerCount() == 1 || netIsActive())
+        && (gevrLocalViewCount() == 1)
         /* Multiplayer plays in CAMERAMODE_NONE: bondviewAdvanceCameraMode
          * leaves it there after the CAMERAMODE_MP swirl, and MoveBond runs in
          * it. Demanding FP kept an online match on the screen, and holding
@@ -7470,6 +7471,90 @@ void bondviewRemovePlayerBody(void)
 }
 
 #ifdef GEVR
+#include "memp.h"   /* mempGetBankSizeLeft */
+
+/*
+ * Online, each player's body is their lobby character (net_core.c
+ * s_lobby_state). It is built at the stage load from the round's character;
+ * a choice made in the match (the Select Character panel a player who drops
+ * in gets, the pause menu's Character row: netLobbySetCharacterSlot) reaches
+ * every machine in the lobby state, and each rebuilds that player's body the
+ * way third person does (gevr_thirdperson.c), on the player's own tick (boss.c).
+ * The choice must hold half a second, so a player stepping through the list
+ * does not rebuild a body at each step, and the player must be alive: one who
+ * chose while dead takes the new body as they respawn. A body or head not yet
+ * loaded this stage loads into the stage heap; with less than half a
+ * megabyte left the body waits for the next load instead, as it always did.
+ */
+void gevrNetBodyFollowsCharacter(void)
+{
+    static s32 s_want[MAX_PLAYER_COUNT];
+    static s32 s_held[MAX_PLAYER_COUNT];
+    static s32 s_skipped[MAX_PLAYER_COUNT];
+    extern s32 player_char[];
+    extern struct MP_selectable_chars mp_chr_setup[];
+    extern const s32 gevrMpCharRows;
+    struct player *pl = g_CurrentPlayer;
+    s32 p = get_cur_playernum();
+    s32 chr;
+    s32 body;
+    s32 head;
+    ChrRecord *self;
+
+    if (!netIsActive() || p < 0 || p >= MAX_PLAYER_COUNT || pl == NULL || pl->prop == NULL) return;
+    chr = gevrNetSlotChr(p);
+    if (chr < 0 || chr >= gevrMpCharRows || chr >= netCharacterCount() || chr == player_char[p])
+    {
+        s_held[p] = 0;
+        s_skipped[p] = 0;
+        return;
+    }
+    if (chr != s_want[p])
+    {
+        s_want[p] = chr;
+        s_held[p] = 0;
+        return;
+    }
+    if (s_held[p] < 30)
+    {
+        s_held[p] += speedgraphframes;
+        return;
+    }
+    if (pl->bonddead || pl->prop->chr == NULL || pl->bodyModel == NULL || s_skipped[p] == chr + 1) return;
+
+    body = mp_chr_setup[chr].body;
+    head = mp_chr_setup[chr].head;
+    if ((c_item_entries[body].header->RootNode == NULL
+            || (!c_item_entries[body].hasHead && head >= 0 && c_item_entries[head].header->RootNode == NULL))
+        && mempGetBankSizeLeft(MEMPOOL_STAGE) < 0x80000)
+    {
+        s_skipped[p] = chr + 1;   /* chr 0 is a character: 0 means none */
+        sysLogPrintf(LOG_WARNING, "mp body: slot %d keeps its body until the next load (stage heap low)", p);
+        return;
+    }
+
+    chrpropCleanupForRemoval(pl->prop);
+    pl->prop->chr = NULL;
+    pl->bodyModel = NULL;
+    player_char[p] = chr;
+    g_playerPlayerData[p].player_perspective_height = get_player_mp_char_height(p);
+    solo_char_load();
+    self = pl->prop->chr;
+    if (self == NULL || pl->bodyModel == NULL)
+    {
+        sysLogPrintf(LOG_ERROR, "mp body: slot %d has no body for character %d", p, chr);
+        return;
+    }
+    setsuboffset(pl->bodyModel, &pl->prop->pos);
+    setsubroty(pl->bodyModel, bondviewGetPlayerYawRadians());
+    self->chrflags |= CHRFLAG_INIT;
+    self->actiontype = ACT_BONDMULTI;
+    self->act_bondmulti.unk2c = NULL;
+    sub_GAME_7F09B398(GUNLEFT);   /* solo_char_load hangs the right hand's item */
+    bondviewUpdatePlayerRoom(pl);
+    sysLogPrintf(LOG_NOTE, "mp body: slot %d is now character %d", p, chr);
+}
+
 static s32 gevrCoopIntroActive(void)
 {
     return gevrCoopActive() && (g_CameraMode == CAMERAMODE_INTRO
@@ -8136,7 +8221,7 @@ void bondviewCalcIntroSwirlCamera(s32 index, f32 time, coord3d *pos, coord3d *lo
  * the pad's number here for the others.
  */
 s32 g_gevrCameraLookAtBondPadNum = -1;
-static s32 s_gevrCinemaOn;      /* this headset follows the host's cutscene */
+static s32 s_gevrCinemaOn[MAX_PLAYER_COUNT];      /* per local seat: following the host's cutscene */
 
 /* The host: the cutscene its player sees, NET_COOP_CINEMA_* (0 none) */
 int gevrCoopCinemaCollect(float *pos, float *pos2, int *pad, unsigned char *rgb, float *frac)
@@ -8193,30 +8278,36 @@ int gevrCoopCinemaCollect(float *pos, float *pos2, int *pad, unsigned char *rgb,
 /* A new stage: no cutscene of the last one carries over */
 void gevrCoopCinemaReset(void)
 {
-    s_gevrCinemaOn = FALSE;
+    s32 i;
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        s_gevrCinemaOn[i] = FALSE;
+    }
 }
 
-/* A teammate's headset, its own player's tick: follow the host's cutscene */
+/* A teammate's machine, each local player's tick: follow the host's cutscene */
 void gevrCoopCinemaTick(void)
 {
+    extern int gevrNetSlotIsLocalHuman(int slot);
     f32 pos[3];
     f32 pos2[3];
     f32 frac;
     s32 pad;
     u8 rgb[3];
     s32 flags;
+    s32 cur = get_cur_playernum();
 
-    if (!gevrCoopPuppets() || get_cur_playernum() != netGetLocalSlot())
+    if (!gevrCoopPuppets() || cur < 0 || cur >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(cur))
     {
         return;
     }
     flags = netCoopCinemaState(pos, pos2, &pad, rgb, &frac);
     if (flags)
     {
-        if (!s_gevrCinemaOn)
+        if (!s_gevrCinemaOn[cur])
         {
             /* as AI_BondDisableControl: no control, no sight or ammo */
-            s_gevrCinemaOn = TRUE;
+            s_gevrCinemaOn[cur] = TRUE;
             is_timer_active = FALSE;
             gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, FALSE);
             gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, FALSE);
@@ -8243,10 +8334,10 @@ void gevrCoopCinemaTick(void)
             currentPlayerAdjustFade(4.0f, rgb[0], rgb[1], rgb[2], frac);
         }
     }
-    else if (s_gevrCinemaOn)
+    else if (s_gevrCinemaOn[cur])
     {
         /* as AI_BondEnableControl and AI_CameraReturnToBond */
-        s_gevrCinemaOn = FALSE;
+        s_gevrCinemaOn[cur] = FALSE;
         is_timer_active = TRUE;
         gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, TRUE);
         gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, TRUE);
@@ -14496,7 +14587,8 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     bondviewProcessInput(stick_x, stick_y, buttons, oldbuttons);
 
 #ifdef GEVR
-    if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
+    extern int gevrNetSlotIsLocalHuman(int slot);   /* net_core.c: a guest's menu stands them too */
+    if (netIsActive() && gevrNetSlotIsLocalHuman(get_cur_playernum()) &&
         (g_CurrentPlayer->mpmenuon ||
          /* co-op (#94): the watch is up and the mission goes on: this player stands */
          (gevrCoopActive() && g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x0)))
@@ -15950,8 +16042,16 @@ s16 bondviewGetCurrentPlayerViewportWidth(void)
 {
 #ifdef GEVR
     extern bool netIsActive(void);
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
     if (netIsActive())
     {
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vcount >= 3 && vidx >= 0)
+        {
+            return VIEWPORT_WIDTH_4P;
+        }
         return VIEWPORT_WIDTH_FULLSCREEN;
     }
 #endif
@@ -15983,8 +16083,16 @@ s16 get_curplayer_viewport_ulx(void)
 {
 #ifdef GEVR
     extern bool netIsActive(void);
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
     if (netIsActive())
     {
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vcount >= 3 && (vidx == 1 || vidx == 3))
+        {
+            return 0xa1;
+        }
         return 0;
     }
 #endif
@@ -16010,8 +16118,16 @@ s16 bondviewGetCurrentPlayerViewportHeight(void)
 {
 #ifdef GEVR
     extern bool netIsActive(void);
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
     if (netIsActive())
     {
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vcount >= 2 && vidx >= 0)
+        {
+            return VIEWPORT_HEIGHT_4P;
+        }
         return VIEWPORT_HEIGHT_DEFAULT;
     }
 #endif
@@ -16064,9 +16180,37 @@ s16 bondviewGetCurrentPlayerViewportUly(void)
 {
 #ifdef GEVR
     extern bool netIsActive(void);
+    extern int gevrLocalViewCount(void);
+    extern int gevrLocalViewIndex(int slot);
     if (netIsActive())
     {
-        return VIEWPORT_ULY_DEFAULT;
+        s32 vcount = gevrLocalViewCount();
+        s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+        if (vidx < 0 || vcount <= 1)
+        {
+            return VIEWPORT_ULY_DEFAULT;
+        }
+        if (vcount == 2)
+        {
+            if (vidx == 0)
+            {
+#ifdef VERSION_EU
+                return 0;
+#else
+                return VIEWPORT_ULY_2P_PLAYER_1;
+#endif
+            }
+            return VIEWPORT_ULY_2P_PLAYER_2;
+        }
+        if (vidx < 2)
+        {
+#ifdef VERSION_EU
+            return 0;
+#else
+            return VIEWPORT_ULY_4P_PLAYER_12;
+#endif
+        }
+        return VIEWPORT_ULY_4P_PLAYER_34;
     }
 #endif
 
@@ -17267,6 +17411,15 @@ Gfx *gevrRenderRadarGauges(Gfx *gdl, s32 x, s32 y, s32 radius)
     gSPDisplayList(gdl++, osVirtualToPhysical(health));
     gSPDisplayList(gdl++, osVirtualToPhysical(armor));
     gDPPipeSync(gdl++);
+    /*
+     * Depth back on, as the HUD's other screen-space draws leave it (gunfire.c
+     * crosshair). The frame turns it on once, before the first view
+     * (lv.c dlZBufferGeometry), so with it left off here every later view of
+     * an online split screen drew its level without depth: rooms drawn later
+     * painted over nearer ones, and at a Bunker II spawn the corridor's ceiling
+     * and upper walls vanished under them.
+     */
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);
     gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
     gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
     return gdl;
@@ -22222,6 +22375,7 @@ static Gfx *gevrWheelDrawSegments(Gfx *gdl, s32 cx, s32 cy, s32 active, s32 coun
     gSPClearGeometryMode(gdl++, G_CULL_BOTH|G_LIGHTING|G_ZBUFFER);
     gSPDisplayList(gdl++, osVirtualToPhysical(ring));
     gDPPipeSync(gdl++);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);   /* back on for the next view, as gevrRenderRadarGauges */
     gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
     gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
     return gdl;
@@ -23236,8 +23390,8 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
             extern void gevrRumbleDamage(f32 damage_amount, s32 is_explosion);
             extern s32 s_gevrExplosionDamage;
             extern bool netIsActive(void);
-            extern int netGetLocalSlot(void);
-            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+            extern int gevrNetSlotIsLocalHuman(int slot);
+            if (!netIsActive() || gevrNetSlotIsLocalHuman(get_cur_playernum()))
             {
                 gevrRumbleDamage(damage_amount, s_gevrExplosionDamage);
             }
@@ -23402,7 +23556,8 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                 }
 #else
 #ifdef GEVR
-                if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+                extern int gevrNetSlotIsLocalHuman(int slot);
+                if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()))
                 {
                     /* Another player took the hit: heard from where they
                      * stand, not as one's own (two-headset test: everyone
@@ -23805,8 +23960,9 @@ void hudmsgBottomShow(char *string, struct fontchar *font, struct font *arg2)
     s32 abs_index;
     s32 index;
 #ifdef GEVR
-    /* the local player's row only, as the US version below */
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    /* local human player rows only, as the US version below */
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()))
     {
         return;
     }
@@ -23859,10 +24015,11 @@ void hudmsgBottomShow(char *mess)
     {
         return;
     }
-    /* Online only the local player's row is drawn (hudmsgBottomRender from
+    /* Online only local human players' rows are drawn (hudmsgBottomRender from
      * maybe_mp_interface); a host's bot or another player's copy posts nothing
      * (user: the bots' pickups showed on the host's screen) */
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()))
     {
         return;
     }
@@ -23897,8 +24054,9 @@ static s32 s_gevrLiveRow = -1;
 static char s_gevrLiveText[sizeof(stringbuffer_lowerleft[0])];
 void gevrHudmsgBottomLive(char *mess)
 {
+    extern int gevrNetSlotIsLocalHuman(int slot);
     s32 row = s_gevrLiveRow;
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()))
     {
         return;
     }
@@ -24015,6 +24173,10 @@ static struct font *gevrBottomCaptionFont(s32 index)
 #endif
 }
 
+#ifdef GEVR
+static s32 gevrTopMessageLayout(TopMessageLocals *msg, char **text, char *wrapped);   /* below */
+#endif
+
 /**
  * Address: 7F08A5FC
  */
@@ -24055,7 +24217,26 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             captionfont = gevrBottomCaptionFont(status_bar_text_buffer_index);
             textMeasure(&view_top_offset, &view_left_offset ,(u8* ) stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, 0);
 
-            /* co-op (#94): one player's view, laid out as solo's, not a quarter of four */
+            /* Lay out by local viewport count/index so solo, 1P online (DM/co-op/Horde),
+             * and 2-4P split-screen (offline or online) all anchor cleanly inside their view. */
+#ifdef GEVR
+            extern int gevrLocalViewCount(void);
+            extern int gevrLocalViewIndex(int slot);
+            s32 vcount = gevrLocalViewCount();
+            s32 vidx = gevrLocalViewIndex(get_cur_playernum());
+            if (vcount < 3 || vidx < 0)
+            {
+                view_left = viGetViewLeft() + 0x1E;
+            }
+            else if (vidx & 1)
+            {
+                view_left = viGetViewLeft() + 0xA;
+            }
+            else
+            {
+                view_left = viGetViewLeft() + 0x1E;
+            }
+#else
             if (getPlayerCount() < 3 || gevrCoopActive())
             {
                 view_left = viGetViewLeft() + 0x1E;
@@ -24068,9 +24249,29 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             {
                 view_left = viGetViewLeft() + 0x1E;
             }
+#endif
 
             view_horiz = view_left + view_left_offset;
 
+#ifdef GEVR
+            if (vcount < 3 || vidx < 0)
+            {
+                if ((get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNLEFT)) == 0) && (is_clock_drawn_onscreen() == 0))
+                {
+                    view_top = (viGetViewTop() + viGetViewHeight()) - BONDVIEW_VIEW_TOP_OFFSET_1;
+                }
+                else
+                {
+                    view_top = (viGetViewTop() + viGetViewHeight()) - BONDVIEW_VIEW_TOP_OFFSET_2;
+                }
+#if !defined(VERSION_EU)
+                if (vcount == 2 && vidx == 1)
+                {
+                    view_top -= 8;
+                }
+#endif
+            }
+#else
             if (getPlayerCount() < 3 || gevrCoopActive())
             {
                 if ((get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNLEFT)) == 0) && (is_clock_drawn_onscreen() == 0))
@@ -24088,6 +24289,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                 }
 #endif
             }
+#endif
             else
             {
                 view_top = viGetViewTop()
@@ -24115,9 +24317,53 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                 gDPNoOpTag(arg0++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
             }
 #endif
+#ifdef GEVR
+            /*
+             * Quarter views put this line at the view's top, beside the radar
+             * (the cartridge's place for 3-4 players). On a wide screen it was
+             * stretched across the radar and its rings (owner's 4-view Horde
+             * screenshot, 2026-11-24: "MENU: START WAVE 2"). Laid out as the
+             * top message is: 4:3 proportions, left of the radar, wrapped if
+             * longer, in the aspect anchor that reaches that stretch.
+             */
+            char *gevrBotText = stringbuffer_lowerleft[status_bar_text_buffer_index];
+            char gevrBotWrapped[BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH * 2];
+            s32 gevrBotMode = -1;
+            if (!g_gevrStereo && vcount >= 3 && vidx >= 0)
+            {
+                TopMessageLocals bm;
+                s32 line_top = view_top - view_top_offset;
+
+                bm.textwidth = view_left_offset;
+                bm.textheight = view_top_offset;
+                gevrBotMode = gevrTopMessageLayout(&bm, &gevrBotText, gevrBotWrapped);
+                if (gevrBotMode >= 0)
+                {
+                    view_left = bm.x;
+                    view_horiz = bm.x + bm.textwidth;
+                    if (bm.textheight > view_top_offset)
+                    {
+                        view_top = line_top + bm.textheight;   /* wrapped: grows downwards */
+                        view_top_offset = bm.textheight;
+                    }
+                    if (portNativeAspect() > 1.3334f)
+                    {
+                        gSPHudAspectEXT(arg0++, gevrBotMode);
+                    }
+                }
+            }
+#endif
             view_vert = view_top - view_top_offset;
             arg0 = draw_blackbox_to_screen(arg0, &view_left, &view_vert, &view_horiz, &view_top); /* PORT: addresses were cast to s32 */
+#ifdef GEVR
+            arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, gevrBotText, captionchars, captionfont, -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
+            if (gevrBotMode >= 0 && portNativeAspect() > 1.3334f)
+            {
+                gSPHudAspectEXT(arg0++, GE_HUD_ASPECT_NONE);   /* back to the split screen's (PORT_HUD_ASPECT) */
+            }
+#else
             arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
+#endif
 #ifdef GEVR
             if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
             {
@@ -24252,9 +24498,97 @@ void bondviewUpperTextWindowTimerTick(void)
 }
 
 
+#ifdef GEVR
+/*
+ * The top message on a flat screen beside a multiplayer radar (owner,
+ * 2026-11-24: it ran across the radar and its rings, stretched, and the band
+ * behind it spanned the whole screen, over the other players' views). Laid
+ * out in the 4:3 canvas's own proportions, as the solo HUD is (hudaspect.h):
+ * from the view's left edge to the radar's, wrapped onto more lines when it
+ * is longer, in whichever aspect anchor (left, centre, right) reaches that
+ * stretch of the screen. Returns the anchor, or -1 for the cartridge's place
+ * (solo: no radar, one view). The radar itself is drawn stretched (radar.c).
+ */
+extern s32 gevrRadarClearX(void);   /* radar.c */
+extern int gevrLocalViewCount(void);   /* net_core.c */
+static s32 gevrTopMessageLayout(TopMessageLocals *msg, char **text, char *wrapped)
+{
+    const f32 nat = portNativeAspect();
+    const f32 r = nat > 1.3334f ? (4.0f / 3.0f) / nat : 1.0f;   /* a canvas unit's share of a stretched one */
+    const f32 cw = (f32)viGetX();
+    const s32 radar = gevrRadarClearX();
+    f32 s0, s1, avail, tw, a;
+    s32 mode;
+
+    if (radar < 0 && gevrLocalViewCount() <= 1)
+    {
+        return -1;
+    }
+    /* the stretch of the screen it may use, 0..1 across */
+    s0 = ((f32)viGetViewLeft() + 10.0f) / cw;
+    s1 = (radar >= 0 ? (f32)radar : (f32)(viGetViewLeft() + viGetViewWidth() - 10)) / cw;
+    avail = (s1 - s0) * cw / r;
+    if (avail < 60.0f)
+    {
+        avail = 60.0f;
+    }
+    if ((f32)msg->textwidth > avail)
+    {
+        /* a " - " is where it breaks first ("WARMUP 1:45" / "HOST CAN START EARLY") */
+        char split[BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH];
+        const char *in = *text;
+        s32 n = 0;
+        while (*in != '\0' && n < (s32)sizeof(split) - 1)
+        {
+            if (in[0] == ' ' && in[1] == '-' && in[2] == ' ')
+            {
+                split[n++] = '\n';
+                in += 3;
+            }
+            else
+            {
+                split[n++] = *in++;
+            }
+        }
+        split[n] = '\0';
+        textWrap((s32)avail, split, wrapped, ptrFontZurichBoldChars, ptrFontZurichBold);
+        *text = wrapped;
+        textMeasure(&msg->textheight, &msg->textwidth, wrapped, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    }
+    tw = (f32)msg->textwidth * r / cw;
+    if (s0 + tw <= r)
+    {
+        mode = GE_HUD_ASPECT_LEFT;
+        a = 0.0f;
+    }
+    else if (s0 >= 0.5f - 0.5f * r && s0 + tw <= 0.5f + 0.5f * r)
+    {
+        mode = GE_HUD_ASPECT_CENTER;
+        a = 0.5f - 0.5f * r;
+    }
+    else
+    {
+        mode = GE_HUD_ASPECT_RIGHT;
+        a = 1.0f - r;
+        if (s0 < a)
+        {
+            s0 = a;
+        }
+    }
+    msg->x = (s32)((s0 - a) * cw / r);
+    msg->y = viGetViewTop() + 0xd;
+    return mode;
+}
+#endif
+
 Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
 {
     TopMessageLocals msg;
+#ifdef GEVR
+    char *gevrTopText;
+    char gevrTopWrapped[BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH * 2];
+    s32 gevrTopMode = -1;
+#endif
     DebugTextBuffers debugtext;
     s32 debug_x;
     s32 debug_y;
@@ -24328,10 +24662,42 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                         msg.y = viGetViewTop() + (viGetViewHeight() * 55) / 100;
                         gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
                     }
+                    gevrTopText = stringbuffer_top[upper_text_buffer_index];
+                    if (!g_gevrStereo && cameraBufferToggle == 0)
+                    {
+                        gevrTopMode = gevrTopMessageLayout(&msg, &gevrTopText, gevrTopWrapped);
+                        if (gevrTopMode >= 0 && portNativeAspect() > 1.3334f)
+                        {
+                            gSPHudAspectEXT(gdl++, gevrTopMode);
+                        }
+                    }
+#endif
+#ifdef GEVR
+                    {
+                        /*
+                         * textMeasure counts a line at its newline, and the
+                         * cartridge's messages end with one; the port's own
+                         * (the warmup and countdown notices, a guest's join,
+                         * Horde's buys) don't, so the band behind them was
+                         * two pixels high, a dark line through the text
+                         * (owner, 2026-11-24). Their last line counts too.
+                         */
+                        const char *top = gevrTopText;
+                        size_t len = strlen(top);
+                        if (len != 0 && top[len - 1] != '\n')
+                        {
+                            s32 line = ptrFontZurichBoldChars['['].baseline + ptrFontZurichBoldChars['['].height;
+                            if (j_text_trigger && line < 14)
+                            {
+                                line = 14;
+                            }
+                            msg.textheight += line;
+                        }
+                    }
 #endif
                     msg.bottom = msg.y + msg.textheight;
 #ifdef GEVR
-                    if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
+                    if (!cameraBufferToggle && (g_gevrStereo || gevrTopMode >= 0 || getPlayerCount() == 1 || netIsActive()))
                     {
                         /* the band only behind the text, as the bottom message's box */
                         gdl = microcode_constructor_related_to_menus(gdl, msg.x - 4, msg.y - 2, msg.x + msg.textwidth + 4, msg.bottom, 0x64);
@@ -24339,7 +24705,10 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                     else
 #endif
                     gdl = microcode_constructor_related_to_menus(gdl, 0, msg.y - 2, viGetX(), msg.bottom, 0x64);
-#ifdef VERSION_US
+#if defined(VERSION_US) && defined(GEVR)
+                    sw.screenwidth = viGetX();
+                    gdl = textRender(gdl, &msg.x, &msg.y, gevrTopText, ptrFontZurichBoldChars, ptrFontZurichBold, -1, sw.screenwidth, viGetY(), 0, 0);
+#elif defined(VERSION_US)
                     sw.screenwidth = viGetX();
                     gdl = textRender(gdl, &msg.x, &msg.y, stringbuffer_top[upper_text_buffer_index], ptrFontZurichBoldChars, ptrFontZurichBold, -1, sw.screenwidth, viGetY(), 0, 0);
 #else
@@ -24366,6 +24735,11 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                     if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
                     {
                         gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+                    }
+                    if (gevrTopMode >= 0 && portNativeAspect() > 1.3334f)
+                    {
+                        /* back to the anchor the callers set (PORT_HUD_ASPECT) */
+                        gSPHudAspectEXT(gdl++, gevrLocalViewCount() < 2 ? GE_HUD_ASPECT_CENTER : GE_HUD_ASPECT_NONE);
                     }
 #endif
                     gdl = combiner_bayer_lod_perspective(gdl);

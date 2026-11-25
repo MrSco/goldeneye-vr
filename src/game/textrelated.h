@@ -26,6 +26,7 @@ Gfx *textRenderOutlined(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *c
 
 Gfx *combiner_bayer_lod_perspective(Gfx *gdl);
 void setTextSpacingInverted(s32 spacing);
+void setTextOrientation(s32 orientation);
 void setTextWordWrap(s32 flag);
 void textWrap(s32 wrapwidth, char *src, char *dst, struct fontchar *chars, struct font *font);
 void setTextOverlapCorrection(s32 flag);

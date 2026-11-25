@@ -4,6 +4,7 @@
 #include "imgui/imgui.h"
 #include "gevr_tooltip.h"
 #include "gevr_settings_ui.h"
+#include "gevr_add_friend_ui.h"   /* a player's Add friend, as the launcher roster had it */
 #include <cstring>
 #include <cstdio>
 #include <initializer_list>
@@ -14,10 +15,17 @@ struct GevrPausePlayerView {
     char name[64], character[64], device[32]="";   // device: "Quest", "PC VR"... (net_core.c netGetSlotDeviceName)
     int slot=-1,points=0,kills=0,losses=0,ping=0;
     bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false,bot=false;
+    char friendCode[32]="";   /* the code their build sent (net_core.c NET_MSG_FRIEND_CODE) */
+    int friendRelation=GEVR_RELATION_UNKNOWN;   /* what the friends list says of it (gevr_add_friend_ui.h) */
 };
 struct GevrPauseView {
     bool horde=false,hordeDefeated=false;
+    /* Horde's setup break (net_core.c netHordeHostStart): the host's START WAVE, which
+     * restarts the run when another map is chosen; the first wave it starts */
+    bool hordeSetup=false,hordeCanStart=false,hordeRestart=false;
+    int hordeWave=1;
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
+    bool friendsReady=false;   /* Friends has signed in: Add friend can send */
     bool startRequested=false,rosterReady=false,voting=false,warmup=true;
     int count=0,capacity=8,countdown=0;
     GevrPauseGaugeVertex gauges[92]{};
@@ -27,6 +35,10 @@ struct GevrPauseView {
     char clock[32]="";   /* time left or played, while a round runs; empty otherwise */
     bool clockEnding=false;   /* the last minute of a timed match */
     GevrSettingsApi settings;   /* the Settings tab: the settings table (gevr_settings.c), or a test's rows */
+    bool portraits=false;   /* the Player tab offers the game's Select Character screen, Match its Select Stage grid (in stereo on the HUD) */
+    bool handicap=false;    /* a deathmatch: the Player tab offers the game's Handicap screen */
+    bool teams=false;       /* and with teams its Teams screen (in stereo on the HUD) */
+    bool setup=false;       /* an online deathmatch: the Match tab opens the game's Multiplayer Options folder */
 };
 struct GevrPauseUi {
     int tab=0;
@@ -35,10 +47,12 @@ struct GevrPauseUi {
     bool focusResume=true,confirmLeave=false,confirmAbort=false;
     int kickSlot=-1;
     char kickName[64]="";
+    int playerMenuSlot=-1;   /* the player whose menu (friend code, Add friend) is open */
+    bool openPlayerMenu=false;
 };
 /* HD textures is the Mods/Fun section's row now, and Reset sound gone with #229 (owner, 2026-11-23) */
 enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,
-       GEVR_PAUSE_KICK_BASE=100 };
+       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_HANDICAP,GEVR_PAUSE_TEAMSEL,GEVR_PAUSE_HORDE_START,GEVR_PAUSE_SETUP,GEVR_PAUSE_KICK_BASE=100,GEVR_PAUSE_FRIEND_BASE=200 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -85,7 +99,7 @@ struct GevrPauseRowsState {
 inline GevrPauseRowsState &gevrPauseRows() { static GevrPauseRowsState state; return state; }
 inline bool gevrPauseFunCopy(const GevrPauseField &f) {
     /* mpmenu.c's fun switches (ids 200 on), but its movement speed: the table's are drawn */
-    static const char *const fun[]={"DK MODE","PAINTBALL","LINE MODE","NO RADAR","HIT IMMUNITY","GUN SIZE"};
+    static const char *const fun[]={"DK MODE","PAINTBALL","LINE MODE","NO RADAR","NO TELEPORT","HIT IMMUNITY","GUN SIZE"};
     if(f.id<200)return false;
     for(const char*name:fun)if(!strcmp(f.label,name))return true;
     return false;
@@ -132,6 +146,7 @@ inline int gevrPauseRowsInfo(int id,GevrSettingInfo *out) {
     char *label=s.labels[id];
     snprintf(label,64,"%s",f->label);
     for(int i=1;label[i];i++)if(label[i]>='A'&&label[i]<='Z')label[i]=(char)(label[i]-'A'+'a');
+    if(!strncmp(label,"Ai ",3))label[1]='I';   /* AI ALLY as "AI ally" */
     out->label=label;out->tooltip=nullptr;
     out->kind=f->kind==GEVR_PAUSE_TOGGLE?GEVR_SET_TOGGLE:f->kind==GEVR_PAUSE_CHOICE?GEVR_SET_CHOICE:GEVR_SET_RANGE;
     out->section=out->launcherSection=0;out->where=GEVR_SET_INGAME;
@@ -243,9 +258,36 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             ImGui::TextWrapped("%s",model.hordeDefeated?"Everyone is down. The host can retry, or leave to choose another mode.":"Clear every guard to finish the wave. Ammo is supplied between waves. Stay beside a downed teammate to revive them.");
         }
         if(model.coop) {
-            ImGui::SetCursorPos(ImVec2(18,206));ImGui::TextColored(gold,model.horde?"HORDE":"CO-OP MISSION");
-            ImGui::SameLine();ImGui::TextUnformatted(model.session);
-        } else {
+            ImGui::SetCursorPos(ImVec2(18,206+7));ImGui::TextColored(gold,model.horde?"HORDE":"CO-OP MISSION");
+            if(!model.horde){ImGui::SameLine();ImGui::TextUnformatted(model.session);}
+        }
+        if(model.horde && model.setup) {
+            /* the run's map, first wave, friendly fire and AI ally, and the character: the game's
+             * Multiplayer Options folder (mpmenu.c), as in the setup break */
+            ImGui::SetCursorPos(ImVec2(140,200));
+            if(ImGui::Button("Multiplayer Options",ImVec2(340,44)))action=GEVR_PAUSE_SETUP;
+            ImGui::SetCursorPos(ImVec2(496,212));
+            ImGui::TextDisabled("%s",!model.host?"Your character; the host's run.":
+                model.hordeSetup?"The run's map and wave, and your character.":"The next run's map and wave: at Retry.");
+        } else if(model.horde) {
+            /* the host's map and first wave (mpmenu.c's HORDE MAP, STARTING WAVE): a new wave
+             * takes effect at once in the setup break, a new map at START WAVE (a restart) */
+            int ids[16];
+            const int n=rows.sectionRows(GEVR_PAUSE_MATCH,GEVR_SET_INGAME,ids,16);
+            for(int i=0;i<n && i<16;i++) {
+                const GevrPauseField *field=gevrPauseFieldOf(ids[i]);
+                if(!field)continue;
+                if(!strcmp(field->label,"HORDE MAP"))gevrPauseRowAt(rows,ids[i],140,206,520);
+                else if(!strcmp(field->label,"STARTING WAVE"))gevrPauseRowAt(rows,ids[i],700,206,400);
+            }
+            if(model.portraits && model.host) {
+                ImGui::SetCursorPos(ImVec2(18,772));
+                if(ImGui::Button("Map photos",ImVec2(220,38)))action=GEVR_PAUSE_STAGESEL;
+            }
+            ImGui::SetCursorPos(ImVec2(model.portraits && model.host?254:18,782));
+            ImGui::TextDisabled("%s",!model.host?"The host chooses the map and the first wave.":
+                model.hordeSetup?"A new wave applies now, a new map at Start.":"Changes apply at the next retry.");
+        } else if(!model.coop) {
             int ids[16];
             const int n=rows.sectionRows(GEVR_PAUSE_MATCH,GEVR_SET_INGAME,ids,16);
             for(int i=0;i<n && i<16;i++) {
@@ -258,13 +300,44 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 else if(!strcmp(field->label,"NEXT MAP"))gevrPauseRowAt(rows,ids[i],18,772,604);
                 else if(!strcmp(field->label,"NEXT WEAPONS"))gevrPauseRowAt(rows,ids[i],660,772,602);
             }
-            ImGui::SetCursorPos(ImVec2(18,722));ImGui::TextColored(gold,"NEXT ROUND");
+            if(model.setup) {
+                /* the map, the scenario, the weapons and the rest of the setup: the game's Multiplayer
+                 * Options folder (mpmenu.c), each player's character, health, team and loadout with them */
+                ImGui::SetCursorPos(ImVec2(18,200));
+                if(ImGui::Button("Multiplayer Options",ImVec2(340,44)))action=GEVR_PAUSE_SETUP;
+                ImGui::SetCursorPos(ImVec2(374,212));
+                ImGui::TextDisabled("%s",model.host?"The match's setup and your character. Next round.":
+                    "Your character, health and team; the host's setup.");
+            }
+            if(!model.setup || model.voting) {ImGui::SetCursorPos(ImVec2(18,722));ImGui::TextColored(gold,"NEXT ROUND");}
             if(model.host && model.voting) {
                 ImGui::SetCursorPos(ImVec2(340,712));ImGui::BeginDisabled(model.countdown>0 || !model.canStart);
                 if(ImGui::Button("Request votes",ImVec2(350,48)))action=GEVR_PAUSE_REQUEST_VOTES;
                 ImGui::EndDisabled();
             }
-            ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("%s",model.host?"Map, weapon and scenario changes apply next round: press the button beside Resume.":"The host's map, weapon and scenario changes apply next round, once players ready up.");
+            if(model.setup) {
+                /* the vote's photos (GoldenEye's Select Stage, in the game's view); the rest is the folder's */
+                if(model.voting && model.portraits) {
+                    ImGui::SetCursorPos(ImVec2(18,822));
+                    if(ImGui::Button("Vote with photos",ImVec2(260,38)))action=GEVR_PAUSE_STAGEVOTE;
+                }
+            } else if(model.portraits && (model.host || model.voting)) {
+                /* GoldenEye's own Select Stage photos, in the game's view (mpmenu.c): the host's map, everyone's vote */
+                float x=18;
+                if(model.host) {
+                    ImGui::SetCursorPos(ImVec2(x,822));
+                    if(ImGui::Button("Map photos",ImVec2(220,38)))action=GEVR_PAUSE_STAGESEL;
+                    x+=236;
+                }
+                if(model.voting) {
+                    ImGui::SetCursorPos(ImVec2(x,822));
+                    if(ImGui::Button("Vote with photos",ImVec2(260,38)))action=GEVR_PAUSE_STAGEVOTE;
+                    x+=276;
+                }
+                ImGui::SetCursorPos(ImVec2(x,832));ImGui::TextDisabled("%s",model.host?"Changes apply next round.":"The host's changes apply next round.");
+            } else {
+                ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("%s",model.host?"Map, weapon and scenario changes apply next round: press the button beside Resume.":"The host's map, weapon and scenario changes apply next round, once players ready up.");
+            }
         }
         ImGui::SetCursorPos(ImVec2(18,276));ImGui::TextColored(gold,"%s  (%d / %d)",model.coop?"PARTY":"PLAYERS & SCORES",model.count,model.capacity);
         ImGui::SetCursorPos(ImVec2(18,320));
@@ -285,8 +358,17 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             ImGui::TableHeadersRow();
             for(int i=0;i<model.count;i++) {
                 const auto&p=model.players[i];ImGui::TableNextRow(0,40);
-                ImGui::TableNextColumn();ImGui::Text("%.14s%s",p.name,p.host?" *":"");
-                if(ImGui::IsItemHovered())gevrTooltip("%s%s",p.name,p.host?" (Host)":"");
+                ImGui::TableNextColumn();
+                /* another person's name opens their menu: friend code and Add friend (owner,
+                 * 2026-11-23 "click on them and add them as a friend"; the launcher's roster had it) */
+                if(!p.bot && p.friendRelation!=GEVR_RELATION_SELF && p.slot>=0) {
+                    char label[96];snprintf(label,sizeof(label),"%.14s%s##pm%d",p.name,p.host?" *":"",p.slot);
+                    if(ImGui::Selectable(label,ui.playerMenuSlot==p.slot && ImGui::IsPopupOpen("##pause-player"))){ui.playerMenuSlot=p.slot;ui.openPlayerMenu=true;}
+                    if(ImGui::IsItemHovered())gevrTooltip("%s%s\nSelect for their friend code and Add friend.",p.name,p.host?" (Host)":"");
+                } else {
+                    ImGui::Text("%.14s%s",p.name,p.host?" *":"");
+                    if(ImGui::IsItemHovered())gevrTooltip("%s%s",p.name,p.host?" (Host)":"");
+                }
                 ImGui::TableNextColumn();ImGui::TextUnformatted(p.character);
                 ImGui::TableNextColumn();ImGui::TextDisabled("%s",p.bot?"Bot":p.device[0]?p.device:"—");
                 if(model.coop) {ImGui::TableNextColumn();ImGui::TextColored(p.down?bad:good,"%s",p.down?"Down / revive":"Active");ImGui::TableNextColumn();ImGui::Text("%d",p.ping);}
@@ -312,7 +394,22 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             }
             ImGui::EndTable();
         }
-        if(model.coop) {
+        /* a player's menu: their friend code, and Add friend or Accept their request */
+        if(ui.openPlayerMenu){ImGui::OpenPopup("##pause-player");ui.openPlayerMenu=false;}
+        if(ImGui::BeginPopup("##pause-player")) {
+            const GevrPausePlayerView*pm=nullptr;
+            for(int i=0;i<model.count;i++)if(model.players[i].slot==ui.playerMenuSlot)pm=&model.players[i];
+            if(!pm) ImGui::CloseCurrentPopup();
+            else {
+                ImGui::TextColored(gold,"%s",pm->name);
+                if(pm->friendCode[0])ImGui::TextDisabled("Friend code: %s",pm->friendCode);
+                if(gevrAddFriendButton(pm->friendRelation,model.friendsReady,pm->name,pm->friendCode)) {
+                    action=GEVR_PAUSE_FRIEND_BASE+pm->slot;ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::EndPopup();
+        }
+        if(model.coop && !model.horde) {
             ImGui::SetCursorPos(ImVec2(18,574));ImGui::TextColored(gold,"MISSION OBJECTIVES");
             ImGui::SetCursorPos(ImVec2(18,618));ImGui::BeginChild("objectives",ImVec2(1244,222));
             int shown=0;
@@ -336,6 +433,32 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         gevrSettingsSection(rows,ui.tab,GEVR_SET_INGAME);
         ImGui::EndChild();
         ImGui::SetCursorPos(ImVec2(18,816));
+        if(ui.tab==GEVR_PAUSE_PLAYER && model.setup) {
+            /* the character, health, team and loadout: the game's Multiplayer Options folder (mpmenu.c) */
+            ImGui::SetCursorPos(ImVec2(18,806));
+            if(ImGui::Button("Multiplayer Options",ImVec2(340,48)))action=GEVR_PAUSE_SETUP;
+            ImGui::SetCursorPos(ImVec2(374,816));
+            ImGui::TextDisabled("%s",model.horde?"Your character is there.":"Your character, health, team and loadout are there.");
+        } else if(ui.tab==GEVR_PAUSE_PLAYER && model.portraits) {
+            /* GoldenEye's own Select Character screen, in the game's view (mpmenu.c); in a
+             * deathmatch its Handicap screen (everyone's health) and, with teams, its Teams screen */
+            float x=18;
+            ImGui::SetCursorPos(ImVec2(x,806));
+            if(ImGui::Button("Select Character",ImVec2(model.coop?300:270,48)))action=GEVR_PAUSE_CHARSEL;
+            x+=model.coop?318:286;
+            if(model.handicap) {
+                ImGui::SetCursorPos(ImVec2(x,806));
+                if(ImGui::Button("Handicap",ImVec2(190,48)))action=GEVR_PAUSE_HANDICAP;
+                x+=206;
+            }
+            if(model.teams) {
+                ImGui::SetCursorPos(ImVec2(x,806));
+                if(ImGui::Button("Select Team",ImVec2(220,48)))action=GEVR_PAUSE_TEAMSEL;
+                x+=236;
+            }
+            ImGui::SetCursorPos(ImVec2(x,816));
+            ImGui::TextDisabled("%s",model.coop?"Your character and status. Teammates continue.":model.teams?"The match continues.":"Your character, team and loadout. The match continues.");
+        } else
         ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Movement speed applies immediately. Other round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
     }
     ImGui::SetCursorPos(ImVec2(18,864));ImGui::Separator();
@@ -351,6 +474,11 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         ImGui::SetCursorPos(ImVec2(600,886));ImGui::BeginDisabled(!model.canReturn);
         if(ImGui::Button(model.countdown>0 || model.startRequested?"Cancel start":"Return to lobby",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
     } else if(model.horde && model.host) {
+        /* the setup break's START WAVE (the first wave waits for the host) */
+        ImGui::SetCursorPos(ImVec2(282,886));ImGui::BeginDisabled(!model.hordeCanStart);
+        char start[48];snprintf(start,sizeof(start),model.hordeRestart?"Restart on new map":"Start wave %d",model.hordeWave);
+        if(ImGui::Button(start,ImVec2(300,52)))action=GEVR_PAUSE_HORDE_START;
+        ImGui::EndDisabled();
         ImGui::SetCursorPos(ImVec2(600,886));
         ImGui::BeginDisabled(!model.hordeDefeated);
         if(ImGui::Button("Retry Horde",ImVec2(330,52)))action=GEVR_PAUSE_HORDE_RETRY;

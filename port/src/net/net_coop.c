@@ -97,9 +97,9 @@ static void coopBehindLockTick(void);
 static void coopBehindLockReset(void);
 static void coopSendScriptSnapshot(int slot);
 static void coopGadgetReset(void);
-static bool s_downed[4];                  /* revive: each player down, not dead (every headset's view) */
-static int s_host_sees_me_down = -1;      /* a teammate's headset: the host's last word on its player, -1 none */
-static u64 s_down_sent_us;
+static bool s_downed[4];                  /* revive: each player down, not dead (every machine's view) */
+static int s_host_sees_me_down[4] = { -1, -1, -1, -1 }; /* per local seat: host's last word, -1 none */
+static u64 s_down_sent_us[4];
 static void coopReviveReset(void);
 static void coopAnnounceDowned(int slot, bool down);
 static void coopDropInReset(void);
@@ -107,7 +107,9 @@ static void coopRecordSetup(void);
 static void coopHostDropIn(u64 now);
 struct netbuf;
 static void coopHeader(struct netbuf *b, u8 type);
+static void coopHeaderSlot(struct netbuf *b, u8 type, int slot);
 static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs);
+static void coopSendEventFor(int slot, u8 kind, s32 a, s32 b2, int nargs);
 static void coopWriteSpawn(struct netbuf *buf, ChrRecord *chr, s32 slot, AIRecord *ailist, s32 spawnflags);
 static bool coopTeammateUp(int i);
 static void coopHostGuardShots(void);
@@ -465,16 +467,20 @@ void *g_gevrCoopGuardViewToWorld;
 int gevrCoopGuardDamageBlocked(void)
 {
     if (g_gevrCoopGuardTick && netCoopActive() && netIsHost()
-        && get_cur_playernum() != netGetLocalSlot()) return FALSE;
+        && !netSlotIsLocalHuman(get_cur_playernum())) return FALSE;
     return bondviewGetIfCurrentPlayerDamageShowTime();
 }
 
 s32 g_gevrCoopGuardTick = FALSE;   /* the host is running a guard's AI or fire as its target */
 
+extern int netSlotChoosingSeen(int slot);   /* net_core.c: a joiner choosing their character, on any machine */
+
 static int coopPlayerTargetable(int i)
 {
     struct player *pl = i >= 0 && i < 4 ? g_playerPointers[i] : NULL;
-    return pl && pl->prop && !pl->bonddead && netSlotOccupied(i) && !netSlotIsSpectator(i) && !gevrCoopDowned(i);
+    /* a joiner still choosing their character is frozen and unhurt: not a target */
+    return pl && pl->prop && !pl->bonddead && netSlotOccupied(i) && !netSlotIsSpectator(i) && !gevrCoopDowned(i)
+        && !netSlotChoosingSeen(i);
 }
 
 s32 gevrCoopGuardTarget(ChrRecord *chr)
@@ -746,7 +752,7 @@ static void coopSendGuardDamage(s32 target, f32 damage, f32 vx, f32 vz)
 s32 gevrCoopForwardGuardDamage(f32 damage, f32 vx, f32 vz)
 {
     s32 cur = get_cur_playernum();
-    if (!g_gevrCoopGuardTick || !netCoopActive() || !netIsHost() || cur == netGetLocalSlot()) return FALSE;
+    if (!g_gevrCoopGuardTick || !netCoopActive() || !netIsHost() || netSlotIsLocalHuman(cur)) return FALSE;
     if (cur >= 0 && cur < 4 && netSlotOccupied(cur) && isfinite(damage) && damage > 0.0f)
         coopSendGuardDamage(cur, damage, vx, vz);
     return TRUE;
@@ -754,9 +760,9 @@ s32 gevrCoopForwardGuardDamage(f32 damage, f32 vx, f32 vz)
 
 /*
  * chraction.c handles_shot_actors, for a guard hit by a player: nonzero when
- * the hit is not this headset's to apply. On a client the local player's hit
- * goes to the host as a report (2: the shooter's own headset); any other
- * player's is their own headset's (1). On the host another player's copy
+ * the hit is not this machine's to apply. On a client any local human's hit
+ * goes to the host as a report (2: the shooter's own machine); any other
+ * player's is their own machine's (1). On the host another player's copy
  * hurts no guard: its owner reports.
  */
 s32 gevrCoopGuardHitElsewhere(ChrRecord *chr, s32 hitpart, coord3d *vector, s32 weaponid)
@@ -765,9 +771,9 @@ s32 gevrCoopGuardHitElsewhere(ChrRecord *chr, s32 hitpart, coord3d *vector, s32 
     s32 shooter = get_cur_playernum();
     s32 slot = coopSlotOf(chr);
     if (!netCoopActive() || slot < 0) return FALSE;
-    if (netIsHost()) return shooter != netGetLocalSlot() && !g_gevrCoopApplyingHit;
+    if (netIsHost()) return !netSlotIsLocalHuman(shooter) && !g_gevrCoopApplyingHit;
     if (s_await_remap) return 1;   /* this headset's slots are not the new host's yet */
-    if (shooter == netGetLocalSlot() && vector) {
+    if (netSlotIsLocalHuman(shooter) && vector) {
         u8 raw[40];
         struct netbuf buf = { .data = raw, .size = sizeof(raw) };
         netbufStartWrite(&buf);
@@ -828,7 +834,7 @@ static void coopApplyDamage(struct netbuf *b)
     u8 target = netbufReadU8(b);
     f32 damage = netbufReadF32(b);
     f32 vx = netbufReadF32(b), vz = netbufReadF32(b);
-    if (b->error || netbufReadLeft(b) || target != netGetLocalSlot() || !g_playerPointers[target] ||
+    if (b->error || netbufReadLeft(b) || !netSlotIsLocalHuman(target) || !g_playerPointers[target] ||
         !isfinite(damage) || damage <= 0.0f || damage > 100.0f || !isfinite(vx) || !isfinite(vz)) return;
     s32 prev = get_cur_playernum();
     set_cur_player(target);
@@ -1245,9 +1251,9 @@ static s32 s_sent_flags;
 static u8 s_sent_mission_bits;   /* COOP_MISSION_* */
 static u8 s_sent_downed;         /* the downed players, a bit each */
 static u64 s_mission_check_us, s_mission_sent_us;
-static s32 s_sent_held[NET_COOP_HELD_MAX];   /* a teammate's headset: what it last reported */
-static u8 s_sent_held_count;
-static u64 s_held_check_us, s_held_sent_us;
+static s32 s_sent_held[4][NET_COOP_HELD_MAX];   /* per local slot: what it last reported */
+static u8 s_sent_held_count[4];
+static u64 s_held_check_us, s_held_sent_us[4];
 
 int gevrCoopHostObjectiveStatus(int objective)
 {
@@ -1257,16 +1263,20 @@ int gevrCoopHostObjectiveStatus(int objective)
 int gevrCoopTeammateHolds(int tag)
 {
     if (!netCoopActive() || !netIsHost()) return FALSE;
-    /* Background AI can run as the nearest teammate. Always include the
-     * host's real inventory, even when that is not the script's context. */
+    /* Background AI can run as the nearest teammate. Always include every local
+     * human player's real inventory on the host, even when that is not the script's context. */
     s32 prev = get_cur_playernum();
     ObjectRecord *obj = objFindByTagId(tag);
-    set_cur_player(netGetLocalSlot());
-    int held = obj && obj->prop && bondinvHasPropInInv(obj->prop);
+    int held = FALSE;
+    for (int i = 0; i < 4 && !held; i++) {
+        if (!netSlotIsLocalHuman(i) || !g_playerPointers[i]) continue;
+        set_cur_player(i);
+        if (obj && obj->prop && bondinvHasPropInInv(obj->prop)) held = TRUE;
+    }
     set_cur_player(prev);
     if (held) return TRUE;
     for (int i = 0; i < 4; i++) {
-        if (i == netGetLocalSlot() || !netSlotOccupied(i)) continue;
+        if (netSlotIsLocalHuman(i) || !netSlotOccupied(i)) continue;
         for (int k = 0; k < s_held_count[i]; k++)
             if (s_held[i][k] == tag) return TRUE;
     }
@@ -1283,8 +1293,18 @@ static void coopMissionReset(void)
     s_sent_mission_bits = 0;
     s_sent_downed = 0;
     s_mission_check_us = s_mission_sent_us = 0;
-    s_sent_held_count = 0;
-    s_held_check_us = s_held_sent_us = 0;
+    memset(s_sent_held_count, 0, sizeof(s_sent_held_count));
+    s_held_check_us = 0;
+    memset(s_held_sent_us, 0, sizeof(s_held_sent_us));
+}
+
+static void coopHeaderSlot(struct netbuf *b, u8 type, int slot)
+{
+    netbufStartWrite(b);
+    netbufWriteU32(b, GEVR_NET_MAGIC);
+    netbufWriteU16(b, GEVR_NET_VERSION);
+    netbufWriteU8(b, type);
+    netbufWriteU8(b, (uint8_t)slot);
 }
 
 static void coopHeader(struct netbuf *b, u8 type)
@@ -1345,11 +1365,11 @@ static void coopReceiveMission(struct netbuf *b)
     /* the host's alarm: on or off here as there */
     if ((bits & COOP_MISSION_ALARM) && !alarmIsActive()) alarmActivate();
     else if (!(bits & COOP_MISSION_ALARM) && alarmIsActive()) alarmDeactivate();
-    /* the others' down or up (this headset's own player is its own to say) */
+    /* the others' down or up (this machine's own local players are its own to say) */
     for (int i = 0; i < 4; i++) {
         bool down = (downed & (1 << i)) != 0;
-        if (i == netGetLocalSlot()) s_host_sees_me_down = down;
-        if (i == netGetLocalSlot() || down == s_downed[i]) continue;
+        if (netSlotIsLocalHuman(i)) { s_host_sees_me_down[i] = down; continue; }
+        if (down == s_downed[i]) continue;
         s_downed[i] = down;
         coopAnnounceDowned(i, down);
     }
@@ -1993,12 +2013,13 @@ static void coopGadgetReset(void)
 void gevrCoopReportGadgetUse(ObjectRecord *obj)
 {
     s32 tag;
+    s32 me = get_cur_playernum();
 
-    if (!obj || !netCoopActive() || get_cur_playernum() != netGetLocalSlot()) return;
+    if (!obj || !netCoopActive() || !netSlotIsLocalHuman(me)) return;
     tag = coopTagOf(obj);
     if (tag < 0) return;
-    if (netIsHost()) coopRememberGadgetUser(tag, netGetLocalSlot());
-    else if (gevrCoopPuppets()) coopSendEvent(NET_COOP_EVENT_GADGET, tag, 0, 1);
+    if (netIsHost()) coopRememberGadgetUser(tag, me);
+    else if (gevrCoopPuppets()) coopSendEventFor(me, NET_COOP_EVENT_GADGET, tag, 0, 1);
 }
 
 static void coopApplyGadgetUse(int slot, s32 tag)
@@ -2065,20 +2086,21 @@ int gevrCoopDeferRemoteMineSettle(struct WeaponObjRecord *wep)
 {
     if (!wep || wep->type != PROPDEF_COLLECTABLE || !netCoopActive() || !netIsHost()) return 0;
     if (!gevrCoopThrownMissionItem(wep->weaponnum)) return 0;
-    return RUNTIME_OWNER(wep->runtime_bitflags) != netGetLocalSlot();
+    return !netSlotIsLocalHuman(RUNTIME_OWNER(wep->runtime_bitflags));
 }
 
 void gevrCoopReportMineSettled(struct WeaponObjRecord *wep, struct PropRecord *onto)
 {
     s32 tag = -1;
+    s32 me = get_cur_playernum();
 
-    if (!wep || !gevrCoopPuppets() || get_cur_playernum() != netGetLocalSlot()) return;
+    if (!wep || !gevrCoopPuppets() || !netSlotIsLocalHuman(me)) return;
     if (!gevrCoopThrownMissionItem(wep->weaponnum)) return;
     if (onto && (onto->type == PROP_TYPE_OBJ || onto->type == PROP_TYPE_DOOR || onto->type == PROP_TYPE_WEAPON) && onto->obj)
     {
         tag = coopTagOf(onto->obj);
     }
-    coopSendEvent(NET_COOP_EVENT_MINE, wep->weaponnum, tag, 2);
+    coopSendEventFor(me, NET_COOP_EVENT_MINE, wep->weaponnum, tag, 2);
 }
 
 /* The host: the thrower's mine stuck to this tagged object, or landed (tag < 0). */
@@ -2121,24 +2143,29 @@ static void coopReceiveGrant(struct netbuf *b)
     coopGrantLocal(item);
 }
 
-static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs)
+static void coopSendEventFor(int slot, u8 kind, s32 a, s32 b2, int nargs)
 {
     u8 raw[24];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
-    if (!gevrCoopPuppets()) return;
-    coopHeader(&buf, NET_MSG_COOP_EVENT);
+    if (!gevrCoopPuppets() || slot < 0 || slot >= 4) return;
+    coopHeaderSlot(&buf, NET_MSG_COOP_EVENT, slot);
     netbufWriteU8(&buf, kind);
     if (nargs > 0) netbufWriteS32(&buf, a);
     if (nargs > 1) netbufWriteS32(&buf, b2);
     netCoopBroadcast(buf.data, buf.wp, true);
 }
 
-/* objective_status.c and gunfire.c, on a teammate's headset: its own player's */
-void gevrCoopReportRoom(int room) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_ROOM, room, 0, 1); }
-void gevrCoopReportDeposit(int item, int room) { coopSendEvent(NET_COOP_EVENT_DEPOSIT, item, room, 2); }
-void gevrCoopReportPhoto(int tag) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_PHOTO, tag, 0, 1); }
-void gevrCoopReportAlarm(int on) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_ALARM, on ? 1 : 0, 0, 1); }
-void gevrCoopReportKeyCopy(void) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_KEYCOPY, 0, 0, 0); }
+static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs)
+{
+    coopSendEventFor(netGetLocalSlot(), kind, a, b2, nargs);
+}
+
+/* objective_status.c and gunfire.c, on a teammate's machine: any local human player's */
+void gevrCoopReportRoom(int room) { int me = get_cur_playernum(); if (netSlotIsLocalHuman(me)) coopSendEventFor(me, NET_COOP_EVENT_ROOM, room, 0, 1); }
+void gevrCoopReportDeposit(int item, int room) { int me = get_cur_playernum(); coopSendEventFor(netSlotIsLocalHuman(me) ? me : netGetLocalSlot(), NET_COOP_EVENT_DEPOSIT, item, room, 2); }
+void gevrCoopReportPhoto(int tag) { int me = get_cur_playernum(); if (netSlotIsLocalHuman(me)) coopSendEventFor(me, NET_COOP_EVENT_PHOTO, tag, 0, 1); }
+void gevrCoopReportAlarm(int on) { int me = get_cur_playernum(); if (netSlotIsLocalHuman(me)) coopSendEventFor(me, NET_COOP_EVENT_ALARM, on ? 1 : 0, 0, 1); }
+void gevrCoopReportKeyCopy(void) { int me = get_cur_playernum(); if (netSlotIsLocalHuman(me)) coopSendEventFor(me, NET_COOP_EVENT_KEYCOPY, 0, 0, 0); }
 
 /* netPoll, a teammate's headset: the objective items its player holds, when that changes */
 void netCoopClientTick(void)
@@ -2151,27 +2178,27 @@ void netCoopClientTick(void)
 
     if (!gevrCoopPuppets() || now - s_held_check_us < COOP_MISSION_CHECK_US * 2) return;
     s_held_check_us = now;
-    /* the host has this player down or up wrongly (a lost event, a rejoin): say again */
-    {
-        s32 me = netGetLocalSlot();
-        if (me >= 0 && me < 4 && s_host_sees_me_down >= 0 && s_host_sees_me_down != (int)s_downed[me] &&
-            now - s_down_sent_us > 1000000ull) {
-            s_down_sent_us = now;
-            coopSendEvent(NET_COOP_EVENT_DOWNED, s_downed[me] ? 1 : 0, 0, 1);
+    for (int me = 0; me < 4; me++) {
+        if (!netSlotIsLocalHuman(me)) continue;
+        /* the host has this local player down or up wrongly (a lost event, a rejoin): say again */
+        if (s_host_sees_me_down[me] >= 0 && s_host_sees_me_down[me] != (int)s_downed[me] &&
+            now - s_down_sent_us[me] > 1000000ull) {
+            s_down_sent_us[me] = now;
+            coopSendEventFor(me, NET_COOP_EVENT_DOWNED, s_downed[me] ? 1 : 0, 0, 1);
         }
+        n = gevrCoopHeldObjectiveTags(tags, NET_COOP_HELD_MAX, me);
+        if (n < 0) n = 0;
+        if (n == s_sent_held_count[me] && !memcmp(tags, s_sent_held[me], (size_t)n * sizeof(s32)) &&
+            now - s_held_sent_us[me] < COOP_MISSION_REFRESH_US * 2) continue;
+        coopHeaderSlot(&buf, NET_MSG_COOP_EVENT, me);
+        netbufWriteU8(&buf, NET_COOP_EVENT_HELD);
+        netbufWriteU8(&buf, (u8)n);
+        for (s32 i = 0; i < n; i++) netbufWriteS32(&buf, tags[i]);
+        netCoopBroadcast(buf.data, buf.wp, true);
+        memcpy(s_sent_held[me], tags, (size_t)n * sizeof(s32));
+        s_sent_held_count[me] = (u8)n;
+        s_held_sent_us[me] = now;
     }
-    n = gevrCoopHeldObjectiveTags(tags, NET_COOP_HELD_MAX, netGetLocalSlot());
-    if (n < 0) n = 0;
-    if (n == s_sent_held_count && !memcmp(tags, s_sent_held, (size_t)n * sizeof(s32)) &&
-        now - s_held_sent_us < COOP_MISSION_REFRESH_US * 2) return;
-    coopHeader(&buf, NET_MSG_COOP_EVENT);
-    netbufWriteU8(&buf, NET_COOP_EVENT_HELD);
-    netbufWriteU8(&buf, (u8)n);
-    for (s32 i = 0; i < n; i++) netbufWriteS32(&buf, tags[i]);
-    netCoopBroadcast(buf.data, buf.wp, true);
-    memcpy(s_sent_held, tags, (size_t)n * sizeof(s32));
-    s_sent_held_count = (u8)n;
-    s_held_sent_us = now;
 }
 
 /*
@@ -2189,11 +2216,13 @@ void netCoopSendTank(int driven, const float pos[3], float yaw, float turretyaw,
     u8 raw[16 + NET_COOP_TANK_BYTES];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     u64 now = sysGetMicroseconds();
+    int slot = get_cur_playernum();
+    if (!netSlotIsLocalHuman(slot)) slot = netGetLocalSlot();
 
-    if (!netCoopActive() || netLocalIsSpectator() || !pos) return;
+    if (!netCoopActive() || slot < 0 || netSlotIsSpectator(slot) || !pos) return;
     if (driven && now - s_tank_sent_us < COOP_TANK_SEND_US) return;
     s_tank_sent_us = now;
-    coopHeader(&buf, NET_MSG_COOP_TANK);
+    coopHeaderSlot(&buf, NET_MSG_COOP_TANK, slot);
     netbufWriteU8(&buf, (u8)((driven ? NET_COOP_TANK_DRIVEN : 0) | (firing ? NET_COOP_TANK_FIRING : 0)));
     for (int i = 0; i < 3; i++) netbufWriteF32(&buf, pos[i]);
     netbufWriteF32(&buf, yaw);
@@ -2212,7 +2241,7 @@ static void coopReceiveTank(int slot, struct netbuf *b)
     yaw = netbufReadF32(b);
     turretyaw = netbufReadF32(b);
     turretpitch = netbufReadF32(b);
-    if (b->error || netbufReadLeft(b) || slot < 0 || slot >= GEVR_MAX_PLAYERS || slot == netGetLocalSlot()) return;
+    if (b->error || netbufReadLeft(b) || slot < 0 || slot >= GEVR_MAX_PLAYERS || netSlotIsLocalHuman(slot)) return;
     for (int i = 0; i < 3; i++) if (!isfinite(pos[i]) || fabsf(pos[i]) > 1.0e6f) return;
     if (!isfinite(yaw) || !isfinite(turretyaw) || !isfinite(turretpitch) ||
         fabsf(yaw) > 100.0f || fabsf(turretyaw) > 100.0f || fabsf(turretpitch) > 100.0f) return;
@@ -2226,7 +2255,7 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
 {
     u8 kind = netbufReadU8(b);
     struct player *pl = slot >= 0 && slot < 4 ? g_playerPointers[slot] : NULL;
-    if (b->error || !pl || slot == netGetLocalSlot()) return;
+    if (b->error || !pl || netSlotIsLocalHuman(slot)) return;
     switch (kind) {
         case NET_COOP_EVENT_ROOM: {
             s32 room = netbufReadS32(b);
@@ -2302,17 +2331,19 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
 #define COOP_DOWNED_HEALTH 0.001f           /* alive: nothing that reads health or bonddead takes it for dead */
 #define COOP_REVIVED_HEALTH 0.5f
 
-static u64 s_revive_since_us;               /* this headset's player down: a teammate beside it since */
-static bool s_reviving_shown[4];            /* this headset's player beside a downed teammate: said so */
+static u64 s_revive_since_us[4];            /* per local player down: a teammate beside it since */
+static bool s_reviving_shown[4][4];         /* [local_slot][downed_slot]: said so */
 static bool s_all_down_ended;               /* the host: the mission failed for it */
 
 static void coopReviveReset(void)
 {
     memset(s_downed, 0, sizeof(s_downed));
     memset(s_reviving_shown, 0, sizeof(s_reviving_shown));
-    s_host_sees_me_down = -1;
-    s_down_sent_us = 0;
-    s_revive_since_us = 0;
+    for (int i = 0; i < 4; i++) {
+        s_host_sees_me_down[i] = -1;
+        s_down_sent_us[i] = 0;
+        s_revive_since_us[i] = 0;
+    }
     s_all_down_ended = false;
 }
 
@@ -2323,18 +2354,27 @@ s32 gevrCoopDowned(s32 player)
 
 int gevrCoopLocalDowned(void)
 {
-    return get_cur_playernum() == netGetLocalSlot() && gevrCoopDowned(netGetLocalSlot());
+    int cur = get_cur_playernum();
+    return netSlotIsLocalHuman(cur) && gevrCoopDowned(cur);
 }
 
-static void coopShowLocal(int top, const char *text)
+static void coopShowSlot(int me, int top, const char *text)
 {
     s32 prev = get_cur_playernum();
-    s32 me = netGetLocalSlot();
     if (me < 0 || me >= 4 || !g_playerPointers[me]) return;
     set_cur_player(me);
     if (top) hudmsgTopShow((char *)text);
     else hudmsgBottomShow((char *)text);
     set_cur_player(prev);
+}
+
+static void coopShowLocal(int top, const char *text)
+{
+    for (int i = 0; i < 4; i++) {
+        if (!netSlotIsLocalHuman(i) || !g_playerPointers[i]) continue;
+        coopShowSlot(i, top, text);
+        if (top) break;
+    }
 }
 
 static void coopAnnounceDowned(int slot, bool down)
@@ -2347,19 +2387,18 @@ static void coopAnnounceDowned(int slot, bool down)
     COOP_LOG("slot %d %s", slot, down ? "down" : "up");
 }
 
-/* This headset's player is down or up: the host's mission packet tells the others */
-static void coopSetLocalDowned(bool down)
+/* A local player on this machine is down or up: the host's mission packet tells the others */
+static void coopSetLocalDownedFor(int me, bool down)
 {
-    s32 me = netGetLocalSlot();
     if (me < 0 || me >= 4 || s_downed[me] == down) return;
     s_downed[me] = down;
-    s_revive_since_us = 0;
+    s_revive_since_us[me] = 0;
     if (netIsHost()) s_mission_check_us = 0;
     else {
-        coopSendEvent(NET_COOP_EVENT_DOWNED, down ? 1 : 0, 0, 1);
-        s_down_sent_us = sysGetMicroseconds();
+        coopSendEventFor(me, NET_COOP_EVENT_DOWNED, down ? 1 : 0, 0, 1);
+        s_down_sent_us[me] = sysGetMicroseconds();
     }
-    COOP_LOG("this player is %s", down ? "down" : "up");
+    COOP_LOG("local slot %d is %s", me, down ? "down" : "up");
 }
 
 void netCoopSlotLeft(int slot)
@@ -2367,19 +2406,22 @@ void netCoopSlotLeft(int slot)
     if (slot < 0 || slot >= 4) return;
     s_downed[slot] = false;
     s_held_count[slot] = 0;
+    s_host_sees_me_down[slot] = -1;
+    s_revive_since_us[slot] = 0;
     s_mission_check_us = 0;
 }
 
-/* bondview2.c record_damage_kills: this headset's player's health ran out */
+/* bondview2.c record_damage_kills: a local player's health ran out */
 int gevrCoopGoDown(void)
 {
     struct player *pl = g_CurrentPlayer;
-    if (!netCoopActive() || get_cur_playernum() != netGetLocalSlot() || !pl) return FALSE;
+    s32 me = get_cur_playernum();
+    if (!netCoopActive() || !netSlotIsLocalHuman(me) || !pl) return FALSE;
     pl->bondhealth = COOP_DOWNED_HEALTH;
-    if (!gevrCoopDowned(netGetLocalSlot())) {
-        coopSetLocalDowned(true);
-        coopShowLocal(1, "YOU ARE DOWN");
-        coopShowLocal(0, "A TEAMMATE BESIDE YOU REVIVES YOU");
+    if (!gevrCoopDowned(me)) {
+        coopSetLocalDownedFor(me, true);
+        coopShowSlot(me, 1, "YOU ARE DOWN");
+        coopShowSlot(me, 0, "A TEAMMATE BESIDE YOU REVIVES YOU");
     }
     return TRUE;
 }
@@ -2414,8 +2456,6 @@ static bool coopTeammateUp(int i)
  */
 void netCoopReviveTick(void)
 {
-    s32 me = netGetLocalSlot();
-    struct player *pl = me >= 0 && me < 4 ? g_playerPointers[me] : NULL;
     u64 now = sysGetMicroseconds();
 
     if (!netCoopActive() || gevrHordeDefeated()) return;
@@ -2428,36 +2468,40 @@ void netCoopReviveTick(void)
             COOP_LOG("no remap from the new host in 15 s: taking its guard slots as this headset's");
         }
     }
-    if (!pl || !pl->prop) return;
-    if (s_downed[me]) {
-        int by = -1;
-        pl->bondhealth = COOP_DOWNED_HEALTH;
-        for (int i = 0; i < 4 && by < 0; i++)
-            if (i != me && coopTeammateUp(i) && coopBeside(pl, g_playerPointers[i])) by = i;
-        if (by < 0) {
-            s_revive_since_us = 0;
-        } else if (!s_revive_since_us) {
-            char msg[64];
-            const char *name = netGetSlotName(by);
-            s_revive_since_us = now;
-            snprintf(msg, sizeof(msg), "%s IS REVIVING YOU", name && name[0] ? name : "A TEAMMATE");
-            coopShowLocal(0, msg);
-        } else if (now - s_revive_since_us >= COOP_REVIVE_US) {
-            pl->bondhealth = COOP_REVIVED_HEALTH;
-            coopSetLocalDowned(false);
-            gevrHordeRevived();
-            coopShowLocal(1, "REVIVED");
-        }
-    } else {
-        for (int i = 0; i < 4; i++) {
-            bool beside = i != me && s_downed[i] && netSlotOccupied(i) && coopBeside(pl, g_playerPointers[i]);
-            if (beside && !s_reviving_shown[i]) {
+    for (int me = 0; me < 4; me++) {
+        if (!netSlotIsLocalHuman(me)) continue;
+        struct player *pl = g_playerPointers[me];
+        if (!pl || !pl->prop) continue;
+        if (s_downed[me]) {
+            int by = -1;
+            pl->bondhealth = COOP_DOWNED_HEALTH;
+            for (int i = 0; i < 4 && by < 0; i++)
+                if (i != me && coopTeammateUp(i) && !netSlotChoosingSeen(i) && coopBeside(pl, g_playerPointers[i])) by = i;
+            if (by < 0) {
+                s_revive_since_us[me] = 0;
+            } else if (!s_revive_since_us[me]) {
                 char msg[64];
-                const char *name = netGetSlotName(i);
-                snprintf(msg, sizeof(msg), "REVIVING %s: STAY CLOSE", name && name[0] ? name : "A TEAMMATE");
-                coopShowLocal(0, msg);
+                const char *name = netGetSlotName(by);
+                s_revive_since_us[me] = now;
+                snprintf(msg, sizeof(msg), "%s IS REVIVING YOU", name && name[0] ? name : "A TEAMMATE");
+                coopShowSlot(me, 0, msg);
+            } else if (now - s_revive_since_us[me] >= COOP_REVIVE_US) {
+                pl->bondhealth = COOP_REVIVED_HEALTH;
+                coopSetLocalDownedFor(me, false);
+                gevrHordeRevived();
+                coopShowSlot(me, 1, "REVIVED");
             }
-            s_reviving_shown[i] = beside;
+        } else {
+            for (int i = 0; i < 4; i++) {
+                bool beside = i != me && s_downed[i] && netSlotOccupied(i) && coopBeside(pl, g_playerPointers[i]);
+                if (beside && !s_reviving_shown[me][i]) {
+                    char msg[64];
+                    const char *name = netGetSlotName(i);
+                    snprintf(msg, sizeof(msg), "REVIVING %s: STAY CLOSE", name && name[0] ? name : "A TEAMMATE");
+                    coopShowSlot(me, 0, msg);
+                }
+                s_reviving_shown[me][i] = beside;
+            }
         }
     }
     if (netIsHost() && !s_all_down_ended) {
@@ -2548,10 +2592,23 @@ static void coopWriteRemove(struct netbuf *buf, s32 slot)
     netbufWriteU8(buf, 1);    /* a roster's: a setup guard gone on the host */
 }
 
+static int coopBesideWhom(int joiner);   /* below */
+
 /* The host: a player loaded the mission (fresh, or back after a host change) */
 void netCoopPlayerJoined(int slot, int returning)
 {
     if (!netCoopActive() || !netIsHost() || slot < 0 || slot >= 4 || slot == netGetLocalSlot()) return;
+    if (netSlotIsLocalHuman(slot)) {
+        extern s32 gevrCoopPlaceBeside(s32 target);
+        int beside = coopBesideWhom(slot);
+        if (beside >= 0 && g_playerPointers[slot]) {
+            s32 prev = get_cur_playernum();
+            set_cur_player(slot);
+            if (gevrCoopPlaceBeside(beside)) COOP_LOG("local guest slot %d joined beside slot %d", slot, beside);
+            set_cur_player(prev);
+        }
+        return;
+    }
     s_roster_at_us[slot] = sysGetMicroseconds() + COOP_ROSTER_DELAY_US;
     s_roster_left[slot] = 2;   /* and once more, a few seconds on */
     s_roster_remap[slot] = s_remap_valid;   /* returning or not: one that came back late is not "returning" */
@@ -2836,7 +2893,7 @@ static void coopReceiveJoin(struct netbuf *b)
     extern s32 gevrCoopPlaceBeside(s32 target);
     u8 joiner = netbufReadU8(b), beside = netbufReadU8(b);
     s32 prev;
-    if (b->error || netbufReadLeft(b) || joiner != netGetLocalSlot() || beside >= 4 || beside == joiner) return;
+    if (b->error || netbufReadLeft(b) || !netSlotIsLocalHuman(joiner) || beside >= 4 || beside == joiner) return;
     prev = get_cur_playernum();
     set_cur_player(joiner);
     if (gevrCoopPlaceBeside(beside)) COOP_LOG("joined beside slot %d", beside);
@@ -2848,15 +2905,18 @@ static void coopShowText(int top, int textid)
     s32 prev = get_cur_playernum();
     char *text = (char *)langGet(textid);
     if (!text) return;
-    set_cur_player(netGetLocalSlot());
-    if (top) hudmsgTopShow(text);
-    else hudmsgBottomShow(text);
+    for (int i = 0; i < 4; i++) {
+        if (!netSlotIsLocalHuman(i) || !g_playerPointers[i]) continue;
+        set_cur_player(i);
+        if (top) { hudmsgTopShow(text); break; } /* top bar is shared across screen */
+        hudmsgBottomShow(text);
+    }
     set_cur_player(prev);
 }
 
 /* chrai.c AI_TextPrintBottom / AI_TextPrintTop on the host: shown to the
- * player the script ran as; every other headset is sent it, and the host's
- * own player sees it too when the script ran as another. */
+ * player the script ran as; every other machine is sent it, and local
+ * viewports see it too when the script ran as another. */
 void gevrCoopAiText(int top, int textid)
 {
     u8 raw[16];
@@ -2866,7 +2926,7 @@ void gevrCoopAiText(int top, int textid)
     netbufWriteU8(&buf, top ? 1 : 0);
     netbufWriteU16(&buf, (u16)textid);
     netCoopBroadcast(buf.data, buf.wp, true);
-    if (get_cur_playernum() != netGetLocalSlot()) coopShowText(top, textid);
+    if (!netSlotIsLocalHuman(get_cur_playernum()) || netLocalSlotCount() > 1) coopShowText(top, textid);
 }
 
 static void coopReceiveText(struct netbuf *b)

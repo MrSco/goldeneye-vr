@@ -111,6 +111,13 @@ static void serverJoin(const char *target, int port)
 		host[colon - host] = '\0';
 	}
 	netLobbySetCharacter((uint8_t)VrMpChr);
+	if (sysArgCheck("--local-players")) {
+		int lp = sysArgGetInt("--local-players", 1);
+		if (lp < 1) lp = 1;
+		if (lp > GEVR_MAX_LOCAL_PLAYERS) lp = GEVR_MAX_LOCAL_PLAYERS;
+		netSetLocalDesiredCount(lp);
+		sysLogPrintf(LOG_NOTE, "client: requesting %d local players", lp);
+	}
 	if (!netConnect(host, (uint16_t)port)) {
 		sysFatalError("client: could not connect to %s:%d", host, port);
 	}
@@ -131,8 +138,11 @@ static void serverJoin(const char *target, int port)
 	if (netGetMatchConfig()->mode != NET_MODE_COOP) {
 		bossSetLoadedStage(g_StageNum);
 	}
-	netLobbySetReady(true);   /* as a player ticks Ready: the host's round start waits for it */
-	sysLogPrintf(LOG_NOTE, "client: in the match as slot %d, stage %d", netGetLocalSlot(), netGetMatchConfig()->stage);
+	for (int s = 0; s < netLocalSlotCount(); s++) {
+		int sl = netSlotOfLocalSeat(s);
+		if (sl >= 0) netLobbySetReadySlot(sl, true);
+	}
+	sysLogPrintf(LOG_NOTE, "client: in the match as slot %d (%d local), stage %d", netGetLocalSlot(), netLocalSlotCount(), netGetMatchConfig()->stage);
 }
 
 /* --list: the values goldeneye-vr.ini's match keys take, from the game's own
@@ -152,6 +162,7 @@ static void serverList(void)
 	for (i = 0; i < 7; i++) printf("  %3d  %s\n", i, netGameLengthName(i));
 	printf("\nMpHealth=\n");
 	for (i = 0; i < netHealthCount(); i++) printf("  %3d  %s\n", i, netHealthName(i));
+	printf("\nMpHandicaps=  1: each player picks their own health (protocol 29), 0: everyone plays at MpHealth\n");
 	printf("\nMpBotMode=\n");
 	for (i = 0; i < NET_BOT_MODE_COUNT; i++) printf("  %3d  %s\n", i, netBotModeName(i));
 	printf("\nMpBotCount=  1-%d (with MpBotMode=2)\n\nMpBotDifficulty=\n", GEVR_MAX_PLAYERS - 1);

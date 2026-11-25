@@ -39,6 +39,12 @@ extern "C" int flatTouchSeenAny(void);     // flat_touch.cpp: a finger has touch
 extern "C" void flatTouchEditBegin(void);  // the touch layout editor, over the paused game
 extern "C" int inputIsBindingCapture(void);
 #endif
+extern "C" void gevrCharSelOpen(int slot, int dropin);   // mpmenu.c: the Select Character panel in the view (stereo: the HUD)
+extern "C" void gevrStageSelOpen(int slot, int vote);     // mpmenu.c: the Select Stage photo grid in the view (stereo: the HUD)
+extern "C" void gevrHandicapOpen(int slot);               // mpmenu.c: the Handicap screen (everyone's health) in the view (stereo: the HUD)
+extern "C" void gevrTeamSelOpen(int slot);                // mpmenu.c: the Teams screen in the view (stereo: the HUD)
+extern "C" void gevrMpOptionsFromPause(int slot);         // mpmenu.c: the Multiplayer Options folder in the view (stereo: the HUD)
+extern "C" int gevrMpOptionsAvailable(int slot);
 // vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
 void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
 namespace {
@@ -204,7 +210,12 @@ extern "C" void gevrNativePauseRender(void) {
 #ifdef GEVR_FLAT
     view.settings.drawKbm=drawPauseKbm;
     view.settings.drawGamepad=drawPauseGamepad;
+    view.handicap=!view.coop&&!view.horde;
+    view.teams=view.handicap&&netScenarioHasTeams(gevrNetConfigGet(CFG_SCENARIO));
 #endif
+    view.portraits=true;   /* the game's own screens: in the view, or in stereo on the head-locked HUD (mpmenu.c) */
+    /* a split screen's setup is each player's folder; one player's is this window (mpmenu.c gevrMpOptionsAsMenu) */
+    view.setup=gevrMpOptionsAvailable(netGetLocalSlot())!=0 && netLocalSlotCount()>1;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {
@@ -215,6 +226,13 @@ extern "C" void gevrNativePauseRender(void) {
         uint32_t pts=(me>=0 && me<4)?s->credits[me]:s->credits[0];
         snprintf(view.hordeStats,sizeof(view.hordeStats),"Points: %u   Waves: %u   Time: %u:%02u   Kills: %u   Revives: %u",
             pts,s->completed,s->elapsed/3600,(s->elapsed/60)%60,s->kills,s->revives);
+        /* the setup break: the first wave waits for the host's START WAVE */
+        view.hordeSetup=netHordeSetupBreak()!=0;view.hordeCanStart=gevrPauseActionAvailable("START WAVE")!=0;
+        view.hordeRestart=netHordeRestartPending()!=0;view.hordeWave=(int)s->completed+1;
+        if(view.hordeSetup) {
+            if(view.host)snprintf(view.status,sizeof(view.status),"Setup: start wave %d when ready",view.hordeWave);
+            else snprintf(view.status,sizeof(view.status),"Setup: waiting for the host");
+        }
     }
     if(!view.coop && !view.horde && netGetPhase()==NET_PHASE_IN_PROGRESS) {
         const int left=gevrPauseMatchClock(view.clock,sizeof(view.clock));
@@ -233,6 +251,11 @@ extern "C" void gevrNativePauseRender(void) {
         p.slot=slot;p.loaded=lobby->slots[slot].loaded!=0;p.spectator=lobby->slots[slot].spectator!=0;p.canKick=netHostCanKickPlayer(slot)!=0;p.bot=lobby->slots[slot].is_bot!=0;
         snprintf(p.character,sizeof(p.character),"%s",netCharacterName(gevrNetSlotChr(slot)));p.host=slot==netGetHostSlot();
         snprintf(p.device,sizeof(p.device),"%s",netGetSlotDeviceName(slot));
+        {   /* their friend code and what the friends list says of it: the name's menu (Add friend) */
+            const char*code=netGetSlotFriendCode(slot);
+            snprintf(p.friendCode,sizeof(p.friendCode),"%s",code?code:"");
+            p.friendRelation=gevrNetSlotIsLocalHuman(slot)?GEVR_RELATION_SELF:gevrFriendRelation(gevrFriends(),p.friendCode);
+        }
         p.ready=lobby->slots[slot].ready!=0;p.down=view.coop&&gevrCoopDowned(slot);p.ping=netGetSlotPing(slot);
         if(!view.coop)gevrPausePlayerStats(slot,&p.points,&p.kills,&p.losses);
     }
@@ -266,10 +289,29 @@ extern "C" void gevrNativePauseRender(void) {
     if(panelAction==GEVR_PANEL_TOUCH_LAYOUT){vr_log("panel: touch layout editor");flatTouchEditBegin();}
 #endif
     if(action==GEVR_PAUSE_HORDE_RETRY){gevrNativePauseResume();netHordeRetry();}
+    if(action==GEVR_PAUSE_HORDE_START){gevrPauseAction("START WAVE");gevrNativePauseResume();}   /* while it is still the window's player's */
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
+    /* the window closes on the game's Select Character screen (in stereo on the
+     * head-locked HUD); choosing or B comes back here (the headset's Menu closes both, input.c) */
+    if(action==GEVR_PAUSE_CHARSEL){gevrNativePauseResume();gevrCharSelOpen(netGetLocalSlot(),0);}
+    if(action==GEVR_PAUSE_STAGESEL||action==GEVR_PAUSE_STAGEVOTE){gevrNativePauseResume();gevrStageSelOpen(netGetLocalSlot(),action==GEVR_PAUSE_STAGEVOTE);}
+    if(action==GEVR_PAUSE_HANDICAP){gevrNativePauseResume();gevrHandicapOpen(netGetLocalSlot());}
+    if(action==GEVR_PAUSE_TEAMSEL){gevrNativePauseResume();gevrTeamSelOpen(netGetLocalSlot());}
+    /* the folder; its PREVIOUS comes back to this window */
+    if(action==GEVR_PAUSE_SETUP){gevrNativePauseResume();gevrMpOptionsFromPause(netGetLocalSlot());}
     if(action==GEVR_PAUSE_LEAVE)leaveToLauncher();
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}
     if(action==GEVR_PAUSE_REQUEST_VOTES)netHostRequestVotes();
     if(action>=GEVR_PAUSE_KICK_BASE && action<GEVR_PAUSE_KICK_BASE+8)netHostKickPlayer(action-GEVR_PAUSE_KICK_BASE);
+    if(action>=GEVR_PAUSE_FRIEND_BASE && action<GEVR_PAUSE_FRIEND_BASE+8) {
+        /* Add friend (or accept their request), as the launcher roster sent it */
+        const char*code=netGetSlotFriendCode(action-GEVR_PAUSE_FRIEND_BASE);
+        std::string requestId;
+        const int relation=gevrFriendRelation(gevrFriends(),code?code:"",&requestId);
+        if(relation==GEVR_RELATION_REQUEST)gevrFriendsSend("answer|"+requestId+"|1");
+        /* (the button already noted the code as asked, so it reads Sent here) */
+        else if(code && code[0] && relation!=GEVR_RELATION_FRIENDS && relation!=GEVR_RELATION_BLOCKED && relation!=GEVR_RELATION_SELF)
+            gevrFriendsSend(std::string("add|")+code);
+    }
 }
 #endif

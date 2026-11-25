@@ -103,66 +103,84 @@ static void netSyncRemoteGround(int slot, struct player *pl, f32 floory) {
 f32 gevrNetRemoteGround(PropRecord *prop, f32 ground) {
     if (!netIsActive() || !prop || prop->type != PROP_TYPE_VIEWER) return ground;
     int slot = getPlayerPointerIndex(prop);
-    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || slot == netGetLocalSlot() || !s_remote_ground_valid[slot]) return ground;
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || netSlotIsLocalHuman(slot) || !s_remote_ground_valid[slot]) return ground;
     return s_remote_ground[slot];
 }
 
-static int s_follow_slot = -1;
-static bool s_spectator_entered = false;
-static bool s_follow_a, s_follow_b;
+static int s_follow_slot[GEVR_MAX_LOCAL_PLAYERS] = { -1, -1, -1, -1 };
+static bool s_spectator_entered[GEVR_MAX_LOCAL_PLAYERS];
+static bool s_follow_a[GEVR_MAX_LOCAL_PLAYERS], s_follow_b[GEVR_MAX_LOCAL_PLAYERS];
 void netSpectatorReset(void) {
-    s_follow_slot = -1;
-    s_spectator_entered = false;
-    s_follow_a = s_follow_b = false;
+    for (int i = 0; i < GEVR_MAX_LOCAL_PLAYERS; i++) {
+        s_follow_slot[i] = -1;
+        s_spectator_entered[i] = false;
+        s_follow_a[i] = s_follow_b[i] = false;
+    }
 }
-int netSpectatorTarget(void) { return netLocalIsSpectator() ? s_follow_slot : -1; }
-static bool netCanFollow(int slot) {
-    return slot >= 0 && slot < getPlayerCount() && slot != netGetLocalSlot() &&
+int netSpectatorTarget(void) {
+    int cur = get_cur_playernum();
+    int seat = netLocalSeatOfSlot(cur);
+    if (seat < 0) seat = 0;
+    int sl = netSlotOfLocalSeat(seat);
+    return (sl >= 0 && netSlotIsSpectator(sl)) ? s_follow_slot[seat] : -1;
+}
+static bool netCanFollow(int self_slot, int slot) {
+    return slot >= 0 && slot < getPlayerCount() && slot != self_slot &&
            netSlotOccupied(slot) && !netSlotIsSpectator(slot) && g_playerPointers[slot] &&
            g_playerPointers[slot]->prop && !g_playerPointers[slot]->bonddead;
 }
 void netSpectatorFrame(void) {
+    int cur = get_cur_playernum();
+    int seat = netLocalSeatOfSlot(cur);
+    if (seat < 0 || seat >= GEVR_MAX_LOCAL_PLAYERS) return;
     if (!gevrSpectating() || !g_CurrentPlayer || !g_CurrentPlayer->prop) {
-        if (s_spectator_entered) netSpectatorReset();
+        if (s_spectator_entered[seat]) {
+            s_follow_slot[seat] = -1;
+            s_spectator_entered[seat] = false;
+            s_follow_a[seat] = s_follow_b[seat] = false;
+        }
         return;
     }
     struct player *pl = g_CurrentPlayer;
-    if (!s_spectator_entered) {
+    if (!s_spectator_entered[seat]) {
         currentPlayerEquipWeaponWrapper(GUNRIGHT, ITEM_UNARMED);
         currentPlayerEquipWeaponWrapper(GUNLEFT, ITEM_UNARMED);
         pl->cheatBondInvincible = true;
-        s_spectator_entered = true;
+        s_spectator_entered[seat] = true;
     }
-    bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
-    int direction = !pl->mpmenuon ? (a && !s_follow_a ? 1 : b && !s_follow_b ? -1 : 0) : 0;
+    bool a = (seat == 0) ? get_button_state(1, "a") : false;
+    bool b = (seat == 0) ? get_button_state(1, "b") : false;
+    int direction = !pl->mpmenuon ? (a && !s_follow_a[seat] ? 1 : b && !s_follow_b[seat] ? -1 : 0) : 0;
     if (direction) netTouchLocalActivity();
-    s_follow_a = a; s_follow_b = b;
-    int old = s_follow_slot;
-    if (!netCanFollow(s_follow_slot) || direction) {
-        int start = s_follow_slot < 0 ? netGetLocalSlot() : s_follow_slot;
+    s_follow_a[seat] = a; s_follow_b[seat] = b;
+    int old = s_follow_slot[seat];
+    if (!netCanFollow(cur, s_follow_slot[seat]) || direction) {
+        int start = s_follow_slot[seat] < 0 ? cur : s_follow_slot[seat];
         int step = direction ? direction : 1;
-        s_follow_slot = -1;
+        s_follow_slot[seat] = -1;
         for (int i = 1; i <= GEVR_MAX_PLAYERS; i++) {
             int slot = (start + i * step + GEVR_MAX_PLAYERS * 2) % GEVR_MAX_PLAYERS;
-            if (netCanFollow(slot)) { s_follow_slot = slot; break; }
+            if (netCanFollow(cur, slot)) { s_follow_slot[seat] = slot; break; }
         }
     }
     pl->speedforwards = pl->speedsideways = 0;
-    if (s_follow_slot < 0) return; /* retain a safe camera until somebody is alive */
-    struct player *target = g_playerPointers[s_follow_slot];
+    if (s_follow_slot[seat] < 0) return; /* retain a safe camera until somebody is alive */
+    struct player *target = g_playerPointers[s_follow_slot[seat]];
     pl->prop->pos = target->prop->pos;
     pl->pos = pl->field_488.collision_position = pl->field_488.pos = pl->prop->pos;
     {
         f32 floory;
-        netSyncRemoteTile(pl, old != s_follow_slot, &floory);
+        netSyncRemoteTile(pl, old != s_follow_slot[seat], &floory);
     }
     bondviewUpdatePlayerRoom(pl);
-    if (old != s_follow_slot) {
+    if (old != s_follow_slot[seat]) {
         char label[64];
-        gevrSpectatorAim(target->vv_theta);
-        snprintf(label, sizeof(label), "SPECTATING %s", netGetSlotName(s_follow_slot));
-        hudmsgTopShow(label);
-        sysLogPrintf(LOG_NOTE, "spectator: following slot %d", s_follow_slot);
+        if (seat == 0) gevrSpectatorAim(target->vv_theta);
+        else pl->vv_theta = target->vv_theta;
+        snprintf(label, sizeof(label), "SPECTATING %s", netGetSlotName(s_follow_slot[seat]));
+        if (seat == 0) hudmsgTopShow(label);
+        else hudmsgBottomShow(label);
+        sysLogPrintf(LOG_NOTE, "spectator (seat %d slot %d): following slot %d", seat, cur, s_follow_slot[seat]);
     }
 }
 
@@ -241,8 +259,7 @@ static void netSyncCopyOrientation(struct player *pl, const struct netplayermove
 void netPlayerSyncBeforeTick(s32 playernum) {
     if (!netIsActive()) return;
     
-    int local_slot = netGetLocalSlot();
-    if (playernum == local_slot) {
+    if (netSlotIsLocalHuman(playernum)) {
         return;
     }
     if (playernum < 0 || playernum >= GEVR_MAX_PLAYERS) return;
@@ -452,21 +469,22 @@ void netPlayerSyncBeforeTick(s32 playernum) {
  * every frame a gun has a barrel pose (always, in VR) and UCMD_DUCK while
  * crouched, so a headset asleep or left in a match never idled out.
  */
-static bool netSyncLocalActivity(f32 speedforwards, f32 speedsideways, const struct netplayermove *move) {
-    static coord3d s_last_act_pos;
-    static f32 s_last_act_theta = 0.0f, s_last_act_verta = 0.0f;
+static bool netSyncLocalActivity(int slot, f32 speedforwards, f32 speedsideways, const struct netplayermove *move) {
+    static coord3d s_last_act_pos[GEVR_MAX_PLAYERS];
+    static f32 s_last_act_theta[GEVR_MAX_PLAYERS], s_last_act_verta[GEVR_MAX_PLAYERS];
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS) slot = 0;
     bool act = false;
     if (fabsf(speedforwards) > 0.02f || fabsf(speedsideways) > 0.02f) act = true;
     if (move->ucmd & (UCMD_FIRE | UCMD_FIRE_LEFT)) act = true;
-    if (fabsf(move->angles[0] - s_last_act_theta) > 2.0f || fabsf(move->angles[1] - s_last_act_verta) > 2.0f) {
+    if (fabsf(move->angles[0] - s_last_act_theta[slot]) > 2.0f || fabsf(move->angles[1] - s_last_act_verta[slot]) > 2.0f) {
         act = true;
-        s_last_act_theta = move->angles[0];
-        s_last_act_verta = move->angles[1];
+        s_last_act_theta[slot] = move->angles[0];
+        s_last_act_verta[slot] = move->angles[1];
     }
-    f32 dx = move->pos.x - s_last_act_pos.x, dy = move->pos.y - s_last_act_pos.y, dz = move->pos.z - s_last_act_pos.z;
+    f32 dx = move->pos.x - s_last_act_pos[slot].x, dy = move->pos.y - s_last_act_pos[slot].y, dz = move->pos.z - s_last_act_pos[slot].z;
     if (dx * dx + dy * dy + dz * dz > 0.0016f) {
         act = true;
-        s_last_act_pos = move->pos;
+        s_last_act_pos[slot] = move->pos;
     }
     return act;
 }
@@ -508,11 +526,12 @@ void netPlayerSyncAfterTick(s32 playernum) {
     netVoicePlayersTick();
 
     int local_slot = netGetLocalSlot();
-    if (playernum != local_slot && netSlotOwned(playernum)) {
+    bool is_local_human = netSlotIsLocalHuman(playernum);
+    if (!is_local_human && netSlotOwned(playernum)) {
         netSyncSendBotMove(playernum);
         return;
     }
-    if (playernum != local_slot) {
+    if (!is_local_human) {
         /* The original per-player tick can move a remote prop after the
          * network correction above. Restore its received position and room
          * membership before the shared world render. */
@@ -562,7 +581,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
     }
     if (!g_playerPointers[playernum]) return;
 
-    {
+    if (playernum == local_slot) {
         static int last_phase = -1;
         static unsigned last_connected = 0;
         unsigned connected = 0;
@@ -570,6 +589,10 @@ void netPlayerSyncAfterTick(s32 playernum) {
         int phase = netGetPhase();
         for (int slot = 0; slot < GEVR_MAX_PLAYERS; slot++)
             if (lobby->slots[slot].connected) connected |= 1u << slot;
+        {
+            const char *gnotice = netTakeLocalGuestNotice();
+            if (gnotice && gnotice[0]) hudmsgTopShow((char *)gnotice);
+        }
         /* Runs for the local spectator too, before the movement-send guard.
          * Repeat reminders while menus are closed; a transient join notice
          * must not hide the host's request for the rest of warmup. */
@@ -577,7 +600,13 @@ void netPlayerSyncAfterTick(s32 playernum) {
             static char last_notice[128];
             static u64 next_notice_us;
             char notice[128];u64 now=sysGetMicroseconds();
-            netRoundNoticeText(notice,sizeof(notice));
+            netRoundNoticeTextFit(notice,sizeof(notice),gevrLocalViewCount()>=3);
+            {
+                /* the headset has no START: its Menu opens the Multiplayer Options folder in the warmup */
+                extern s32 g_gevrStereo;
+                char *go=g_gevrStereo?strstr(notice,"START: "):NULL;
+                if(go) { memmove(go+6,go+7,strlen(go+7)+1);memcpy(go,"MENU: ",6); }
+            }
             if(notice[0] && (strcmp(notice,last_notice) || now>=next_notice_us)) {
                 extern void gevrHudTopReplace(const char *mess, const char *prefix);
                 gevrHudTopReplace(notice,last_notice[0]?last_notice:notice);
@@ -587,7 +616,8 @@ void netPlayerSyncAfterTick(s32 playernum) {
         }
         /* The host's countdown to the next round (net_core.c
          * netScheduleRound): a top message each second, a fade to black over
-         * its last second, and a fade in once the new stage has loaded. */
+         * its last second, and a fade in once the new stage has loaded.
+         * Applied to every local split-screen viewport. */
         {
             extern void currentPlayerSetFadeColour(s32 r, s32 g, s32 b, f32 frac);
             extern void currentPlayerSetFadeFrac(f32 maxfadetime, f32 frac);
@@ -596,8 +626,16 @@ void netPlayerSyncAfterTick(s32 playernum) {
             u64 end = netGetCountdownEndUs();
             u64 now = sysGetMicroseconds();
             if (netTakeStageFadeIn()) {
-                currentPlayerSetFadeColour(0, 0, 0, 1.0f);
-                currentPlayerSetFadeFrac(60.0f, 0.0f);
+                s32 prev = get_cur_playernum();
+                for (int s = 0; s < netLocalSlotCount(); s++) {
+                    int sl = netSlotOfLocalSeat(s);
+                    if (sl >= 0 && g_playerPointers[sl]) {
+                        set_cur_player(sl);
+                        currentPlayerSetFadeColour(0, 0, 0, 1.0f);
+                        currentPlayerSetFadeFrac(60.0f, 0.0f);
+                    }
+                }
+                set_cur_player(prev);
                 fading = 0;
             }
             if (end) {
@@ -610,13 +648,29 @@ void netPlayerSyncAfterTick(s32 playernum) {
                     last_sec = sec;
                 }
                 if (!fading && end <= now + 1000000) {
-                    currentPlayerSetFadeColour(0, 0, 0, 0.0f);
-                    currentPlayerSetFadeFrac(60.0f, 1.0f);
+                    s32 prev = get_cur_playernum();
+                    for (int s = 0; s < netLocalSlotCount(); s++) {
+                        int sl = netSlotOfLocalSeat(s);
+                        if (sl >= 0 && g_playerPointers[sl]) {
+                            set_cur_player(sl);
+                            currentPlayerSetFadeColour(0, 0, 0, 0.0f);
+                            currentPlayerSetFadeFrac(60.0f, 1.0f);
+                        }
+                    }
+                    set_cur_player(prev);
                     fading = 1;
                 }
             } else {
                 if (fading) {
-                    currentPlayerSetFadeFrac(15.0f, 0.0f);
+                    s32 prev = get_cur_playernum();
+                    for (int s = 0; s < netLocalSlotCount(); s++) {
+                        int sl = netSlotOfLocalSeat(s);
+                        if (sl >= 0 && g_playerPointers[sl]) {
+                            set_cur_player(sl);
+                            currentPlayerSetFadeFrac(15.0f, 0.0f);
+                        }
+                    }
+                    set_cur_player(prev);
                     fading = 0;
                 }
                 last_sec = -1;
@@ -626,7 +680,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
             if (last_phase != NET_PHASE_IN_PROGRESS && phase == NET_PHASE_IN_PROGRESS)
                 hudmsgTopShow("MATCH STARTED");
             for (int slot = 0; slot < GEVR_MAX_PLAYERS; slot++) {
-                if (slot != local_slot && (connected & (1u << slot)) &&
+                if (!netSlotIsLocalHuman(slot) && (connected & (1u << slot)) &&
                     !(last_connected & (1u << slot))) {
                     char message[48];
                     snprintf(message, sizeof(message), "%s joined", lobby->slots[slot].name);
@@ -639,7 +693,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
     }
     
     struct player *pl = g_playerPointers[playernum];
-    if (!pl || netLocalIsSpectator()) return;
+    if (!pl || netSlotIsSpectator(playernum)) return;
     
     struct netplayermove move;
     memset(&move, 0, sizeof(move));
@@ -647,30 +701,37 @@ void netPlayerSyncAfterTick(s32 playernum) {
     move.tick = (u32)(sysGetMicroseconds() / 1000);
     move.ucmd = 0;
     {
+        extern s32 g_gevrStereo;
         extern s32 gevrHandChopSwinging(s32 ctrl);
         extern int gevrVrTriggerDown[2];
         extern s32 gevrStereoShotWorld(s32 handnum, coord3d *origin, coord3d *dir);
+        extern s32 lvlGetControlsLockedFlag(void);   /* lv.c */
+        bool vr_self = (g_gevrStereo != 0) && (playernum == local_slot);
         for (int hand = GUNRIGHT; hand <= GUNLEFT; hand++) {
             int item = getCurrentPlayerWeaponId(hand);
             bool enabled = hand == GUNRIGHT || netActiveDualWield();
-            bool fire = enabled && !pl->bonddead && !pl->mpmenuon && !lvlGetControlsLockedFlag() && gevrVrTriggerDown[hand];
-            if (enabled && (item == ITEM_FIST || item == ITEM_KNIFE)) fire |= !pl->mpmenuon && gevrHandChopSwinging(hand == GUNRIGHT ? 1 : 0);
+            bool trig = vr_self ? (gevrVrTriggerDown[hand] != 0) : (pl->hands[hand].weapon_firing_status != 0);
+            bool fire = enabled && !pl->bonddead && !pl->mpmenuon && !lvlGetControlsLockedFlag() && trig;
+            if (vr_self && enabled && (item == ITEM_FIST || item == ITEM_KNIFE)) fire |= !pl->mpmenuon && gevrHandChopSwinging(hand == GUNRIGHT ? 1 : 0);
             else if (item == ITEM_UNARMED || item == ITEM_TRIGGER ||
                      (pl->hands[hand].weapon_ammo_in_magazine <= 0 && !bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CLICKY))) fire = false;
             if (fire) move.ucmd |= hand == GUNLEFT ? UCMD_FIRE_LEFT : UCMD_FIRE;
-            if (enabled && gevrStereoShotWorld(hand, hand == GUNLEFT ? &move.aimorigin_l : &move.aimorigin,
-                                                hand == GUNLEFT ? &move.aimdir_l : &move.aimdir))
+            if (vr_self && enabled && gevrStereoShotWorld(hand, hand == GUNLEFT ? &move.aimorigin_l : &move.aimorigin,
+                                                          hand == GUNLEFT ? &move.aimdir_l : &move.aimdir))
                 move.ucmd |= hand == GUNLEFT ? UCMD_AIMVALID_LEFT : UCMD_AIMVALID;
         }
     }
     if (pl->crouchpos != CROUCH_STAND) {
         move.ucmd |= UCMD_DUCK;
     }
+    if (netSlotChoosing(playernum)) {
+        move.ucmd |= UCMD_CHOOSING;   /* the others' co-op guards and revives (net_core.c netSlotChoosingSeen) */
+    }
     
     move.movespeed[0] = pl->speedforwards;
     move.movespeed[1] = pl->speedsideways;
     
-    /* Head (HMD) orientation */
+    /* Head (HMD) / camera orientation */
     move.angles[0] = pl->vv_theta;
     move.angles[1] = pl->vv_verta;
     
@@ -687,32 +748,37 @@ void netPlayerSyncAfterTick(s32 playernum) {
         move.pos = pl->pos;
     }
     
-    gevrAvatarCapture(&move.avatar, pl);
+    {
+        extern s32 g_gevrStereo;
+        if (g_gevrStereo && playernum == local_slot) {
+            gevrAvatarCapture(&move.avatar, pl);
 
-    /* Hand controller transform */
-    move.handpos.x = gCtrlPos[1][0];
-    move.handpos.y = gCtrlPos[1][1];
-    move.handpos.z = gCtrlPos[1][2];
-    
-    /* Extract hand rotation euler angles from quaternion */
-    float hqw = gCtrlQuat[1][0];
-    float hqx = gCtrlQuat[1][1];
-    float hqy = gCtrlQuat[1][2];
-    float hqz = gCtrlQuat[1][3];
-    
-    float sin_p = 2.0f * (hqw * hqx - hqy * hqz);
-    if (fabsf(sin_p) >= 1.0f) {
-        move.handrot.x = copysignf(90.0f, sin_p);
-    } else {
-        move.handrot.x = asinf(sin_p) * (180.0f / (float)M_PI);
+            /* Hand controller transform */
+            move.handpos.x = gCtrlPos[1][0];
+            move.handpos.y = gCtrlPos[1][1];
+            move.handpos.z = gCtrlPos[1][2];
+            
+            /* Extract hand rotation euler angles from quaternion */
+            float hqw = gCtrlQuat[1][0];
+            float hqx = gCtrlQuat[1][1];
+            float hqy = gCtrlQuat[1][2];
+            float hqz = gCtrlQuat[1][3];
+            
+            float sin_p = 2.0f * (hqw * hqx - hqy * hqz);
+            if (fabsf(sin_p) >= 1.0f) {
+                move.handrot.x = copysignf(90.0f, sin_p);
+            } else {
+                move.handrot.x = asinf(sin_p) * (180.0f / (float)M_PI);
+            }
+            move.handrot.y = atan2f(2.0f * (hqw * hqy + hqx * hqz), 1.0f - 2.0f * (hqx * hqx + hqy * hqy)) * (180.0f / (float)M_PI);
+            move.handrot.z = atan2f(2.0f * (hqw * hqz + hqx * hqy), 1.0f - 2.0f * (hqx * hqx + hqz * hqz)) * (180.0f / (float)M_PI);
+        }
     }
-    move.handrot.y = atan2f(2.0f * (hqw * hqy + hqx * hqz), 1.0f - 2.0f * (hqx * hqx + hqy * hqy)) * (180.0f / (float)M_PI);
-    move.handrot.z = atan2f(2.0f * (hqw * hqz + hqx * hqy), 1.0f - 2.0f * (hqx * hqx + hqz * hqz)) * (180.0f / (float)M_PI);
 
-    if (netSyncLocalActivity(pl->speedforwards, pl->speedsideways, &move)) netTouchLocalActivity();
+    if (netSyncLocalActivity(playernum, pl->speedforwards, pl->speedsideways, &move)) netTouchLocalActivity();
 
     /* The owner's side of the copy's pose line above, to compare against. */
-    {
+    if (playernum == local_slot) {
         static u64 next_local_log_us;
         u64 now = sysGetMicroseconds();
         if (now >= next_local_log_us) {
@@ -726,5 +792,5 @@ void netPlayerSyncAfterTick(s32 playernum) {
         }
     }
 
-    netSendLocalPlayerMove(&move);
+    netSendOwnedMove(playernum, &move);
 }

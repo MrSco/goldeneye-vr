@@ -42,6 +42,7 @@ void netHordeSend(int slot)
         netbufWriteU32(&b,s->powers[i].kind);
     }
     netbufWriteU8(&b,s->phase); netbufWriteU8(&b,s->players);
+    netbufWriteU8(&b,s->setup);   /* protocol 29: the setup break (horde_rules.h hordeHoldSetup) */
     if (slot < 0) netCoopBroadcast(b.data,b.wp,1);
     else netCoopSendTo(slot,b.data,b.wp);
 }
@@ -84,25 +85,31 @@ void netHordeReceive(struct netbuf *b)
         s.powers[i].kind=netbufReadU32(b);
     }
     s.phase=netbufReadU8(b); s.players=netbufReadU8(b);
+    s.setup=netbufReadU8(b);
     if (b->error || netbufReadLeft(b) || epoch!=netGetWorldEpoch() || !hordeStateValid(&s)) return;
     gevrHordeApplyState(&s);
 }
 
-void netHordeRequestAction(unsigned action, unsigned item)
+void netHordeRequestActionSlot(int slot, unsigned action, unsigned item)
 {
-    if (!netHordeRunning()) return;
+    if (!netHordeRunning() || slot < 0 || slot >= 4) return;
     if (netIsHost()) {
-        if (gevrHordeHandleAction(netGetLocalSlot(), action, item)) netHordeSend(-1);
+        if (gevrHordeHandleAction(slot, action, item)) netHordeSend(-1);
         return;
     }
     unsigned char raw[24];
     struct netbuf b = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&b);
     netbufWriteU32(&b, GEVR_NET_MAGIC); netbufWriteU16(&b, GEVR_NET_VERSION);
-    netbufWriteU8(&b, NET_MSG_HORDE_STATE); netbufWriteU8(&b, netGetLocalSlot());
+    netbufWriteU8(&b, NET_MSG_HORDE_STATE); netbufWriteU8(&b, (uint8_t)slot);
     netbufWriteU32(&b, netGetWorldEpoch());
     netbufWriteU8(&b, (uint8_t)action); netbufWriteU32(&b, item);
     netCoopBroadcast(b.data, b.wp, 1);
+}
+
+void netHordeRequestAction(unsigned action, unsigned item)
+{
+    netHordeRequestActionSlot(netGetLocalSlot(), action, item);
 }
 
 void netHordeReceiveClient(int slot, struct netbuf *b)
@@ -122,6 +129,12 @@ void netHordeTick(void)
     if (netHordeRunning() && netIsHost() && now-sent>=500000) {
         sent=now; netHordeSend(-1);
     }
+    /* A dedicated server has no host player to press START WAVE: its setup
+     * break ends once a player is in (and loaded: netHordeRunning), into the
+     * full break, as its deathmatch warmups start by themselves. */
+    if (netHordeRunning() && netIsHost() && netIsDedicated() && hordeInSetup(gevrHordeState())
+        && netGetPlayingCount() > 0)
+        gevrHordeStartRun(HORDE_BREAK_TICKS);
 }
 
 uint64_t gevrHordeGuardToken(const struct ChrRecord *chr) {

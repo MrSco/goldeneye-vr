@@ -280,6 +280,13 @@ time even with nobody connected"): the bots stand still (`gevr_bot.c`) and
 the game runs 5 frames a second (`server_headset.c`), which still answers
 joins and the lobby; the first player to take a seat wakes it.
 
+**In-game setup (2026-11-24).** A player on a server is never the host: the
+Multiplayer Options folder (`docs/in-game-match-setup.md`) shows the
+server's match dimmed, and its START tab is READY, which the server does not
+wait for. The server's match comes from its ini and command line
+(`netMatchConfigFromSettings`), as before; the launcher's Host page, which
+now goes straight into a match, has nothing to do with it.
+
 **Headset tests** (Quest 3 against the server in WSL, through
 `tools/gevr_udp_relay.py`, which forwards the game port and the LAN beacons
 from Windows):
@@ -377,7 +384,9 @@ beside it, unpublished, for reading crash addresses. Builds need glibc 2.39+
 - `gevr-server --list` prints the values the ini's match lines take.
 - A first run writes a server's match (Facility, 8 players, bots fill).
 - Modes other than Deathmatch stop with a reason: co-op needs a host in the
-  menus, and Horde has not been tried on a server.
+  menus, and Horde has not been tried on a server. (When it is: a Horde run's
+  setup break, which waits for the host's START WAVE elsewhere, ends on a
+  server once a player is in; see [Horde](horde-mode.md#the-setup-break).)
 
 **Still to do for a self-hosting release:**
 - a run on real ARM hardware (the Oracle VM);

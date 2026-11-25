@@ -71,12 +71,31 @@ static bool netModePve(int mode) { return mode == 1 || mode == 2; }
 static bool gevrConfigHasTeams(int, int scenario) { return scenario != 0; }
 static bool gevrLobbyHasTeams(const NetMatchConfig *c) { return gevrConfigHasTeams(c->mode, c->scenario); }
 static float mpBottom, mpLimit, mpRight, mpLimitX, mpButtons;
+/* Host > Advanced's live column (vr_launcher.cpp gevrMatchLiveOptions) as drawn: the movement
+ * speed's slider and Reset, host hit equalization, the delay cap's label and slider */
+static void gevrMatchLiveOptions() {
+    ImGui::TextUnformatted("Movement speed");
+    const float resetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - resetWidth - ImGui::GetStyle().ItemSpacing.x);
+    int percent = 100;
+    ImGui::SliderInt("##MovementSpeed", &percent, 50, 200, "%d%% (default)");
+    ImGui::SameLine();
+    ImGui::Button("Reset##MovementSpeed");
+    bool equalized = true;
+    ImGui::Checkbox("Host hit equalization", &equalized);
+    int limit = 80;
+    ImGui::TextUnformatted("Host delay cap (ms)");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::SliderInt("##HostDelayCap", &limit, 0, 80);
+}
+/* ADVANCED_OPTIONS */
 static void gevrMultiplayerPage(int sub, bool &, bool, const ImVec4 &, const ImVec4 &, const ImVec4 &) {
     customPages++;
     /* AUDIO_OPTIONS */
     gevrLauncherBeginBody("##mpbody");
     if (sub == GEVR_LSUB_HOST) {
-        ImGui::Dummy(ImVec2(0, ImGui::GetFrameHeight()));   // Lobby, Match, Fun
+        ImGui::Dummy(ImVec2(0, ImGui::GetFrameHeight()));   // the Game and Advanced tabs
         /* FUN_PAGE */
     } else if (sub == GEVR_LSUB_AUDIO) {
         audioOptions();
@@ -85,8 +104,8 @@ static void gevrMultiplayerPage(int sub, bool &, bool, const ImVec4 &, const ImV
     mpBottom = w->DC.CursorMaxPos.y; mpLimit = w->ClipRect.Max.y; mpRight = w->DC.CursorMaxPos.x; mpLimitX = w->ClipRect.Max.x;
     ImGui::EndChild();
     ImGui::Separator();
-    gevrLauncherStatus("Waiting for joined players to ready up.");
-    ImGui::Button("Launch", ImVec2(0, ImGui::GetFrameHeight() * 1.5f));
+    gevrLauncherStatus("Host goes straight into the match; it is set up there.");
+    ImGui::Button("Host", ImVec2(ImGui::GetFontSize() * 8.0f, ImGui::GetFrameHeight() * 1.5f));
     mpButtons = ImGui::GetItemRectMax().y;
 }
 

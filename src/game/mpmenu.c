@@ -29,6 +29,32 @@ extern s32 g_gevrStereo;
 extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern int netGetLocalSlot(void);
+extern int netLocalSlotCount(void);
+extern int netLocalSeatOfSlot(int slot);
+extern int gevrNetSlotIsLocalHuman(int slot);
+extern void netLobbySetCharacterSlot(int slot, u8 chr_id);
+void gevrCharSelOpen(s32 slot, s32 dropin);
+void gevrStageSelOpen(s32 slot, s32 vote);
+void gevrMpOptionsOpen(s32 slot, s32 from);
+s32 gevrMpOptionsAvailable(s32 slot);
+extern void netLobbySetLoadoutSlot(int slot, const u8 items[4]);
+extern void netLobbySetTeamSlot(int slot, u8 team);
+extern void netSetVoteSlot(int slot, int kind, int choice);
+extern void netLobbySetReadySlot(int slot, bool ready);
+extern bool netRequestRemoveLocalGuest(int slot);
+extern void gevrNativePauseOpenPanel(void);
+extern int netSlotReady(int slot);
+extern int VrAlly;
+extern int VrCampaign;
+extern int gevrNativePauseOpen(void);
+extern int netHordeActive(void);
+static s32 menuActingSlot(void)
+{
+    s32 cur = get_cur_playernum();
+    /* Horde's split screen: the pause window over the views is the first player's (input.c) */
+    if (netHordeActive() && netLocalSlotCount() > 1 && gevrNativePauseOpen()) return netGetLocalSlot();
+    return gevrNetSlotIsLocalHuman(cur) ? cur : netGetLocalSlot();
+}
 extern void netHostRoundEnded(void);
 extern bool netSlotOccupied(int slot);
 extern const char *netGetSlotName(int slot);
@@ -48,10 +74,14 @@ extern void netVoiceSetMuted(int muted);
 extern int netVoiceHasPermission(void);
 extern int netVoiceCaptureFailed(void);
 #include "net_game.h"
+#include "gevr_mpoptions.h"
+#include "assets/obseg/text/LtitleE.h"
 #include "../../port/vr/gevr_pause_menu.h"
 #include "glass.h"
 #include <stdlib.h>
+#include <string.h>
 void mpwatchPlayBeep(void);
+s32 mpwatchIsPlayerPressingRight(s32 player);
 extern int netMpPlayerCount(int fallback);
 extern int netGetConnectedPlayerCount(void);
 /* The online score and kill tables' row pitch: the original 15 pixels up to
@@ -103,6 +133,7 @@ typedef struct {
     s32 count;
     s32 cursor;                       /* a row index */
     s32 scroll;                       /* the first row drawn, among the visible */
+    s32 (*shows)(const GevrMenuRow *r);   /* the rows this page draws of its table; NULL: every one */
 } GevrMenuPage;
 #define GEVR_MENU_ROWS_SHOWN 8
 
@@ -208,7 +239,7 @@ static void lobbyVoteValue(char *b, s32 n, s32 kind, const char *(*name)(int))
         snprintf(b, n, "%s", netNextRoundName(mode));
         return;
     }
-    s32 vote = netGetVote(kind, netGetLocalSlot());
+    s32 vote = netGetVote(kind, menuActingSlot());
     s32 tally = 0;
     s32 slot;
     for (slot = 0; slot < MAX_PLAYER_COUNT; slot++)
@@ -222,7 +253,8 @@ static void rowNextMapValue(char *b, s32 n) { lobbyVoteValue(b, n, 0, netStageNa
 static void rowNextMapStep(s32 dir)
 {
     /* through the maps the party fits; past either end is no vote */
-        s32 vote = netGetVote(0, netGetLocalSlot());
+    s32 me = menuActingSlot();
+    s32 vote = netGetVote(0, me);
     s32 count = netStageCount();
     s32 tries = count + 1;
     if (!lobbyVoting()) return;
@@ -232,18 +264,19 @@ static void rowNextMapStep(s32 dir)
         if (vote >= count) vote = -1;
         if (vote < -1) vote = count - 1;
     } while (vote >= 0 && !netStageEligible(vote) && --tries > 0);
-    netSetLocalVote(0, vote);
+    netSetVoteSlot(me, 0, vote);
 }
 static void rowNextWeaponsValue(char *b, s32 n) { lobbyVoteValue(b, n, 1, netWeaponSetName); }
 static void rowNextWeaponsStep(s32 dir)
 {
-    s32 vote = netGetVote(1, netGetLocalSlot());
+    s32 me = menuActingSlot();
+    s32 vote = netGetVote(1, me);
     s32 count = netWeaponSetCount();
     if (!lobbyVoting()) return;
     vote += dir;
     if (vote >= count) vote = -1;
     if (vote < -1) vote = count - 1;
-    netSetLocalVote(1, vote);
+    netSetVoteSlot(me, 1, vote);
 }
 static void rowNextRoundValue(char *b, s32 n) { snprintf(b, n, "%s", netNextRoundName(gevrNetConfigGet(CFG_NEXT_ROUND))); }
 static void rowNextRoundStep(s32 dir) { gevrNetConfigSet(CFG_NEXT_ROUND, gevrCycled(gevrNetConfigGet(CFG_NEXT_ROUND), dir, 3)); }
@@ -302,23 +335,24 @@ static void rowCustom0Step(s32 dir) { lobbyCustomStep(dir, 0); }
 static void rowCustom1Step(s32 dir) { lobbyCustomStep(dir, 1); }
 static void rowCustom2Step(s32 dir) { lobbyCustomStep(dir, 2); }
 static void rowCustom3Step(s32 dir) { lobbyCustomStep(dir, 3); }
-static void rowCharacterValue(char *b, s32 n) { snprintf(b, n, "%s", netCharacterName(gevrNetSlotChr(netGetLocalSlot()))); }
-static void rowCharacterStep(s32 dir) { netLobbySetCharacter((u8)gevrCycled(gevrNetSlotChr(netGetLocalSlot()), dir, netCharacterCount())); }
+static void rowCharacterValue(char *b, s32 n) { snprintf(b, n, "%s", netCharacterName(gevrNetSlotChr(menuActingSlot()))); }
+static void rowCharacterStep(s32 dir) { s32 me = menuActingSlot(); netLobbySetCharacterSlot(me, (u8)gevrCycled(gevrNetSlotChr(me), dir, netCharacterCount())); }
 static void lobbyLoadoutValue(char *b, s32 n, s32 k)
 {
-    s32 item = gevrNetSlotLoadout(netGetLocalSlot(), k);
+    s32 item = gevrNetSlotLoadout(menuActingSlot(), k);
     snprintf(b, n, "%s", item ? netItemName(item) : "NONE");
 }
 static void lobbyLoadoutStep(s32 dir, s32 k)
 {
+    s32 me = menuActingSlot();
     u8 items[4];
     s32 i;
     s32 idx;
-    for (i = 0; i < 4; i++) items[i] = (u8)gevrNetSlotLoadout(netGetLocalSlot(), i);
+    for (i = 0; i < 4; i++) items[i] = (u8)gevrNetSlotLoadout(me, i);
     idx = netItemIndexOf(items[k]);
     idx = gevrCycled(idx < 0 ? 0 : idx, dir, netItemCount());
     items[k] = gevrNetItemAt(idx);
-    netLobbySetLoadout(items);
+    netLobbySetLoadoutSlot(me, items);
 }
 static void rowLoadout0Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 0); }
 static void rowLoadout1Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 1); }
@@ -400,11 +434,45 @@ static void rowPlayersStep(s32 dir)
         if (gevrNetConfigGet(CFG_MAX_PLAYERS) == next + 2) return;
     }
 }
-static void rowTeamValue(char *b,s32 n) { snprintf(b,n,"%s",netTeamName(netGetSlotTeam(netGetLocalSlot()))); }
-static void rowTeamStep(s32 dir) { netLobbySetTeam((u8)gevrCycled(netGetSlotTeam(netGetLocalSlot()),dir,3)); }
+static void rowTeamValue(char *b,s32 n) { snprintf(b,n,"%s",netTeamName(netGetSlotTeam(menuActingSlot()))); }
+static void rowTeamStep(s32 dir) { s32 me = menuActingSlot(); netLobbySetTeamSlot(me, (u8)gevrCycled(netGetSlotTeam(me),dir,3)); }
+/* Per-player health (protocol 29): the host's rule, and each player's own (the match's unless set) */
+static s32 lobbyDeathmatch(void) { return netIsActive() && !gevrNetConfigPve(); }
+static void rowHandicapsValue(char *b,s32 n) { snprintf(b,n,"%s",gevrNetConfigGet(CFG_HANDICAPS) ? "ON" : "OFF"); }
+static void rowHandicapsStep(s32 dir) { (void)dir; gevrNetConfigSet(CFG_HANDICAPS, !gevrNetConfigGet(CFG_HANDICAPS)); }
+static void rowMyHealthValue(char *b,s32 n)
+{
+    s32 me = menuActingSlot();
+    s32 value = netGetSlotHandicap(me);
+
+    snprintf(b,n,"%s%s",netHealthName(netSlotHandicapIndex(me)),netHandicapIsHosts(value) ? " (HOST)" : "");
+}
+static void rowMyHealthStep(s32 dir)
+{
+    s32 me = menuActingSlot();
+
+    if (!netSlotHandicapEditable(me)) return;
+    netLobbySetHandicapSlot(me, netHandicapPick(netSlotHandicapIndex(me) + dir, gevrNetConfigGet(CFG_HEALTH), netHealthCount()));
+}
 static s32 lobbyClient(void) { return !netIsHost(); }
-static void rowReadyValue(char *b,s32 n) { snprintf(b,n,"%s",netLocalReady() ? "READY" : "WAITING"); }
-static void rowReadyStep(s32 dir) { gevrNetSetReady(!netLocalReady()); }
+static void rowReadyValue(char *b,s32 n) { snprintf(b,n,"%s",netSlotReady(menuActingSlot()) ? "READY" : "WAITING"); }
+static void rowReadyStep(s32 dir) { s32 me = menuActingSlot(); (void)dir; netLobbySetReadySlot(me, !netSlotReady(me)); }
+static s32 lobbySplitPrimary(void) { return netLocalSlotCount() > 1 && menuActingSlot() == netGetLocalSlot(); }
+static s32 lobbySplitGuest(void) { return netLocalSlotCount() > 1 && netLocalSeatOfSlot(menuActingSlot()) > 0; }
+/* the Multiplayer Options folder (below), from the LOBBY page: PREVIOUS comes back here */
+static s32 lobbySetup(void) { return gevrMpOptionsAvailable(menuActingSlot()); }
+static void rowSetupValue(char *b, s32 n) { snprintf(b, n, "%s", ""); }
+static void rowSetupStep(s32 dir) { (void)dir; gevrMpOptionsOpen(menuActingSlot(), MENU_LOBBY); }
+static void rowFullMenuValue(char *b, s32 n) { snprintf(b, n, "%s", ""); }
+static void rowFullMenuStep(s32 dir) { (void)dir; gevrNativePauseOpenPanel(); }
+static void rowDropOutValue(char *b, s32 n) { snprintf(b, n, "%s", ""); }
+static void rowDropOutStep(s32 dir)
+{
+    s32 me = menuActingSlot();
+    (void)dir;
+    if (g_CurrentPlayer) g_CurrentPlayer->mpmenuon = FALSE;
+    netRequestRemoveLocalGuest(me);
+}
 /* Bots: player slots the host runs (gevr_bot.c), changed between rounds only */
 static s32 lobbyBots(void) { return gevrNetBotRowsEditable(); }
 static s32 lobbyBotsOn(void) { return gevrNetBotRowsEditable() && gevrNetConfigGet(CFG_BOT_MODE) != NET_BOT_OFF; }
@@ -415,15 +483,57 @@ static void rowBotCountValue(char *b,s32 n) { snprintf(b,n,"%d",gevrNetConfigGet
 static void rowBotCountStep(s32 dir) { gevrNetConfigSet(CFG_BOT_COUNT,gevrCycled(gevrNetConfigGet(CFG_BOT_COUNT)-1,dir,MAX_PLAYER_COUNT-1)+1); }
 static void rowBotDiffValue(char *b,s32 n) { snprintf(b,n,"%s",netBotDifficultyName(gevrNetConfigGet(CFG_BOT_DIFFICULTY))); }
 static void rowBotDiffStep(s32 dir) { gevrNetConfigSet(CFG_BOT_DIFFICULTY,gevrCycled(gevrNetConfigGet(CFG_BOT_DIFFICULTY),dir,NET_BOT_DIFF_COUNT)); }
+/*
+ * Horde (owner, 2026-11-24): the run arrives in a setup break and its first
+ * wave waits for the host (net_core.c netHordeHostStart). The host's map
+ * (Horde's own list, the photos filtered to it) and first wave are pending
+ * config (CFG_HORDE_STAGE, CFG_HORDE_START_WAVE): a new wave applies at once
+ * while nothing has started, a new map when START WAVE restarts the run on
+ * it; during a run both wait for the retry. The folder reuses these rows.
+ */
+static s32 lobbyHorde(void) { return netHordeActive(); }
+static s32 lobbyHordeCanStart(void) { return netHordeHostCanStart(); }
+static void rowHordeMapValue(char *b, s32 n)
+{
+    s32 idx = netStageIndexOf((u8)gevrNetConfigGet(CFG_HORDE_STAGE));
+    snprintf(b, n, "%s", idx >= 0 && idx < netHordeStageCount() ? netStageName(idx) : "");
+}
+static void rowHordeMapStep(s32 dir)
+{
+    s32 idx = netStageIndexOf((u8)gevrNetConfigGet(CFG_HORDE_STAGE));
+    gevrNetConfigSet(CFG_HORDE_STAGE, gevrCycled(idx < 0 ? 0 : idx, dir, netHordeStageCount()));   /* the list position */
+}
+static void rowHordeWaveValue(char *b, s32 n) { snprintf(b, n, "%d", gevrNetConfigGet(CFG_HORDE_START_WAVE)); }
+static void rowHordeWaveStep(s32 dir)
+{
+    gevrNetConfigSet(CFG_HORDE_START_WAVE, gevrCycled(gevrNetConfigGet(CFG_HORDE_START_WAVE) - 1, dir, NET_HORDE_MAX_START_WAVE) + 1);
+}
+static void rowHordeStartValue(char *b, s32 n) { snprintf(b, n, "%s", netHordeRestartPending() ? "- RESTART ON NEW MAP" : ""); }
+static void rowHordeStartStep(s32 dir) { (void)dir; netHordeHostStart(); }
+/* Co-op and Horde: the host's AI ally (gevr_settings.c's VrAlly, GoldenEye's
+ * campaign only); a local setting the next mission or retry takes */
+static s32 lobbyPve(void) { return gevrNetConfigPve(); }
+static s32 lobbyAlly(void) { return gevrNetConfigPve() && VrCampaign == 0; }
+static void rowAllyValue(char *b, s32 n) { snprintf(b, n, "%s", VrAlly ? "ON" : "OFF"); }
+static void rowAllyStep(s32 dir) { (void)dir; VrAlly = !VrAlly; vrSettingsSave(); }
+/* friendly fire: a team round's rule, and always co-op's and Horde's */
+static s32 lobbyFriendlyFire(void) { return friendlyFireTeams() || lobbyPve(); }
 static const GevrMenuRow s_lobbyRows[] = {
+    { "MULTIPLAYER OPTIONS", GEVR_ROW_ACTION, 0, lobbySetup,       rowSetupValue,      rowSetupStep,       "A:OPEN" },
+    { "FULL MENU / SETTINGS", GEVR_ROW_ACTION, 0, lobbySplitPrimary, rowFullMenuValue, rowFullMenuStep, "A:OPEN" },
+    { "DROP OUT",        GEVR_ROW_ACTION, 0, lobbySplitGuest,   rowDropOutValue,    rowDropOutStep,     "A:LEAVE MATCH" },
     { "NEXT ROUND READY", GEVR_ROW_VALUE, 0, lobbyClient, rowReadyValue, rowReadyStep, "R-STICK:ON/OFF" },
-    { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, friendlyFireTeams, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
+    { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, lobbyFriendlyFire, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
+    { "START WAVE",      GEVR_ROW_ACTION, 1, lobbyHordeCanStart, rowHordeStartValue, rowHordeStartStep, "A:START" },
+    { "HORDE MAP",       GEVR_ROW_VALUE,  1, lobbyHorde,        rowHordeMapValue,   rowHordeMapStep,    "A/R-STICK:PICK" },
+    { "STARTING WAVE",   GEVR_ROW_VALUE,  1, lobbyHorde,        rowHordeWaveValue,  rowHordeWaveStep,   "R-STICK:PICK" },
+    { "AI ALLY",         GEVR_ROW_VALUE,  1, lobbyAlly,         rowAllyValue,       rowAllyStep,        "R-STICK:ON/OFF" },
     { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     rowStartValue,      rowStartStep,       "A:START" },
     { "RETURN TO LOBBY", GEVR_ROW_ACTION, 1, lobbyCanReturn,    rowReturnValue,     rowReturnStep,      "A:RETURN" },
     { "NEXT ROUND",      GEVR_ROW_VALUE,  1, NULL,              rowNextRoundValue,  rowNextRoundStep,   "R-STICK:PICK" },
-    { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "R-STICK:VOTE" },
+    { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "A/R-STICK:VOTE" },
     { "NEXT WEAPONS",    GEVR_ROW_VALUE,  0, lobbyWeaponVote,       rowNextWeaponsValue, rowNextWeaponsStep, "R-STICK:VOTE" },
-    { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "R-STICK:PICK" },
+    { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "A/R-STICK:PICK" },
     { "PLAYERS",         GEVR_ROW_VALUE,  1, lobbyNoTeams,      rowPlayersValue,    rowPlayersStep,     "R-STICK:PICK" },
     { "BOTS",            GEVR_ROW_VALUE,  1, lobbyBots,         rowBotModeValue,    rowBotModeStep,     "R-STICK:PICK" },
     { "BOT COUNT",       GEVR_ROW_VALUE,  1, lobbyBotsFixed,    rowBotCountValue,   rowBotCountStep,    "R-STICK:PICK" },
@@ -436,10 +546,12 @@ static const GevrMenuRow s_lobbyRows[] = {
     { "SCENARIO",        GEVR_ROW_VALUE,  1, NULL,              rowScenarioValue,   rowScenarioStep,    "R-STICK:PICK" },
     { "LENGTH",          GEVR_ROW_VALUE,  1, lobbyNotYolt,      rowLengthValue,     rowLengthStep,      "R-STICK:PICK" },
     { "HEALTH",          GEVR_ROW_VALUE,  1, NULL,              rowHealthValue,     rowHealthStep,      "R-STICK:PICK" },
+    { "HANDICAPS",       GEVR_ROW_VALUE,  1, lobbyDeathmatch,   rowHandicapsValue,  rowHandicapsStep,   "R-STICK:ON/OFF" },
     { "DUAL WIELD",      GEVR_ROW_VALUE,  1, NULL,              rowDualValue,       rowDualStep,        "R-STICK:PICK" },
     { "LOADOUTS",        GEVR_ROW_VALUE,  1, NULL,              rowLoadoutsValue,   rowLoadoutsStep,    "R-STICK:ON/OFF" },
-    { "YOUR TEAM",       GEVR_ROW_VALUE,  0, lobbyTeams,        rowTeamValue,       rowTeamStep,        "R-STICK:PICK" },
-    { "CHARACTER",       GEVR_ROW_VALUE,  0, NULL,              rowCharacterValue,  rowCharacterStep,   "R-STICK:PICK" },
+    { "YOUR TEAM",       GEVR_ROW_VALUE,  0, lobbyTeams,        rowTeamValue,       rowTeamStep,        "A/R-STICK:PICK" },
+    { "YOUR HEALTH",     GEVR_ROW_VALUE,  0, lobbyDeathmatch,   rowMyHealthValue,   rowMyHealthStep,    "A/R-STICK:PICK" },
+    { "CHARACTER",       GEVR_ROW_VALUE,  0, NULL,              rowCharacterValue,  rowCharacterStep,   "A/R-STICK:PICK" },
     { "LOADOUT 1",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout0Value,   rowLoadout0Step,    "R-STICK:PICK" },
     { "LOADOUT 2",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout1Value,   rowLoadout1Step,    "R-STICK:PICK" },
     { "LOADOUT 3",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout2Value,   rowLoadout2Step,    "R-STICK:PICK" },
@@ -454,10 +566,12 @@ static void rowDkValue(char *b,s32 n) { funValue(b,n,NET_FUN_DK); }
 static void rowPaintValue(char *b,s32 n) { funValue(b,n,NET_FUN_PAINTBALL); }
 static void rowLineValue(char *b,s32 n) { funValue(b,n,NET_FUN_LINE); }
 static void rowRadarValue(char *b,s32 n) { funValue(b,n,NET_FUN_NO_RADAR); }
+static void rowTeleportValue(char *b,s32 n) { funValue(b,n,NET_FUN_NO_TELEPORT); }
 static void rowDkStep(s32 dir) { funStep(NET_FUN_DK); }
 static void rowPaintStep(s32 dir) { funStep(NET_FUN_PAINTBALL); }
 static void rowLineStep(s32 dir) { funStep(NET_FUN_LINE); }
 static void rowRadarStep(s32 dir) { funStep(NET_FUN_NO_RADAR); }
+static void rowTeleportStep(s32 dir) { funStep(NET_FUN_NO_TELEPORT); }
 /* hit immunity: none (every hit counts), short, GoldenEye's (net_rules.h) */
 static void rowImmunityValue(char *b,s32 n) { const char *names[] = { "NONE", "SHORT", "GOLDENEYE" }; snprintf(b,n,"%s",names[netHitImmunity(gevrNetConfigGet(CFG_FUN_FLAGS))]); }
 static void rowImmunityStep(s32 dir) { s32 f=gevrNetConfigGet(CFG_FUN_FLAGS); gevrNetConfigSet(CFG_FUN_FLAGS, netWithHitImmunity(f, gevrCycled(netHitImmunity(f),dir,3))); }
@@ -474,20 +588,67 @@ static const GevrMenuRow s_funRows[] = {
     { "PAINTBALL", GEVR_ROW_VALUE, 1, NULL, rowPaintValue, rowPaintStep, "R-STICK:ON/OFF" },
     { "LINE MODE", GEVR_ROW_VALUE, 1, NULL, rowLineValue, rowLineStep, "R-STICK:ON/OFF" },
     { "NO RADAR", GEVR_ROW_VALUE, 1, NULL, rowRadarValue, rowRadarStep, "R-STICK:ON/OFF" },
+    { "NO TELEPORT", GEVR_ROW_VALUE, 1, NULL, rowTeleportValue, rowTeleportStep, "R-STICK:ON/OFF" },
     { "HIT IMMUNITY", GEVR_ROW_VALUE, 1, NULL, rowImmunityValue, rowImmunityStep, "R-STICK:PICK" },
     { "GUN SIZE", GEVR_ROW_VALUE, 1, NULL, rowGunSizeValue, rowGunSizeStep, "R-STICK:PICK" },
     { "MOVEMENT SPEED", GEVR_ROW_VALUE, 1, NULL, rowMovementSpeedValue, rowMovementSpeedStep, "LIVE:HOST CHOOSES" },
 };
-static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0 };
-static GevrMenuPage s_pausePage = { s_pauseRows, sizeof(s_pauseRows) / sizeof(s_pauseRows[0]), 0, 0 };
-static GevrMenuPage s_lobbyPage = { s_lobbyRows, sizeof(s_lobbyRows) / sizeof(s_lobbyRows[0]), 0, 0 };
+/*
+ * The LOBBY page is the quick page between rounds (in-game match setup, plan
+ * commit 9): the votes, READY, START MATCH, RETURN TO LOBBY, the Multiplayer
+ * Options folder, DROP OUT and FULL MENU. The rest of s_lobbyRows (the match's
+ * setup, the player's character, team, health and guns) is the folder's,
+ * which views the same rows; the pause window keeps the favorites too
+ * (gevrPauseInFolder). Co-op has no folder and no LOBBY page.
+ */
+static s32 gevrLobbyQuickRow(const GevrMenuRow *r)
+{
+    return r->step == rowSetupStep || r->step == rowFullMenuStep || r->step == rowDropOutStep || r->step == rowReadyStep ||
+           r->step == rowStartStep || r->step == rowReturnStep || r->step == rowNextMapStep || r->step == rowNextWeaponsStep ||
+           r->step == rowHordeStartStep;
+}
+static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0, NULL };
+static GevrMenuPage s_pausePage = { s_pauseRows, sizeof(s_pauseRows) / sizeof(s_pauseRows[0]), 0, 0, NULL };
+static GevrMenuPage s_lobbyPage = { s_lobbyRows, sizeof(s_lobbyRows) / sizeof(s_lobbyRows[0]), 0, 0, gevrLobbyQuickRow };
+static s32 s_pageCursor[MAX_PLAYER_COUNT][3];
+static s32 s_pageScroll[MAX_PLAYER_COUNT][3];
 
+static s32 gevrMenuPageIdx(s32 mode)
+{
+    return mode == MENU_PAUSE ? 0 : mode == MENU_LOBBY ? 1 : mode == MENU_FUN ? 2 : -1;
+}
 static GevrMenuPage *gevrMenuPageFor(s32 mode)
 {
-    return mode == MENU_PAUSE ? &s_pausePage : mode == MENU_LOBBY ? &s_lobbyPage : mode == MENU_FUN ? &s_funPage : NULL;
+    s32 idx = gevrMenuPageIdx(mode);
+    s32 p = get_cur_playernum();
+    GevrMenuPage *pg = idx == 0 ? &s_pausePage : idx == 1 ? &s_lobbyPage : idx == 2 ? &s_funPage : NULL;
+    if (pg && p >= 0 && p < MAX_PLAYER_COUNT) {
+        pg->cursor = s_pageCursor[p][idx];
+        pg->scroll = s_pageScroll[p][idx];
+    }
+    return pg;
+}
+static void gevrMenuPageSave(s32 mode, const GevrMenuPage *pg)
+{
+    s32 idx = gevrMenuPageIdx(mode);
+    s32 p = get_cur_playernum();
+    if (pg && idx >= 0 && p >= 0 && p < MAX_PLAYER_COUNT) {
+        s_pageCursor[p][idx] = pg->cursor;
+        s_pageScroll[p][idx] = pg->scroll;
+    }
 }
 static s32 gevrRowVisible(const GevrMenuRow *r) { return r->visible == NULL || r->visible(); }
-static s32 gevrRowEditable(const GevrMenuRow *r) { return !r->hostonly || netIsHost(); }
+static s32 gevrPageRowVisible(const GevrMenuPage *page, s32 i)
+{
+    const GevrMenuRow *r = &page->rows[i];
+    return gevrRowVisible(r) && (page->shows == NULL || page->shows(r));
+}
+static s32 gevrRowEditable(const GevrMenuRow *r)
+{
+    /* YOUR HEALTH: the player's own under the host's rule (the host's seat always) */
+    if (r->step == rowMyHealthStep) return netSlotHandicapEditable(menuActingSlot());
+    return !r->hostonly || (netIsHost() && menuActingSlot() == netGetLocalSlot());
+}
 
 /* the cursor onto a visible row: dir steps to the next one that way, 0 keeps it or takes the nearest below */
 static void gevrPageMoveCursor(GevrMenuPage *page, s32 dir)
@@ -495,7 +656,7 @@ static void gevrPageMoveCursor(GevrMenuPage *page, s32 dir)
     s32 tries = page->count;
     s32 c = page->cursor;
     if (dir != 0) c = gevrCycled(c, dir, page->count);
-    while (tries-- > 0 && !gevrRowVisible(&page->rows[c]))
+    while (tries-- > 0 && !gevrPageRowVisible(page, c))
     {
         c = gevrCycled(c, dir ? dir : 1, page->count);
     }
@@ -508,8 +669,10 @@ static void gevrMenuPagesTick(s32 player_num)
     if(gevrNativePauseOpen())return;
 #endif
     static int last_rclick = 0;
-    static s32 stick_direction = 0;
-    static s32 stick_held_ticks = 0;
+    static s32 stick_direction[MAX_PLAYER_COUNT];
+    static s32 stick_held_ticks[MAX_PLAYER_COUNT];
+    static s32 nav_direction[MAX_PLAYER_COUNT];
+    static s32 nav_held_ticks[MAX_PLAYER_COUNT];
     GevrMenuPage *page;
     s32 change = 0;
     s32 stick_y;
@@ -517,70 +680,78 @@ static void gevrMenuPagesTick(s32 player_num)
     s32 direction;
     int rclick;
 
-    if (!netIsActive() || player_num != netGetLocalSlot()) return;
+    if (!netIsActive() || player_num < 0 || player_num >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(player_num)) return;
     page = gevrMenuPageFor(g_CurrentPlayer->mpmenumode);
     if (page == NULL) return;
 
-    rclick = get_button_state(1, "thumbstick_click") ? 1 : 0;
-    /* Right stick click only: A also closes the pause menu. */
-    if (rclick && !last_rclick)
-    {
-        gevrPageMoveCursor(page, 1);
-        mpwatchPlayBeep();
+    if (player_num == netGetLocalSlot()) {
+        rclick = get_button_state(1, "thumbstick_click") ? 1 : 0;
+        /* Right stick click only: A also closes the pause menu. */
+        if (rclick && !last_rclick)
+        {
+            gevrPageMoveCursor(page, 1);
+            mpwatchPlayBeep();
+        }
+        last_rclick = rclick;
     }
-    last_rclick = rclick;
 
     {
-        /*
-         * The left stick's up and down move the cursor (its x flips the
-         * page: input.c gives the game that as stick_x, and drops it while
-         * the stick is mostly vertical); the right stick's left and right
-         * change the value like its up and down below.
-         */
-        static s32 nav_direction = 0;
-        static s32 nav_held_ticks = 0;
         GevrVec2 lstick = { 0.0f, 0.0f };
         GevrVec2 rstick = { 0.0f, 0.0f };
         float lx, ly, rx, ry;
-        s32 nav;
-        get_2d_input(0, "thumbstick", &lstick);
-        get_2d_input(1, "thumbstick", &rstick);
-        lx = lstick.x < 0.0f ? -lstick.x : lstick.x;
-        ly = lstick.y < 0.0f ? -lstick.y : lstick.y;
-        rx = rstick.x < 0.0f ? -rstick.x : rstick.x;
-        ry = rstick.y < 0.0f ? -rstick.y : rstick.y;
-        nav = ly > 0.5f && ly > lx ? (lstick.y > 0.0f ? -1 : 1) : 0;
-        if (nav != nav_direction)
+        s32 nav = 0;
+        if (player_num == netGetLocalSlot()) {
+            get_2d_input(0, "thumbstick", &lstick);
+            get_2d_input(1, "thumbstick", &rstick);
+            lx = lstick.x < 0.0f ? -lstick.x : lstick.x;
+            ly = lstick.y < 0.0f ? -lstick.y : lstick.y;
+            rx = rstick.x < 0.0f ? -rstick.x : rstick.x;
+            ry = rstick.y < 0.0f ? -rstick.y : rstick.y;
+            nav = ly > 0.5f && ly > lx ? (lstick.y > 0.0f ? -1 : 1) : 0;
+            stick_x_value = rx > 0.5f && rx > ry ? (rstick.x > 0.0f ? 1 : -1) : 0;
+        }
+        /* Flat gamepads & keyboard: D-pad Up/Down or C-Up/C-Down move cursor; D-pad Left/Right step value. */
+        if (!nav) {
+            u16 held = joyGetButtons(player_num, U_JPAD | D_JPAD | U_CBUTTONS | D_CBUTTONS);
+            if (held & (U_JPAD | U_CBUTTONS)) nav = -1;
+            else if (held & (D_JPAD | D_CBUTTONS)) nav = 1;
+        }
+        if (!stick_x_value) {
+            u16 held = joyGetButtons(player_num, L_JPAD | R_JPAD);
+            if (held & L_JPAD) stick_x_value = -1;
+            else if (held & R_JPAD) stick_x_value = 1;
+        }
+        if (nav != nav_direction[player_num])
         {
-            nav_direction = nav;
-            nav_held_ticks = 0;
+            nav_direction[player_num] = nav;
+            nav_held_ticks[player_num] = 0;
             if (nav)
             {
                 gevrPageMoveCursor(page, nav);
                 mpwatchPlayBeep();
             }
         }
-        else if (nav != 0 && ++nav_held_ticks >= 18 && (nav_held_ticks - 18) % 6 == 0)
+        else if (nav != 0 && ++nav_held_ticks[player_num] >= 18 && (nav_held_ticks[player_num] - 18) % 6 == 0)
         {
             gevrPageMoveCursor(page, nav);
             mpwatchPlayBeep();
         }
-        stick_x_value = rx > 0.5f && rx > ry ? (rstick.x > 0.0f ? 1 : -1) : 0;
     }
 
     stick_y = joyGetStickY(player_num);
     direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : stick_x_value;
-    if (direction != stick_direction)
+    if (direction != stick_direction[player_num])
     {
-        stick_direction = direction;
-        stick_held_ticks = 0;
+        stick_direction[player_num] = direction;
+        stick_held_ticks[player_num] = 0;
         change = direction;
     }
-    else if (direction != 0 && ++stick_held_ticks >= 18 && (stick_held_ticks - 18) % 6 == 0)
+    else if (direction != 0 && ++stick_held_ticks[player_num] >= 18 && (stick_held_ticks[player_num] - 18) % 6 == 0)
     {
         change = direction;
     }
     gevrPageMoveCursor(page, 0);
+    gevrMenuPageSave(g_CurrentPlayer->mpmenumode, page);
     if (change)
     {
         const GevrMenuRow *r = &page->rows[page->cursor];
@@ -593,6 +764,1628 @@ static void gevrMenuPagesTick(s32 player_num)
     }
 }
 
+/*
+ * The game's own screens in a match (Select Character, Select Stage below; a
+ * page of the watch menu each, its mpmenumode in s_gevrMenuPanels): where one
+ * is drawn, whether one is up (input.c), and leaving one. A new screen adopts
+ * them by listing its mode there and drawing into gevrMenuPanelRect.
+ *
+ * On a flat screen the panel fills the player's view. In stereo the watch
+ * menu goes on the head-locked HUD quad (lv.c: VR_HUD_CAPTURE_BEGIN_H at full
+ * size; a 44 degree panel 1.4 m out, vr_openxr.cpp). Its capture is the eye
+ * buffer's size and the game's screen covers it at one scale (gfx_pc.cpp
+ * gfx_adjust_viewport_or_scissor: the texture rectangles, the portraits'
+ * viewport and the scissor alike), so a 4:3 screen loses its sides on a
+ * squarer eye; and the HUD's draws come out a ninth larger round the centre
+ * (the vertex shader's w = 0.9). The panel takes the part that shows, less a
+ * margin. sw x sh is the game's screen, fbw x fbh the eye buffer.
+ */
+#define GEVR_PANEL_HUD_SHOWN 0.85f   /* 0.9 of the covered screen shows; a margin inside that */
+
+void gevrMenuPanelFit(s32 sw, s32 sh, s32 fbw, s32 fbh, s32 *x, s32 *y, s32 *w, s32 *h)
+{
+    f32 visw = (f32)sw;
+    f32 vish = (f32)sh;
+
+    if (sw > 0 && sh > 0 && fbw > 0 && fbh > 0)
+    {
+        f32 rx = (f32)fbw / (f32)sw;
+        f32 ry = (f32)fbh / (f32)sh;
+        f32 cover = rx > ry ? rx : ry;
+
+        visw = (f32)fbw / cover;
+        vish = (f32)fbh / cover;
+    }
+    *w = (s32)(visw * GEVR_PANEL_HUD_SHOWN);
+    *h = (s32)(vish * GEVR_PANEL_HUD_SHOWN);
+    *x = (sw - *w) / 2;
+    *y = (sh - *h) / 2;
+}
+
+/* Where the current player's panel goes, in screen pixels */
+void gevrMenuPanelRect(s32 *x, s32 *y, s32 *w, s32 *h)
+{
+    extern int vr_get_internal_render_width(void);
+    extern int vr_get_internal_render_height(void);
+
+    if (g_gevrStereo)
+    {
+        gevrMenuPanelFit(viGetX(), viGetY(), vr_get_internal_render_width(), vr_get_internal_render_height(), x, y, w, h);
+        return;
+    }
+    *x = viGetViewLeft();
+    *y = viGetViewTop();
+    *w = viGetViewWidth();
+    *h = viGetViewHeight();
+}
+
+/*
+ * Select Character in a match, online: GoldenEye's own
+ * multiplayer screen (front.c, the scrolling portraits and the name under
+ * them) for one player, inside their own view (in VR on the head-locked HUD,
+ * gevrMenuPanelRect) and driven by their own pad, while the others play on.
+ * A player who drops in (input.c) gets it first;
+ * the others open it with A on the LOBBY page's CHARACTER row (the solo
+ * player from the pause window's Player tab). It is a page of the watch menu
+ * (MENU_CHARSEL), so the player stands still as in any page of it. The choice
+ * goes out as the Character row's does (netLobbySetCharacterSlot), and every
+ * machine then gives that player the new body (bondview2.c
+ * gevrNetBodyFollowsCharacter). B before choosing leaves it as it was.
+ *
+ * A player who dropped in is not in the fight until they choose: frozen
+ * where they spawned and, on their own machine, which applies their damage,
+ * unhurt (net_core.c netSetSlotChoosing). The body stays in the world (the
+ * match spawned it on joining, as before) so nothing about joining changes
+ * for the other machines.
+ */
+static s32 s_charSelDropIn[MAX_PLAYER_COUNT];
+static s32 s_charSelArmed[MAX_PLAYER_COUNT];
+/* a game screen opened from the Multiplayer Options folder (MENU_SETUP) goes back to it, else to the LOBBY page */
+static s32 s_panelToSetup[MAX_PLAYER_COUNT];
+static s32 s_setupArmed[MAX_PLAYER_COUNT];
+static s32 gevrPanelBack(s32 slot)
+{
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !s_panelToSetup[slot]) return MENU_LOBBY;
+    s_panelToSetup[slot] = 0;
+    s_setupArmed[slot] = 0;   /* the A or B that left the screen is not the folder's */
+    return MENU_SETUP;
+}
+
+s32 gevrCharSelIsOpen(s32 slot)
+{
+    struct player *pl;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    return pl != NULL && pl->mpmenuon && pl->mpmenumode == MENU_CHARSEL;
+}
+
+/* An online player's watch is on a page of rows (PAUSE, LOBBY, FUN): a flat pad's sticks read differently there (input.c) */
+s32 gevrMenuRowsOpen(s32 slot)
+{
+    struct player *pl;
+
+    if (!netIsActive() || slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    return pl != NULL && pl->mpmenuon && gevrMenuPageIdx(pl->mpmenumode) >= 0;
+}
+
+void gevrCharSelOpen(s32 slot, s32 dropin)
+{
+    struct player *pl;
+
+    if (!netIsActive() || slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(slot)) return;
+    pl = g_playerPointers[slot];
+    if (pl == NULL) return;
+    frontCharSelectBegin(slot, gevrNetSlotChr(slot), netCharacterCount());
+    s_panelToSetup[slot] = 0;
+    pl->mpmenuon = TRUE;
+    pl->mpmenumode = MENU_CHARSEL;
+    pl->mpjoywascentre = 1;
+    s_charSelDropIn[slot] = dropin;
+    s_charSelArmed[slot] = 0;
+    netSetSlotChoosing(slot, dropin);
+}
+
+static void gevrCharSelClose(s32 slot)
+{
+    struct player *pl = g_playerPointers[slot];
+
+    netSetSlotChoosing(slot, 0);
+    if (pl == NULL) return;
+    if ((s_charSelDropIn[slot] && !s_panelToSetup[slot]) || !netIsActive())
+    {
+        pl->mpmenuon = FALSE;   /* into the match */
+        pl->healthdisplaytime = 0;
+    }
+    else
+    {
+        pl->mpmenumode = gevrPanelBack(slot);   /* back to the page it came from */
+    }
+    s_charSelDropIn[slot] = 0;
+}
+
+/* The panel's frame for the player ticking; whether it had the pad */
+static s32 gevrCharSelTick(s32 player_num)
+{
+    s32 result;
+
+    if (!gevrCharSelIsOpen(player_num)) return 0;
+    if (!netIsActive() || !gevrNetSlotIsLocalHuman(player_num))
+    {
+        gevrCharSelClose(player_num);
+        return 0;
+    }
+    /* The press that opened it (a drop-in's START, the row's A, the pause window's
+     * click: the left button is Z, and a click released before this frame is still
+     * this frame's press) is not a choice. */
+    if (!s_charSelArmed[player_num])
+    {
+        const u16 opener = A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON;
+
+        if (joyGetButtons(player_num, opener) || joyGetButtonsPressedThisFrame(player_num, opener)) return 1;
+        s_charSelArmed[player_num] = 1;
+    }
+    result = frontCharSelectTick(player_num, netCharacterCount());
+    if (result > 0)
+    {
+        netLobbySetCharacterSlot(player_num, (u8)frontCharSelectShown(player_num));
+        gevrCharSelClose(player_num);
+    }
+    else if (result < 0)
+    {
+        mpwatchPlayBeep();
+        gevrCharSelClose(player_num);
+    }
+    return 1;
+}
+
+/*
+ * Select Stage in a match, online: GoldenEye's multiplayer
+ * stage select (front.c: the rows of photos on their dark bands, the
+ * highlighted one lit) for one player, in their own view and driven by their
+ * pad, while the others play on, as Select Character above. A on the LOBBY
+ * page's MAP row (the host) chooses the map with it, A on NEXT MAP (anyone,
+ * while the next round is voted) casts that player's vote, its first tile,
+ * the screen's Random photo, being No vote. Every listed stage has a tile
+ * (net_match.c, more than the screen's eleven); one the party cannot play
+ * is dimmed and passed over, as the rows pass over it. Each photo shows its
+ * votes, and the player's own (their vote, the host's map) is framed. The
+ * choice goes out as the row's step does (CFG_STAGE by list position,
+ * netSetVoteSlot), so nothing on the wire changes; B leaves it as it was. The
+ * solo player opens it from the pause window's Match tab. The stick still
+ * steps the rows as before.
+ */
+#define GEVR_STAGESEL_TILES 65   /* No vote and the 64 stages a ballot holds (net_match.c) */
+static s32 s_stageSelVote[MAX_PLAYER_COUNT];
+static s32 s_stageSelArmed[MAX_PLAYER_COUNT];
+static s32 s_stageSelLeaving[MAX_PLAYER_COUNT];   /* chosen or backed out: closes once the button is let go */
+
+s32 gevrStageSelIsOpen(s32 slot)
+{
+    struct player *pl;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    return pl != NULL && pl->mpmenuon && pl->mpmenumode == MENU_STAGESEL;
+}
+
+/* whether slot may still use its grid: the host's own seat for the map, anyone while voting */
+static s32 gevrStageSelAllowed(s32 slot, s32 vote)
+{
+    if (!netIsActive() || !gevrNetSlotIsLocalHuman(slot)) return 0;
+    return vote ? lobbyVoting() : netIsHost() && slot == netGetLocalSlot();
+}
+
+/* The grid's tiles for slot, as its rows offer them; the count */
+static s32 gevrStageSelTiles(s32 slot, s32 vote, FrontStageTile *tiles)
+{
+    s32 horde = !vote && netHordeActive();   /* Horde's map: its own list, the first entries */
+    s32 count = horde ? netHordeStageCount() : netStageCount();
+    s32 voting = lobbyVoting();
+    s32 mine = vote ? netGetVote(0, slot) : netStageIndexOf((u8)gevrNetConfigGet(horde ? CFG_HORDE_STAGE : CFG_STAGE));
+    s32 n = 0;
+    s32 i;
+    s32 k;
+
+    if (vote)
+    {
+        tiles[n].level = -1;
+        tiles[n].name = "No vote";
+        tiles[n].eligible = 1;
+        tiles[n].full = 0;
+        tiles[n].mine = mine < 0;
+        tiles[n].votes = 0;
+        n++;
+    }
+    for (i = 0; i < count && n < GEVR_STAGESEL_TILES; i++, n++)
+    {
+        const NetMatchStage *stage = netStage(i);
+        s32 votes = 0;
+
+        if (voting)
+        {
+            for (k = 0; k < MAX_PLAYER_COUNT; k++)
+            {
+                if (netGetVote(0, k) == i) votes++;
+            }
+        }
+        tiles[n].level = (s32)netStageLevelId(stage->level_id);
+        tiles[n].name = stage->name;
+        tiles[n].eligible = netStageEligible(i) != 0;
+        tiles[n].full = netStageIsFull(stage->level_id) != 0;
+        tiles[n].mine = i == mine;
+        tiles[n].votes = (u8)votes;
+    }
+    return n;
+}
+
+void gevrStageSelOpen(s32 slot, s32 vote)
+{
+    FrontStageTile tiles[GEVR_STAGESEL_TILES];
+    struct player *pl;
+    s32 n;
+    s32 cursor = 0;
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrStageSelAllowed(slot, vote)) return;
+    pl = g_playerPointers[slot];
+    if (pl == NULL) return;
+    n = gevrStageSelTiles(slot, vote, tiles);
+    for (i = 0; i < n; i++)
+    {
+        if (tiles[i].mine) cursor = i;
+    }
+    frontStageSelectBegin(slot, tiles, n, cursor);
+    s_panelToSetup[slot] = 0;
+    pl->mpmenuon = TRUE;
+    pl->mpmenumode = MENU_STAGESEL;
+    pl->mpjoywascentre = 1;
+    s_stageSelVote[slot] = vote;
+    s_stageSelArmed[slot] = 0;
+    s_stageSelLeaving[slot] = 0;
+}
+
+static void gevrStageSelClose(s32 slot)
+{
+    struct player *pl = g_playerPointers[slot];
+
+    if (pl != NULL && pl->mpmenumode == MENU_STAGESEL) pl->mpmenumode = gevrPanelBack(slot);   /* back to the page it came from */
+}
+
+/* The grid's frame for the player ticking; whether it had the pad */
+static s32 gevrStageSelTick(s32 player_num)
+{
+    const u16 opener = A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON;
+    FrontStageTile tiles[GEVR_STAGESEL_TILES];
+    s32 vote;
+    s32 n;
+    s32 result;
+
+    if (!gevrStageSelIsOpen(player_num)) return 0;
+    vote = s_stageSelVote[player_num];
+    /* the host's map grid closes for a host no more; the vote's when the host stops the vote */
+    if (!gevrStageSelAllowed(player_num, vote))
+    {
+        gevrStageSelClose(player_num);
+        return 0;
+    }
+    /* The press that opened it (the row's A, the pause window's click) is not a choice, as Select Character's. */
+    if (!s_stageSelArmed[player_num])
+    {
+        if (joyGetButtons(player_num, opener) || joyGetButtonsPressedThisFrame(player_num, opener)) return 1;
+        s_stageSelArmed[player_num] = 1;
+    }
+    /*
+     * Chosen or backed out: the grid stays (the choice framed) until the button
+     * is let go, as Select Character's portrait grows. Closed at once, the press
+     * still held reached what came back: the pause window's button that opened
+     * the grid took the A and opened it again.
+     */
+    if (s_stageSelLeaving[player_num])
+    {
+        if (!joyGetButtons(player_num, opener)) gevrStageSelClose(player_num);
+        return 1;
+    }
+    n = gevrStageSelTiles(player_num, vote, tiles);
+    result = frontStageSelectTick(player_num, tiles, n);
+    if (result > 0)
+    {
+        s32 pick = frontStageSelectShown(player_num);
+
+        if (vote) netSetVoteSlot(player_num, 0, pick - 1);   /* the first tile: no vote */
+        else gevrNetConfigSet(netHordeActive() ? CFG_HORDE_STAGE : CFG_STAGE, pick);   /* the setter takes the list position */
+        s_stageSelLeaving[player_num] = 1;
+    }
+    else if (result < 0)
+    {
+        mpwatchPlayBeep();
+        s_stageSelLeaving[player_num] = 1;
+    }
+    return 1;
+}
+
+static Gfx *gevrStageSelDraw(Gfx *gdl, s32 slot)
+{
+    FrontStageTile tiles[GEVR_STAGESEL_TILES];
+    s32 vote = s_stageSelVote[slot];
+    s32 n = gevrStageSelTiles(slot, vote, tiles);
+    s32 x;
+    s32 y;
+    s32 w;
+    s32 h;
+
+    gevrMenuPanelRect(&x, &y, &w, &h);
+    return frontStageSelectDraw(gdl, slot, tiles, n, vote ? "Vote for the Next Map" : "Select Map", vote ? "VOTE" : "PICK",
+                                x, y, w, h);
+}
+
+/* The watch pages that are the game's own screens (gevrMenuPanelRect above) */
+static const s32 s_gevrMenuPanels[] = { MENU_CHARSEL, MENU_STAGESEL, MENU_HANDICAP, MENU_TEAMSEL, MENU_SETUP };
+static void gevrMpOptionsClose(s32 slot, s32 back);
+
+s32 gevrMenuPanelIsOpen(s32 slot)
+{
+    struct player *pl;
+    u32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    if (pl == NULL || !pl->mpmenuon) return 0;
+    for (i = 0; i < sizeof(s_gevrMenuPanels) / sizeof(s_gevrMenuPanels[0]); i++)
+    {
+        if (pl->mpmenumode == s_gevrMenuPanels[i]) return 1;
+    }
+    return 0;
+}
+
+/* slot's panel left unchanged, as B leaves it (the headset's Menu button, input.c); whether one was up */
+s32 gevrMenuPanelCancel(s32 slot)
+{
+    if (!gevrMenuPanelIsOpen(slot)) return 0;
+    if (g_playerPointers[slot]->mpmenumode == MENU_CHARSEL) gevrCharSelClose(slot);
+    else if (g_playerPointers[slot]->mpmenumode == MENU_SETUP) gevrMpOptionsClose(slot, 1);
+    else g_playerPointers[slot]->mpmenumode = gevrPanelBack(slot);   /* back to the page it came from */
+    return 1;
+}
+
+/*
+ * Handicap and Teams in a match, online on a flat screen: GoldenEye's Select
+ * Handicap and Select Teams screens (front.c) for one player, in their own
+ * view and driven by their pad, while the others play on, as Select
+ * Character and Select Stage above. A on the LOBBY page's YOUR HEALTH or
+ * YOUR TEAM row opens one (the solo player: the pause window's Player tab);
+ * the right stick still steps the rows. B leaves things as they were.
+ *
+ * Handicap: left and right step the health (Hero .. Rookie, the match's own
+ * reading MATCH). A player changes their own while the host's HANDICAPS rule
+ * is on and the host has not set it (net_rules.h NET_HANDICAP_*); the host's
+ * own seat moves up and down the list and sets anyone's, a bot's too. A sends
+ * every change made (netLobbySetHandicapSlot, netHostSetSlotHandicap). Like
+ * the match's health it takes effect at the next load. Deathmatch only.
+ *
+ * Teams: the two sides with their players and open places, and those on
+ * neither: who is on which team is the point of it. Left picks Red, right
+ * Blue, down neither, up back to the current one; A sends it as the YOUR
+ * TEAM row does (netLobbySetTeamSlot), so the team rules stay net_core.c's:
+ * a full side refuses, a change unreadies, and the round plays its latched
+ * teams until the next load.
+ */
+extern int netLobbySlotConnected(int slot);
+static s32 s_hcapArmed[MAX_PLAYER_COUNT];
+static s32 s_hcapLeaving[MAX_PLAYER_COUNT];
+static s32 s_hcapCursor[MAX_PLAYER_COUNT];                    /* the target slot */
+static s16 s_hcapPick[MAX_PLAYER_COUNT][MAX_PLAYER_COUNT];    /* the value chosen for each slot, -1 none yet */
+static s32 s_teamSelArmed[MAX_PLAYER_COUNT];
+static s32 s_teamSelLeaving[MAX_PLAYER_COUNT];
+static s32 s_teamSelPick[MAX_PLAYER_COUNT];
+
+static s32 gevrPanelOpen(s32 slot, s32 mode)
+{
+    struct player *pl;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    return pl != NULL && pl->mpmenuon && pl->mpmenumode == mode;
+}
+s32 gevrHandicapIsOpen(s32 slot) { return gevrPanelOpen(slot, MENU_HANDICAP); }
+s32 gevrTeamSelIsOpen(s32 slot) { return gevrPanelOpen(slot, MENU_TEAMSEL); }
+static void gevrPanelClose(s32 slot, s32 mode)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+
+    if (pl != NULL && pl->mpmenumode == mode) pl->mpmenumode = gevrPanelBack(slot);   /* back to the page it came from */
+}
+/* The press that opened a panel (the row's A, the pause window's click) is not a choice; nor is the one that closes it */
+static s32 gevrPanelHeld(s32 slot)
+{
+    const u16 opener = A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON;
+
+    return joyGetButtons(slot, opener) || joyGetButtonsPressedThisFrame(slot, opener);
+}
+
+/* the host's own seat: anyone's health */
+static s32 gevrHandicapHostSeat(s32 slot) { return netIsHost() && slot == netGetLocalSlot(); }
+static s32 gevrHandicapValue(s32 me, s32 target)
+{
+    return s_hcapPick[me][target] >= 0 ? s_hcapPick[me][target] : netGetSlotHandicap(target);
+}
+/* the rule a value is read under: the host's seat's own picks count as the host's */
+static s32 gevrHandicapRule(s32 me, s32 target)
+{
+    return gevrNetConfigGet(CFG_HANDICAPS) || (s_hcapPick[me][target] >= 0 && gevrHandicapHostSeat(me));
+}
+static s32 gevrHandicapMayChange(s32 me, s32 target)
+{
+    if (gevrHandicapHostSeat(me)) return netLobbySlotConnected(target);
+    return target == me && netSlotHandicapEditable(me);
+}
+
+/* The screen's entries for slot, in slot order; the count. at: the cursor's entry */
+static s32 gevrHandicapEntries(s32 me, FrontHandicapEntry *e, s32 *at)
+{
+    s32 match = gevrNetConfigGet(CFG_HEALTH);
+    s32 n = 0;
+    s32 i;
+
+    *at = 0;
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        s32 value;
+        s32 rule;
+        s32 index;
+
+        if (!netLobbySlotConnected(i)) continue;
+        value = gevrHandicapValue(me, i);
+        rule = gevrHandicapRule(me, i);
+        index = netHandicapResolve(value, rule, match, netHealthCount());
+        e[n].name = netGetSlotName(i);
+        e[n].label = netHealthName(index);
+        e[n].index = (s8)index;
+        e[n].match = value == NET_HANDICAP_MATCH || (!netHandicapIsHosts(value) && !rule);
+        e[n].host = s_hcapPick[me][i] >= 0 ? gevrHandicapHostSeat(me) && value != NET_HANDICAP_MATCH : netHandicapIsHosts(value);
+        e[n].editable = gevrHandicapMayChange(me, i);
+        e[n].me = i == me;
+        if (i == s_hcapCursor[me]) *at = n;
+        n++;
+    }
+    return n;
+}
+
+void gevrHandicapOpen(s32 slot)
+{
+    struct player *pl;
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !lobbyDeathmatch() || !gevrNetSlotIsLocalHuman(slot)) return;
+    pl = g_playerPointers[slot];
+    if (pl == NULL) return;
+    for (i = 0; i < MAX_PLAYER_COUNT; i++) s_hcapPick[slot][i] = -1;
+    s_hcapCursor[slot] = slot;
+    s_hcapArmed[slot] = 0;
+    s_hcapLeaving[slot] = 0;
+    s_panelToSetup[slot] = 0;
+    frontPanelPadReset(slot);
+    pl->mpmenuon = TRUE;
+    pl->mpmenumode = MENU_HANDICAP;
+    pl->mpjoywascentre = 1;
+}
+
+/* every change made: the host's seat as the host's, a player's own as theirs */
+static void gevrHandicapSend(s32 me)
+{
+    s32 i;
+
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        s32 value = s_hcapPick[me][i];
+
+        if (value < 0 || !gevrHandicapMayChange(me, i)) continue;
+        if (gevrHandicapHostSeat(me)) netHostSetSlotHandicap(i, value);
+        else netLobbySetHandicapSlot(i, value);
+    }
+}
+
+static s32 gevrHandicapTick(s32 player_num)
+{
+    s32 match;
+    s32 result;
+    s32 dx;
+    s32 dy;
+
+    if (!gevrHandicapIsOpen(player_num)) return 0;
+    if (!lobbyDeathmatch() || !gevrNetSlotIsLocalHuman(player_num))
+    {
+        gevrPanelClose(player_num, MENU_HANDICAP);
+        return 0;
+    }
+    if (!s_hcapArmed[player_num])
+    {
+        if (gevrPanelHeld(player_num)) return 1;
+        s_hcapArmed[player_num] = 1;
+    }
+    /* chosen or backed out: it stays until the button is let go, as the Select Stage grid */
+    if (s_hcapLeaving[player_num])
+    {
+        if (!gevrPanelHeld(player_num)) gevrPanelClose(player_num, MENU_HANDICAP);
+        return 1;
+    }
+    result = frontPanelPad(player_num, &dx, &dy);
+    if (result > 0)
+    {
+        frontPanelChosenSound();
+        gevrHandicapSend(player_num);
+        s_hcapLeaving[player_num] = 1;
+        return 1;
+    }
+    if (result < 0)
+    {
+        mpwatchPlayBeep();
+        s_hcapLeaving[player_num] = 1;
+        return 1;
+    }
+    match = gevrNetConfigGet(CFG_HEALTH);
+    if (dy != 0 && gevrHandicapHostSeat(player_num))
+    {
+        /* the host's seat: the next player up or down the list */
+        s32 next = s_hcapCursor[player_num];
+        s32 k;
+
+        for (k = 0; k < MAX_PLAYER_COUNT; k++)
+        {
+            next += dy;
+            if (next < 0 || next >= MAX_PLAYER_COUNT) { next = s_hcapCursor[player_num]; break; }
+            if (netLobbySlotConnected(next)) break;
+        }
+        if (next != s_hcapCursor[player_num])
+        {
+            s_hcapCursor[player_num] = next;
+            mpwatchPlayBeep();
+        }
+    }
+    if (!netLobbySlotConnected(s_hcapCursor[player_num])) s_hcapCursor[player_num] = player_num;
+    if (dx != 0 && gevrHandicapMayChange(player_num, s_hcapCursor[player_num]))
+    {
+        s32 target = s_hcapCursor[player_num];
+        s32 value = gevrHandicapValue(player_num, target);
+        s32 rule = gevrHandicapRule(player_num, target);
+        s32 shown = netHandicapResolve(value, rule, match, netHealthCount());
+        s32 next = netHandicapStep(value, rule, match, netHealthCount(), dx);
+
+        /* at either end of the table it stays */
+        if (netHandicapResolve(next, 1, match, netHealthCount()) != shown)
+        {
+            s_hcapPick[player_num][target] = (s16)next;
+            mpwatchPlayBeep();
+        }
+    }
+    return 1;
+}
+
+static Gfx *gevrHandicapDraw(Gfx *gdl, s32 slot)
+{
+    FrontHandicapEntry e[MAX_PLAYER_COUNT];
+    s32 at;
+    s32 n = gevrHandicapEntries(slot, e, &at);
+    const char *note = !gevrHandicapMayChange(slot, slot) && !gevrHandicapHostSeat(slot)
+                           ? (gevrNetConfigGet(CFG_HANDICAPS) ? "THE HOST SET YOURS" : "THE HOST SETS HEALTH")
+                           : "NEXT ROUND";
+
+    s32 x;
+    s32 y;
+    s32 w;
+    s32 h;
+
+    gevrMenuPanelRect(&x, &y, &w, &h);
+    return frontHandicapDraw(gdl, slot, e, n, at, note, x, y, w, h);
+}
+
+/* Teams: the screen's entries, in slot order */
+static s32 gevrTeamSelEntries(s32 me, FrontTeamEntry *e)
+{
+    s32 n = 0;
+    s32 i;
+
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        if (!netLobbySlotConnected(i)) continue;
+        e[n].name = netGetSlotName(i);
+        e[n].team = (s8)netGetSlotTeam(i);
+        e[n].next = netGetPhase() == 2 && netGetSlotTeam(i) != netGetActiveSlotTeam(i);
+        e[n].bot = gevrNetSlotIsBot(i) != 0;
+        e[n].me = i == me;
+        n++;
+    }
+    return n;
+}
+
+/* the players on team other than slot (-1: all); bots give way (net_core.c netUpdateBots) */
+static s32 gevrTeamSelPlayers(s32 slot, s32 team)
+{
+    s32 count = 0;
+    s32 i;
+
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        if (i != slot && netLobbySlotConnected(i) && !gevrNetSlotIsBot(i) && netGetSlotTeam(i) == team) count++;
+    }
+    return count;
+}
+/* a side is full at its capacity (net_core.c netSetSlotTeam refuses more) */
+static s32 gevrTeamSelFull(s32 slot, s32 team)
+{
+    if (team != NET_TEAM_RED && team != NET_TEAM_BLUE) return 0;
+    return gevrTeamSelPlayers(slot, team) >= netTeamCapacity(gevrNetConfigGet(CFG_SCENARIO), team);
+}
+/* more on a side than it takes (a joiner takes a bot's place and its side): the round waits for a change */
+static s32 gevrTeamSelOver(s32 team)
+{
+    return gevrTeamSelPlayers(-1, team) > netTeamCapacity(gevrNetConfigGet(CFG_SCENARIO), team);
+}
+
+void gevrTeamSelOpen(s32 slot)
+{
+    struct player *pl;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !lobbyDeathmatch() || !lobbyTeams() || !gevrNetSlotIsLocalHuman(slot)) return;
+    pl = g_playerPointers[slot];
+    if (pl == NULL) return;
+    s_teamSelPick[slot] = netGetSlotTeam(slot);
+    s_teamSelArmed[slot] = 0;
+    s_teamSelLeaving[slot] = 0;
+    s_panelToSetup[slot] = 0;
+    frontPanelPadReset(slot);
+    pl->mpmenuon = TRUE;
+    pl->mpmenumode = MENU_TEAMSEL;
+    pl->mpjoywascentre = 1;
+}
+
+static s32 gevrTeamSelTick(s32 player_num)
+{
+    s32 result;
+    s32 pick;
+    s32 dx;
+    s32 dy;
+
+    if (!gevrTeamSelIsOpen(player_num)) return 0;
+    if (!lobbyDeathmatch() || !lobbyTeams() || !gevrNetSlotIsLocalHuman(player_num))
+    {
+        gevrPanelClose(player_num, MENU_TEAMSEL);
+        return 0;
+    }
+    if (!s_teamSelArmed[player_num])
+    {
+        if (gevrPanelHeld(player_num)) return 1;
+        s_teamSelArmed[player_num] = 1;
+    }
+    if (s_teamSelLeaving[player_num])
+    {
+        if (!gevrPanelHeld(player_num)) gevrPanelClose(player_num, MENU_TEAMSEL);
+        return 1;
+    }
+    result = frontPanelPad(player_num, &dx, &dy);
+    pick = s_teamSelPick[player_num];
+    if (result > 0)
+    {
+        if (pick != netGetSlotTeam(player_num) && gevrTeamSelFull(player_num, pick))
+        {
+            mpwatchPlayBeep();   /* that side is full: stay and choose again */
+            return 1;
+        }
+        frontPanelChosenSound();
+        if (pick != netGetSlotTeam(player_num)) netLobbySetTeamSlot(player_num, (u8)pick);
+        s_teamSelLeaving[player_num] = 1;
+        return 1;
+    }
+    if (result < 0)
+    {
+        mpwatchPlayBeep();
+        s_teamSelLeaving[player_num] = 1;
+        return 1;
+    }
+    if (dx < 0) pick = NET_TEAM_RED;
+    else if (dx > 0) pick = NET_TEAM_BLUE;
+    else if (dy > 0) pick = NET_TEAM_NONE;
+    else if (dy < 0) pick = netGetSlotTeam(player_num);
+    if (pick != s_teamSelPick[player_num])
+    {
+        s_teamSelPick[player_num] = pick;
+        mpwatchPlayBeep();
+    }
+    return 1;
+}
+
+static Gfx *gevrTeamSelDraw(Gfx *gdl, s32 slot)
+{
+    FrontTeamEntry e[MAX_PLAYER_COUNT];
+    s32 n = gevrTeamSelEntries(slot, e);
+    s32 scenario = gevrNetConfigGet(CFG_SCENARIO);
+    s32 pick = s_teamSelPick[slot];
+    s32 x;
+    s32 y;
+    s32 w;
+    s32 h;
+    const char *note = pick != netGetSlotTeam(slot) && gevrTeamSelFull(slot, pick) ? "THAT TEAM IS FULL"
+                       : gevrTeamSelOver(NET_TEAM_RED) || gevrTeamSelOver(NET_TEAM_BLUE) ? "TOO MANY ON A TEAM" : "NEXT ROUND";
+
+    gevrMenuPanelRect(&x, &y, &w, &h);
+
+    return frontTeamSelectDraw(gdl, slot, e, n, pick, netTeamCapacity(scenario, NET_TEAM_RED), netTeamCapacity(scenario, NET_TEAM_BLUE),
+                               note, x, y, w, h);
+}
+
+/*
+ * The Multiplayer Options folder in a match, online deathmatch: GoldenEye's
+ * own folder (menu0E, front.c frontMpOptionsDraw) in the player's view (in
+ * stereo on the head-locked HUD, gevrMenuPanelRect), driven by their pad,
+ * where the match is set up: the host's rows (Players, Scenario, Level, Game
+ * Length, Weapons...) dimmed at every other seat as the original dimmed a
+ * locked row, and each player's own (Character, Health, Teams, Loadout).
+ * It is a fourth view over the LOBBY page's rows (s_lobbyRows): the same
+ * callbacks and authority, so nothing about the match's rules or the wire
+ * changes. The rows come from gevr_mpoptions.c.
+ *
+ * Up and down move between the rows and onto the START tab; left and right
+ * step a value; A opens a row's screen (Select Character, the stage photos,
+ * Handicap, Teams, the Scenario list, the Custom, Bots and Loadout sheets) or
+ * steps its value as the original's A did; B is PREVIOUS: a sheet back to
+ * the folder, the folder back to where it came from. START is the START tab:
+ * the host's START MATCH, anyone else's READY. A screen opened from here
+ * comes back here. In the warmup the player waits held and unhurt while it
+ * is up (net_core.c netSetSlotChoosing, as a drop-in choosing a character);
+ * in a round it is a page of the watch like any other.
+ */
+enum { SETUP_SHEET_MAIN, SETUP_SHEET_CUSTOM, SETUP_SHEET_BOTS, SETUP_SHEET_LOADOUT, SETUP_SHEET_SCENARIO, SETUP_SHEET_COUNT };
+enum { SETUP_OPEN_NONE, SETUP_OPEN_SCENARIO, SETUP_OPEN_STAGES, SETUP_OPEN_VOTE, SETUP_OPEN_CHARSEL, SETUP_OPEN_HANDICAP,
+       SETUP_OPEN_TEAMS, SETUP_OPEN_CUSTOM, SETUP_OPEN_BOTS, SETUP_OPEN_LOADOUT, SETUP_OPEN_FULLMENU, SETUP_OPEN_ACTION };
+#define SETUP_START_TAB GEVR_SETUP_ROW_COUNT   /* the main sheet's cursor on the START tab */
+#define SETUP_LINES 20
+typedef struct {
+    s32 id;                  /* the main sheet's GEVR_SETUP_*, a sheet's index */
+    const char *brief;       /* a quarter view's label (NULL: the label) */
+    char label[40];
+    char value[48];
+    void (*step)(s32 dir);   /* left / right; NULL: none */
+    u8 editable;
+    u8 open;                 /* SETUP_OPEN_* */
+} GevrSetupLine;
+/* the folder's own rows; the others' labels are the original folder's (TITLE_STR_77 .. 83: "Scenario:",
+ * "Characters"): a value with a colon, a row that opens a screen without. brief: a quarter view's
+ * label, beside a value that takes half its width ("CHARACTE." was the original's cut) */
+static const struct { u16 text; const char *label; void (*step)(s32); u8 open; const char *brief; } s_setupItems[GEVR_SETUP_ROW_COUNT] = {
+    [GEVR_SETUP_PLAYERS]       = { getStringID(LTITLE, TITLE_STR_77_PLAYERS), NULL, rowPlayersStep, SETUP_OPEN_NONE, "Players:" },
+    [GEVR_SETUP_SCENARIO]      = { getStringID(LTITLE, TITLE_STR_78_SCENARIO), NULL, rowScenarioStep, SETUP_OPEN_SCENARIO, "Mode:" },
+    [GEVR_SETUP_LEVEL]         = { getStringID(LTITLE, TITLE_STR_79_LEVEL), NULL, rowMapStep, SETUP_OPEN_STAGES, "Level:" },
+    [GEVR_SETUP_NEXT_MAP]      = { 0, "Next Map:", rowNextMapStep, SETUP_OPEN_VOTE, "Map:" },
+    [GEVR_SETUP_LENGTH]        = { getStringID(LTITLE, TITLE_STR_80_GAMELENGTH), NULL, rowLengthStep, SETUP_OPEN_NONE, "Length:" },
+    [GEVR_SETUP_WEAPONS]       = { getStringID(LTITLE, TITLE_STR_81_WEAPONS), NULL, rowWeaponsStep, SETUP_OPEN_NONE, "Guns:" },
+    [GEVR_SETUP_CUSTOM]        = { 0, "Custom Set", NULL, SETUP_OPEN_CUSTOM, "Custom" },
+    [GEVR_SETUP_NEXT_WEAPONS]  = { 0, "Next Weapons:", rowNextWeaponsStep, SETUP_OPEN_NONE, "Guns:" },
+    [GEVR_SETUP_CHARACTER]     = { getStringID(LTITLE, TITLE_STR_82_CHARACTER), NULL, rowCharacterStep, SETUP_OPEN_CHARSEL, "Char." },
+    [GEVR_SETUP_HEALTH]        = { getStringID(LTITLE, TITLE_STR_83_HEALTH), NULL, NULL, SETUP_OPEN_HANDICAP, "Health" },
+    [GEVR_SETUP_HANDICAPS]     = { 0, "Handicaps:", rowHandicapsStep, SETUP_OPEN_NONE, "Handicaps:" },
+    [GEVR_SETUP_TEAMS]         = { 0, "Teams", rowTeamStep, SETUP_OPEN_TEAMS, "Team" },
+    [GEVR_SETUP_DUAL_WIELD]    = { 0, "Dual Wield:", rowDualStep, SETUP_OPEN_NONE, "Dual:" },
+    [GEVR_SETUP_LOADOUTS]      = { 0, "Loadouts:", rowLoadoutsStep, SETUP_OPEN_NONE, "Loadouts:" },
+    [GEVR_SETUP_LOADOUT]       = { 0, "Your Loadout", NULL, SETUP_OPEN_LOADOUT, "My Guns" },
+    [GEVR_SETUP_BOTS]          = { 0, "Bots", NULL, SETUP_OPEN_BOTS, "Bots" },
+    [GEVR_SETUP_NEXT_ROUND]    = { 0, "Next Round:", rowNextRoundStep, SETUP_OPEN_NONE, "Next:" },
+    [GEVR_SETUP_FRIENDLY_FIRE] = { 0, "Friendly Fire:", rowFriendlyFireStep, SETUP_OPEN_NONE, "Fr. Fire:" },
+    [GEVR_SETUP_RETURN]        = { 0, "Return to Lobby", rowReturnStep, SETUP_OPEN_ACTION, "Lobby" },
+    [GEVR_SETUP_DROP_OUT]      = { 0, "Drop Out", rowDropOutStep, SETUP_OPEN_ACTION, "Drop Out" },
+    [GEVR_SETUP_FULL_MENU]     = { 0, "Full Menu", NULL, SETUP_OPEN_FULLMENU, "Full Menu" },
+    [GEVR_SETUP_HORDE_MAP]     = { getStringID(LTITLE, TITLE_STR_79_LEVEL), NULL, rowHordeMapStep, SETUP_OPEN_STAGES, "Level:" },
+    [GEVR_SETUP_STARTING_WAVE] = { 0, "Starting Wave:", rowHordeWaveStep, SETUP_OPEN_NONE, "Wave:" },
+    [GEVR_SETUP_AI_ALLY]       = { 0, "AI Ally:", rowAllyStep, SETUP_OPEN_NONE, "Ally:" },
+};
+static s32 s_setupSheet[MAX_PLAYER_COUNT];
+static s32 s_setupCursor[MAX_PLAYER_COUNT][SETUP_SHEET_COUNT];   /* the main sheet: a row id or SETUP_START_TAB; else an index */
+static s32 s_setupFrom[MAX_PLAYER_COUNT];      /* the page PREVIOUS goes back to; -1: the menu closes */
+static s32 s_setupLeaving[MAX_PLAYER_COUNT];   /* closes once the button that closed it is let go */
+static s32 s_setupHeld[MAX_PLAYER_COUNT];      /* held in the warmup (netSetSlotChoosing) */
+static s32 s_setupOwed[MAX_PLAYER_COUNT];      /* opens by itself at the next warmup's load (gevrMpOptionsAutoTick) */
+static s32 s_setupStartQueued[MAX_PLAYER_COUNT];   /* a START input.c took for the folder (Horde: gevrMpOptionsQueueStart) */
+extern const char *netGetLobbyCode(void);
+
+static s32 gevrSetupHostSeat(s32 slot) { return netIsHost() && slot == netGetLocalSlot(); }
+
+/* the folder's row state at slot (gevr_mpoptions.c) */
+static s32 gevrSetupRows(s32 slot, u8 *ids, u8 *hostonly)
+{
+    GevrSetupState s;
+
+    s.mode = !gevrNetConfigPve() ? GEVR_SETUP_MODE_DEATHMATCH : gevrNetConfigCoop() ? GEVR_SETUP_MODE_COOP : GEVR_SETUP_MODE_HORDE;
+    s.host = gevrSetupHostSeat(slot);
+    s.playing = netGetPhase() == 2;
+    s.teams = lobbyTeams();
+    s.voting = lobbyVoting();
+    s.goldengun = !lobbyNotGoldenGun();
+    s.yolt = !lobbyNotYolt();
+    s.custom = lobbyCustomSet();
+    s.loadouts = lobbyLoadouts();
+    s.can_return = lobbyCanReturn();
+    s.split = netLocalSlotCount() > 1;
+    s.guest = netLocalSeatOfSlot(slot) > 0;
+    s.ally = lobbyAlly();
+    return gevrMpOptionsRowSet(&s, ids, hostonly);
+}
+
+/* whether slot can have the folder: an online deathmatch's or Horde run's local player, in a stage */
+s32 gevrMpOptionsAvailable(s32 slot)
+{
+    u8 ids[GEVR_SETUP_ROW_COUNT];
+    u8 hostonly[GEVR_SETUP_ROW_COUNT];
+
+    if (!netIsActive() || slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(slot) ||
+        g_playerPointers[slot] == NULL || bossGetStageNum() == LEVELID_TITLE || (gevrCoopActive() && !netHordeActive())) return 0;
+    return gevrSetupRows(slot, ids, hostonly) > 0;
+}
+
+/*
+ * The folder is a split screen's menu, in each player's own view. One player
+ * on the screen, flat or in a headset, has the full pause window instead,
+ * with the whole setup on it (owner, 2026-11-25, Quest: "it shows the small
+ * pause panel... it should show full panel if not in splitscreen").
+ */
+static s32 gevrMpOptionsAsMenu(void) { return netLocalSlotCount() > 1; }
+
+/* where the folder opens by itself (arriving, RETURN TO LOBBY, Horde's setup
+ * break): a split screen's folder, or one player's full pause window */
+static void gevrMpOptionsOrPause(s32 slot)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+
+    if (pl == NULL || pl->mpmenuon) return;
+    if (gevrMpOptionsAsMenu())
+    {
+        gevrMpOptionsOpen(slot, -1);
+        return;
+    }
+    pl->mpmenuon = TRUE;   /* the pause window shows over any page but the game's screens */
+    pl->mpmenumode = MENU_LOBBY;
+}
+
+s32 gevrMpOptionsIsOpen(s32 slot)
+{
+    struct player *pl;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    return pl != NULL && pl->mpmenuon && pl->mpmenumode == MENU_SETUP;
+}
+
+static void gevrSetupLine(GevrSetupLine *l, s32 id, const char *label, void (*value)(char *, s32), void (*step)(s32),
+                          s32 editable, s32 open)
+{
+    /* the watch's capitals in the folder's words */
+    static const char *const words[][2] = { { "ON", "On" }, { "OFF", "Off" }, { "NO VOTE", "No vote" }, { "NONE", "None" } };
+    u32 k;
+
+    l->id = id;
+    l->brief = NULL;
+    snprintf(l->label, sizeof(l->label), "%s", label);
+    l->value[0] = '\0';
+    if (value != NULL) value(l->value, sizeof(l->value));
+    for (k = 0; k < sizeof(words) / sizeof(words[0]); k++)
+    {
+        if (!strcmp(l->value, words[k][0])) snprintf(l->value, sizeof(l->value), "%s", words[k][1]);
+    }
+    l->step = step;
+    l->editable = editable != 0;
+    l->open = (u8)open;
+}
+
+/* a LOBBY row by its step, for a sheet's rows */
+static const GevrMenuRow *gevrLobbyRowOf(void (*step)(s32))
+{
+    u32 i;
+
+    for (i = 0; i < sizeof(s_lobbyRows) / sizeof(s_lobbyRows[0]); i++)
+    {
+        if (s_lobbyRows[i].step == step) return &s_lobbyRows[i];
+    }
+    return NULL;
+}
+
+static void rowSetupEmpty(char *b, s32 n) { if (n > 0) b[0] = '\0'; }
+static void rowMyLoadoutValue(char *b, s32 n)
+{
+    s32 me = menuActingSlot();
+    s32 k;
+    s32 any = 0;
+
+    for (k = 0; k < 4; k++) any |= gevrNetSlotLoadout(me, k) != 0;
+    snprintf(b, n, "%s", any ? netItemName(gevrNetSlotLoadout(me, 0)) : "NONE");
+}
+
+/* The sheet's lines for slot (its own player: menuActingSlot) and their count */
+static s32 gevrSetupLines(s32 slot, s32 sheet, GevrSetupLine *out)
+{
+    static void (*const customs[4])(s32) = { rowCustom0Step, rowCustom1Step, rowCustom2Step, rowCustom3Step };
+    static void (*const loadouts[4])(s32) = { rowLoadout0Step, rowLoadout1Step, rowLoadout2Step, rowLoadout3Step };
+    static void (*const bots[3])(s32) = { rowBotModeStep, rowBotCountStep, rowBotDiffStep };
+    static const char *const botLabels[3] = { "Bots:", "Bot Count:", "Difficulty:" };
+    const s32 host = gevrSetupHostSeat(slot);
+    char label[40];
+    s32 n = 0;
+    s32 i;
+
+    switch (sheet)
+    {
+        case SETUP_SHEET_CUSTOM:
+            for (i = 0; i < 4; i++)
+            {
+                const GevrMenuRow *r = gevrLobbyRowOf(customs[i]);
+                snprintf(label, sizeof(label), "Custom %d:", (int)i + 1);
+                if (r != NULL) gevrSetupLine(&out[n++], i, label, r->value, r->step, host, SETUP_OPEN_NONE);
+            }
+            return n;
+        case SETUP_SHEET_LOADOUT:
+            for (i = 0; i < 4; i++)
+            {
+                const GevrMenuRow *r = gevrLobbyRowOf(loadouts[i]);
+                snprintf(label, sizeof(label), "Gun %d:", (int)i + 1);
+                if (r != NULL) gevrSetupLine(&out[n++], i, label, r->value, r->step, 1, SETUP_OPEN_NONE);
+            }
+            return n;
+        case SETUP_SHEET_BOTS:
+            for (i = 0; i < 3; i++)
+            {
+                const GevrMenuRow *r = gevrLobbyRowOf(bots[i]);
+                if (r != NULL && gevrRowVisible(r)) gevrSetupLine(&out[n++], i, botLabels[i], r->value, r->step, host, SETUP_OPEN_NONE);
+            }
+            return n;
+        case SETUP_SHEET_SCENARIO:
+            for (i = 0; i < netScenarioCount() && n < SETUP_LINES; i++)
+            {
+                gevrSetupLine(&out[n++], i, netScenarioName(i), NULL, NULL, host && gevrNetScenarioAccepted(i), SETUP_OPEN_ACTION);
+            }
+            return n;
+        default:
+            break;
+    }
+    {
+        u8 ids[GEVR_SETUP_ROW_COUNT];
+        u8 hostonly[GEVR_SETUP_ROW_COUNT];
+        s32 count = gevrSetupRows(slot, ids, hostonly);
+
+        for (i = 0; i < count && n < SETUP_LINES; i++)
+        {
+            const s32 id = ids[i];
+            void (*step)(s32) = s_setupItems[id].step;
+            void (*value)(char *, s32) = rowSetupEmpty;
+            const GevrMenuRow *r = step != NULL ? gevrLobbyRowOf(step) : NULL;
+            const char *name = s_setupItems[id].label != NULL ? s_setupItems[id].label : (const char *)langGet(s_setupItems[id].text);
+            s32 editable = !hostonly[i] || host;
+
+            if (r != NULL) value = r->value;
+            switch (id)
+            {
+                case GEVR_SETUP_HEALTH:
+                    /* the host's: the match's health; anyone else's: their own */
+                    if (host) { value = rowHealthValue; step = rowHealthStep; }
+                    else { value = rowMyHealthValue; step = netSlotHandicapEditable(slot) ? rowMyHealthStep : NULL; }
+                    break;
+                case GEVR_SETUP_CUSTOM: value = rowSetupEmpty; break;
+                case GEVR_SETUP_LOADOUT: value = rowMyLoadoutValue; break;
+                case GEVR_SETUP_BOTS: value = rowBotModeValue; break;
+                case GEVR_SETUP_RETURN: value = rowReturnValue; break;
+                default: break;
+            }
+            gevrSetupLine(&out[n], id, name, value, step, editable, s_setupItems[id].open);
+            out[n++].brief = s_setupItems[id].brief;
+        }
+    }
+    return n;
+}
+
+/* the main sheet's cursor as an index (count: the START tab), from the row id kept */
+static s32 gevrSetupCursorIndex(s32 slot, s32 sheet, const GevrSetupLine *lines, s32 count)
+{
+    s32 c = s_setupCursor[slot][sheet];
+    s32 i;
+
+    if (sheet != SETUP_SHEET_MAIN) return c < 0 ? 0 : c >= count ? count - 1 : c;
+    if (c == SETUP_START_TAB) return count;
+    for (i = 0; i < count; i++)
+    {
+        if (lines[i].id == c) return i;
+    }
+    /* the row went (a scenario without it): the next one that stayed */
+    for (i = 0; i < count; i++)
+    {
+        if (lines[i].id > c) return i;
+    }
+    return count;
+}
+
+/* Horde's START tab is its setup break's: START WAVE for the host, WAITING FOR HOST elsewhere */
+static s32 gevrSetupHasStartTab(void) { return !netHordeActive() || netHordeSetupBreak(); }
+
+/* The START tab: the host's START MATCH (an empty warmup restarts with the
+ * changes), anyone else's READY; Horde's START WAVE (or the restart on the
+ * new map); whether it can be pressed now. A word may give a shorter form
+ * after a '|' for a short tab (front.c frontMpOptionsTab). */
+static const char *gevrSetupStartTab(s32 slot, s32 *usable)
+{
+    static char word[48];
+
+    if (netHordeActive())
+    {
+        *usable = gevrSetupHostSeat(slot) && netHordeHostCanStart();
+        if (!gevrSetupHostSeat(slot)) return "WAITING FOR HOST|WAITING|WAIT";
+        if (netHordeRestartPending()) return "RESTART ON NEW MAP|RESTART";
+        snprintf(word, sizeof(word), "START WAVE %d|WAVE %d", gevrNetConfigGet(CFG_HORDE_START_WAVE), gevrNetConfigGet(CFG_HORDE_START_WAVE));
+        return word;
+    }
+    if (gevrSetupHostSeat(slot))
+    {
+        *usable = lobbyCanStart();
+        return (const char *)langGet(getStringID(LTITLE, TITLE_STR_04_START));
+    }
+    /* a team scenario's player readies once on a team (net_core.c netLobbySetReadySlot) */
+    *usable = netSlotReady(slot) || !lobbyTeams() || netGetSlotTeam(slot) != NET_TEAM_NONE;
+    return "READY";
+}
+
+static void gevrSetupStartPress(s32 slot)
+{
+    s32 usable;
+
+    gevrSetupStartTab(slot, &usable);
+    if (!usable)
+    {
+        mpwatchPlayBeep();
+        return;
+    }
+    if (netHordeActive()) rowHordeStartStep(0);
+    else if (gevrSetupHostSeat(slot)) rowStartStep(0);
+    else netLobbySetReadySlot(slot, !netSlotReady(slot));
+    frontPanelChosenSound();
+}
+
+/*
+ * The line along the bottom: what START does now, the countdown, the lobby
+ * code. A pad's START presses the START tab; the headset's Menu leaves the
+ * folder (input.c), so there it is the tab, reached with the stick and A.
+ */
+static void gevrSetupInfo(s32 slot, char *b, s32 n, s32 narrow)
+{
+    const char *code = netGetLobbyCode();
+    const char *go = g_gevrStereo ? "START TAB: " : "START: ";
+    char state[64];
+    s32 secs = netCountdownSecondsLeft();
+
+    if (netHordeActive())
+    {
+        const s32 wave = gevrNetConfigGet(CFG_HORDE_START_WAVE);
+
+        if (!netHordeSetupBreak())
+        {
+            /* a run under way: the host's changes wait for Retry Horde */
+            snprintf(state, sizeof(state), "%s", gevrSetupHostSeat(slot) ? (narrow ? "NEXT RUN" : "CHANGES APPLY ON RETRY") : "");
+        }
+        else if (!gevrSetupHostSeat(slot))
+        {
+            snprintf(state, sizeof(state), "%s", "WAITING FOR HOST");
+        }
+        else if (netHordeRestartPending())
+        {
+            snprintf(state, sizeof(state), "%s%s", go, narrow ? "NEW MAP" : "RESTART ON THE NEW MAP");
+        }
+        else if (narrow)
+        {
+            snprintf(state, sizeof(state), "%sWAVE %d", go, (int)wave);
+        }
+        else
+        {
+            snprintf(state, sizeof(state), "%sBEGIN WAVE %d", go, (int)wave);
+        }
+    }
+    else if (secs > 0)
+    {
+        snprintf(state, sizeof(state), narrow || !gevrSetupHostSeat(slot) ? "STARTING IN %d" : "STARTING IN %d - CHANGES UN-READY ALL", (int)secs);
+    }
+    else if (gevrSetupHostSeat(slot))
+    {
+        const char *what = netGetPhase() == 2 ? NULL
+                           : netGetConnectedPlayerCount() == 1 ? (narrow ? "RESTART" : "RESTART WARMUP WITH CHANGES")
+                           : netHostStartRequested() ? NULL
+                           /* a START with changes reloads the warmup first (net_core.c netTryHostStartRequest) */
+                           : netWarmupSettingsPending() ? (narrow ? "LOAD" : "LOAD THE CHANGES INTO THE WARMUP")
+                           : netRoundRosterReady() ? (narrow ? "MATCH" : "BEGIN THE MATCH")
+                           : (narrow ? "ASK READY" : "REQUEST READY");
+
+        if (what != NULL) snprintf(state, sizeof(state), "%s%s", go, what);
+        else snprintf(state, sizeof(state), "%s", netGetPhase() == 2 ? (narrow ? "NEXT ROUND" : "CHANGES APPLY NEXT ROUND") : "WAITING FOR READY");
+    }
+    else if (netSlotReady(slot))
+    {
+        snprintf(state, sizeof(state), "%s", narrow ? "READY" : "READY - WAITING FOR THE HOST");
+    }
+    else
+    {
+        s32 usable;
+        gevrSetupStartTab(slot, &usable);
+        if (!usable) snprintf(state, sizeof(state), "%s", narrow ? "CHOOSE A TEAM" : "CHOOSE A TEAM, THEN READY");
+        else if (netGetPhase() == 2 && narrow) snprintf(state, sizeof(state), "%s", "NEXT ROUND");
+        else snprintf(state, sizeof(state), "%s%s", go, netGetPhase() == 2 ? "READY FOR THE NEXT ROUND" : narrow ? "READY" : "READY UP");
+    }
+    if (!narrow && code != NULL && code[0]) snprintf(b, n, state[0] ? "%s   CODE %s" : "%sCODE %s", state, code);
+    else snprintf(b, n, "%s", state);
+}
+
+void gevrMpOptionsOpen(s32 slot, s32 from)
+{
+    struct player *pl;
+
+    if (!gevrMpOptionsAvailable(slot)) return;
+    pl = g_playerPointers[slot];
+    s_setupSheet[slot] = SETUP_SHEET_MAIN;
+    s_setupFrom[slot] = from;
+    s_setupArmed[slot] = 0;
+    s_setupLeaving[slot] = 0;
+    s_setupOwed[slot] = 0;
+    s_setupStartQueued[slot] = 0;
+    s_panelToSetup[slot] = 0;
+    frontPanelPadReset(slot);
+    pl->mpmenuon = TRUE;
+    pl->mpmenumode = MENU_SETUP;
+    pl->mpjoywascentre = 1;
+}
+
+/* back: to the page it came from (or closed); else closed */
+static void gevrMpOptionsClose(s32 slot, s32 back)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+
+    if (pl == NULL) return;
+    s_setupLeaving[slot] = 0;
+    if (back && s_setupFrom[slot] >= 0)
+    {
+        pl->mpmenumode = s_setupFrom[slot];
+        return;
+    }
+    pl->mpmenuon = FALSE;   /* into the match */
+    pl->mpmenumode = MENU_STATUS;
+    pl->healthdisplaytime = 0;
+}
+
+/* A sheet's row's screen or sheet; whether one opened */
+static s32 gevrSetupOpen(s32 slot, const GevrSetupLine *l)
+{
+    struct player *pl = g_playerPointers[slot];
+
+    switch (l->open)
+    {
+        case SETUP_OPEN_SCENARIO:
+            if (!l->editable) return 0;
+            s_setupSheet[slot] = SETUP_SHEET_SCENARIO;
+            s_setupCursor[slot][SETUP_SHEET_SCENARIO] = gevrNetConfigGet(CFG_SCENARIO);
+            return 1;
+        case SETUP_OPEN_CUSTOM:
+        case SETUP_OPEN_BOTS:
+        case SETUP_OPEN_LOADOUT:
+            /* the host's sheets read-only elsewhere */
+            s_setupSheet[slot] = l->open == SETUP_OPEN_CUSTOM ? SETUP_SHEET_CUSTOM : l->open == SETUP_OPEN_BOTS ? SETUP_SHEET_BOTS : SETUP_SHEET_LOADOUT;
+            s_setupCursor[slot][s_setupSheet[slot]] = 0;
+            return 1;
+        case SETUP_OPEN_STAGES:
+        case SETUP_OPEN_VOTE:
+            if (!l->editable) return 0;
+            gevrStageSelOpen(slot, l->open == SETUP_OPEN_VOTE);
+            if (!gevrStageSelIsOpen(slot)) return 0;
+            break;
+        case SETUP_OPEN_CHARSEL:
+            gevrCharSelOpen(slot, 0);
+            if (!gevrCharSelIsOpen(slot)) return 0;
+            break;
+        case SETUP_OPEN_HANDICAP:
+            gevrHandicapOpen(slot);
+            if (!gevrHandicapIsOpen(slot)) return 0;
+            break;
+        case SETUP_OPEN_TEAMS:
+            gevrTeamSelOpen(slot);
+            if (!gevrTeamSelIsOpen(slot)) return 0;
+            break;
+        case SETUP_OPEN_FULLMENU:
+            /* one player: the pause window (any page but the game's screens); a split screen's first seat: the full panel */
+            if (netLocalSlotCount() > 1) gevrNativePauseOpenPanel();
+            else if (pl != NULL) pl->mpmenumode = MENU_LOBBY;
+            return 1;
+        default:
+            return 0;
+    }
+    s_panelToSetup[slot] = 1;   /* the screen comes back here */
+    return 1;
+}
+
+/* The folder's frame for the player ticking; whether it had the pad */
+static s32 gevrMpOptionsTick(s32 player_num)
+{
+    GevrSetupLine lines[SETUP_LINES];
+    s32 sheet;
+    s32 count;
+    s32 total;
+    s32 cursor;
+    s32 result;
+    s32 queued;
+    s32 tab;
+    s32 dx;
+    s32 dy;
+
+    if (!gevrMpOptionsIsOpen(player_num)) return 0;
+    if (!gevrMpOptionsAvailable(player_num))
+    {
+        gevrMpOptionsClose(player_num, 0);
+        return 0;
+    }
+    if (!s_setupArmed[player_num])
+    {
+        if (gevrPanelHeld(player_num)) return 1;
+        s_setupArmed[player_num] = 1;
+        frontPanelPadReset(player_num);
+    }
+    if (s_setupLeaving[player_num])
+    {
+        if (!gevrPanelHeld(player_num)) gevrMpOptionsClose(player_num, 1);
+        return 1;
+    }
+    sheet = s_setupSheet[player_num];
+    count = gevrSetupLines(player_num, sheet, lines);
+    if (sheet != SETUP_SHEET_MAIN && count == 0)
+    {
+        s_setupSheet[player_num] = SETUP_SHEET_MAIN;   /* the bots' sheet once a round starts */
+        return 1;
+    }
+    tab = sheet == SETUP_SHEET_MAIN && gevrSetupHasStartTab();
+    total = count + tab;
+    cursor = gevrSetupCursorIndex(player_num, sheet, lines, count);
+    if (cursor >= total) cursor = total - 1;   /* Horde's tab went with the setup break */
+    queued = s_setupStartQueued[player_num];
+    s_setupStartQueued[player_num] = 0;
+    if (sheet == SETUP_SHEET_MAIN && (queued || joyGetButtonsPressedThisFrame(player_num, START_BUTTON)))
+    {
+        if (!tab)
+        {
+            /* no START tab (a Horde run under way): START leaves, as it leaves the watch */
+            mpwatchPlayBeep();
+            gevrMpOptionsClose(player_num, 0);
+            return 1;
+        }
+        s_setupCursor[player_num][sheet] = SETUP_START_TAB;
+        gevrSetupStartPress(player_num);
+        return 1;
+    }
+    result = frontPanelPad(player_num, &dx, &dy);
+    if (result < 0)
+    {
+        mpwatchPlayBeep();
+        if (sheet != SETUP_SHEET_MAIN) s_setupSheet[player_num] = SETUP_SHEET_MAIN;
+        else s_setupLeaving[player_num] = 1;
+        return 1;
+    }
+    if (dy != 0 && total > 0)
+    {
+        cursor = gevrCycled(cursor, dy, total);
+        mpwatchPlayBeep();
+    }
+    if (cursor < count && dx != 0 && lines[cursor].editable && lines[cursor].step != NULL &&
+        lines[cursor].open != SETUP_OPEN_ACTION)
+    {
+        lines[cursor].step(dx);
+        mpwatchPlayBeep();
+    }
+    else if (cursor < count && dx != 0)
+    {
+        mpwatchPlayBeep();
+    }
+    if (sheet == SETUP_SHEET_MAIN) s_setupCursor[player_num][sheet] = cursor < count ? lines[cursor].id : SETUP_START_TAB;
+    else s_setupCursor[player_num][sheet] = cursor;
+    if (result > 0)
+    {
+        const GevrSetupLine *l = cursor < count ? &lines[cursor] : NULL;
+
+        if (l == NULL)
+        {
+            gevrSetupStartPress(player_num);
+        }
+        else if (sheet == SETUP_SHEET_SCENARIO)
+        {
+            /* the list: a scenario the match can take, then back to the folder */
+            if (!l->editable)
+            {
+                mpwatchPlayBeep();
+                return 1;
+            }
+            gevrNetConfigSet(CFG_SCENARIO, l->id);
+            frontPanelChosenSound();
+            s_setupSheet[player_num] = SETUP_SHEET_MAIN;
+        }
+        else if (l->open == SETUP_OPEN_ACTION)
+        {
+            if (l->editable && l->step != NULL)
+            {
+                l->step(0);
+                frontPanelChosenSound();
+            }
+            else mpwatchPlayBeep();
+        }
+        else if (l->open != SETUP_OPEN_NONE)
+        {
+            if (gevrSetupOpen(player_num, l))
+            {
+                mpwatchPlayBeep();
+                s_setupArmed[player_num] = 0;   /* back from a sheet or a screen: the press that opened it is not the next choice */
+            }
+            else
+            {
+                mpwatchPlayBeep();
+            }
+        }
+        else if (l->editable && l->step != NULL)
+        {
+            l->step(1);   /* A steps the value forward, as the original's A cycled the game length and the weapons */
+            mpwatchPlayBeep();
+        }
+        else
+        {
+            mpwatchPlayBeep();
+        }
+    }
+    return 1;
+}
+
+static Gfx *gevrMpOptionsDraw(Gfx *gdl, s32 slot)
+{
+    static const char *const titles[SETUP_SHEET_COUNT] = { NULL, "Custom Weapons", "Bots", "Your Loadout", NULL };
+    GevrSetupLine lines[SETUP_LINES];
+    FrontOptionRow rows[SETUP_LINES];
+    char info[96];
+    const char *start = NULL;
+    s32 usable = 1;
+    s32 sheet = s_setupSheet[slot];
+    s32 count = gevrSetupLines(slot, sheet, lines);
+    s32 cursor = gevrSetupCursorIndex(slot, sheet, lines, count);
+    s32 i;
+    s32 x;
+    s32 y;
+    s32 w;
+    s32 h;
+
+    if (sheet == SETUP_SHEET_MAIN && !gevrSetupHasStartTab() && cursor >= count) cursor = count - 1;
+    gevrMenuPanelRect(&x, &y, &w, &h);
+    gevrSetupInfo(slot, info, sizeof(info), w < 220);
+    if (sheet == SETUP_SHEET_SCENARIO)
+    {
+        const char *names[SETUP_LINES];
+        u8 eligible[SETUP_LINES];
+
+        for (i = 0; i < count; i++)
+        {
+            names[i] = lines[i].label;
+            eligible[i] = lines[i].editable;
+        }
+        return frontScenarioSelectDraw(gdl, slot, names, eligible, count, cursor, gevrNetConfigGet(CFG_SCENARIO), info, x, y, w, h);
+    }
+    for (i = 0; i < count; i++)
+    {
+        /* a quarter view (the layout's compact, front.c frontMpOptionsLayout): the short labels */
+        rows[i].label = w < 220 && lines[i].brief != NULL ? lines[i].brief : lines[i].label;
+        rows[i].value = lines[i].value;
+        rows[i].dim = !lines[i].editable;   /* the host's, at another seat: the original's locked row */
+        rows[i].more = lines[i].open != SETUP_OPEN_NONE && lines[i].open != SETUP_OPEN_ACTION;
+    }
+    if (sheet == SETUP_SHEET_MAIN && gevrSetupHasStartTab()) start = gevrSetupStartTab(slot, &usable);
+    return frontMpOptionsDraw(gdl, slot, titles[sheet], rows, count, cursor, start, !usable, info, x, y, w, h);
+}
+
+/*
+ * Every frame for each local player: in the warmup, a player at the folder
+ * (or a screen it opened) waits held and unhurt, as a drop-in choosing a
+ * character does; let go when they leave it or the round begins.
+ */
+static void gevrMpOptionsHoldTick(s32 slot)
+{
+    s32 want = 0;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    if (netIsActive() && gevrNetSlotIsLocalHuman(slot) && netGetPhase() == 1 && !gevrNetConfigPve())
+    {
+        want = gevrMpOptionsIsOpen(slot) || (gevrMenuPanelIsOpen(slot) && s_panelToSetup[slot]);
+    }
+    if (want)
+    {
+        netSetSlotChoosing(slot, 1);
+        s_setupHeld[slot] = 1;
+    }
+    else if (s_setupHeld[slot])
+    {
+        s_setupHeld[slot] = 0;
+        if (!(gevrCharSelIsOpen(slot) && s_charSelDropIn[slot])) netSetSlotChoosing(slot, 0);
+    }
+}
+
+/*
+ * The folder opens by itself (owner, 2026-11-24): on arriving in the match
+ * (the first warmup this machine loads after hosting or joining it) and after
+ * the host's RETURN TO LOBBY, for each local player; and when the host asks
+ * for the next round's votes, on NEXT MAP for each one who has not voted
+ * yet (at a match's end once they leave the results: right or START there).
+ * Not every warmup between rounds: the round notice says what is wanted.
+ */
+static unsigned s_setupSession;   /* net_core.c netSessionCount: the session the openings below are for */
+static unsigned s_setupLoads;     /* the stage load count an owed opening waits to pass */
+static unsigned s_setupReturns;   /* netLobbyReturnCount seen */
+static s32 s_setupVote;           /* netVoteRequested seen */
+
+static void gevrSetupOweAll(unsigned loads)
+{
+    s32 i;
+
+    s_setupLoads = loads;
+    for (i = 0; i < MAX_PLAYER_COUNT; i++) s_setupOwed[i] = gevrNetSlotIsLocalHuman(i) != 0;
+}
+
+/* the vote's folder, on NEXT MAP; over another page of the watch (PREVIOUS goes back to it), not over a game screen */
+static void gevrMpOptionsVoteOpen(s32 slot)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+
+    if (pl == NULL || !gevrMpOptionsAvailable(slot)) return;
+    if (!gevrMpOptionsAsMenu())
+    {
+        gevrMpOptionsOrPause(slot);   /* one player: the pause window's Match tab has the vote */
+        return;
+    }
+    if (gevrMenuPanelIsOpen(slot) && !gevrMpOptionsIsOpen(slot)) return;
+    if (!gevrMpOptionsIsOpen(slot)) gevrMpOptionsOpen(slot, pl->mpmenuon ? pl->mpmenumode : -1);
+    if (!gevrMpOptionsIsOpen(slot)) return;
+    s_setupSheet[slot] = SETUP_SHEET_MAIN;
+    s_setupCursor[slot][SETUP_SHEET_MAIN] = GEVR_SETUP_NEXT_MAP;
+}
+
+/*
+ * Horde: each local player's folder opens by itself in a run's setup break
+ * (the first wave waits for the host's START WAVE): on arriving, and after
+ * Retry Horde or a restart on another map lands in a new one; once per stage
+ * load, so a player who leaves it plays on. START WAVE ends the break: the
+ * folders close for the countdown to the first wave (a game screen opened
+ * from one stays, its player choosing).
+ */
+static unsigned s_setupHordeLoads;   /* the stage load whose setup break owed its openings */
+static s32 s_setupHordeBreak;        /* netHordeSetupBreak seen */
+
+static void gevrMpOptionsHordeAutoTick(s32 slot)
+{
+    struct player *pl;
+    s32 brk = netHordeSetupBreak();
+    s32 i;
+
+    if (netSessionCount() != s_setupSession)
+    {
+        s_setupSession = netSessionCount();
+        s_setupHordeLoads = netStageLoadCount() - 1;
+        s_setupHordeBreak = 0;
+    }
+    if (s_setupHordeBreak && !brk)
+    {
+        for (i = 0; i < MAX_PLAYER_COUNT; i++)
+        {
+            s_setupOwed[i] = 0;
+            if (gevrNetSlotIsLocalHuman(i) && gevrMpOptionsIsOpen(i)) gevrMpOptionsClose(i, 0);
+        }
+    }
+    s_setupHordeBreak = brk;
+    if (netHordeSetupBreak() && netStageLoadCount() != s_setupHordeLoads)
+    {
+        s_setupHordeLoads = netStageLoadCount();
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) s_setupOwed[i] = gevrNetSlotIsLocalHuman(i) != 0;
+    }
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !s_setupOwed[slot]) return;
+    pl = g_playerPointers[slot];
+    if (pl == NULL || pl->bonddead || !netHordeSetupBreak()) return;
+    s_setupOwed[slot] = 0;
+    gevrMpOptionsOrPause(slot);
+}
+
+static void gevrMpOptionsAutoTick(s32 slot)
+{
+    struct player *pl;
+    s32 vote;
+    s32 i;
+
+    if (!netIsActive()) return;
+    if (netHordeActive())
+    {
+        gevrMpOptionsHordeAutoTick(slot);
+        return;
+    }
+    if (gevrNetConfigPve()) return;
+    if (netSessionCount() != s_setupSession)
+    {
+        /* arriving: the stage loaded now counts (or, joining a round, the next warmup's) */
+        s_setupSession = netSessionCount();
+        s_setupReturns = netLobbyReturnCount();
+        s_setupVote = netVoteRequested();
+        gevrSetupOweAll(netStageLoadCount() - 1);
+    }
+    if (netLobbyReturnCount() != s_setupReturns)
+    {
+        s_setupReturns = netLobbyReturnCount();
+        gevrSetupOweAll(netStageLoadCount());   /* after the reload into the lobby's warmup */
+    }
+    vote = netVoteRequested();
+    if (vote != s_setupVote)
+    {
+        s_setupVote = vote;
+        for (i = 0; vote && !g_gameOverFlag && i < MAX_PLAYER_COUNT; i++)
+        {
+            if (gevrNetSlotIsLocalHuman(i) && netGetVote(0, i) < 0) gevrMpOptionsVoteOpen(i);
+        }
+    }
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !s_setupOwed[slot]) return;
+    pl = g_playerPointers[slot];
+    /* the first frame of a warmup past that load, the player alive (a round in progress: still owed) */
+    if (pl == NULL || netStageLoadCount() == s_setupLoads || netGetPhase() != 1 || pl->bonddead || g_gameOverFlag) return;
+    s_setupOwed[slot] = 0;
+    gevrMpOptionsOrPause(slot);
+}
+
+/* the results of a match: right (or START, but the host's, which continues) leaves them for the folder, on NEXT MAP while voting */
+static s32 gevrMpOptionsFromResults(s32 slot)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+
+    if (pl == NULL || !g_gameOverFlag || pl->mpmenumode != MENU_SCORES || !gevrMpOptionsAvailable(slot) || !gevrMpOptionsAsMenu()) return 0;
+    if (!mpwatchIsPlayerPressingRight(slot) &&
+        !(joyGetButtonsPressedThisFrame(slot, START_BUTTON) && !gevrSetupHostSeat(slot))) return 0;
+    mpwatchPlayBeep();
+    gevrMpOptionsOpen(slot, MENU_SCORES);
+    if (lobbyVoting()) s_setupCursor[slot][SETUP_SHEET_MAIN] = GEVR_SETUP_NEXT_MAP;
+    return gevrMpOptionsIsOpen(slot);
+}
+
+/* A split screen's new seat (input.c): in the warmup (Horde: the setup break),
+ * the folder on its Select Character, which comes back to it; in a round,
+ * Select Character as a drop-in */
+void gevrMpOptionsDropIn(s32 slot)
+{
+    if ((netHordeActive() ? netHordeSetupBreak() : netGetPhase() == 1) && gevrMpOptionsAvailable(slot))
+    {
+        gevrMpOptionsOpen(slot, -1);
+        s_setupCursor[slot][SETUP_SHEET_MAIN] = GEVR_SETUP_CHARACTER;
+        gevrCharSelOpen(slot, 0);
+        if (gevrCharSelIsOpen(slot))
+        {
+            s_panelToSetup[slot] = 1;
+            return;
+        }
+    }
+    gevrCharSelOpen(slot, 1);
+}
+
+/* the pause window's Match tab (vr_pause_menu.cpp): PREVIOUS comes back to the window, a page of the watch */
+void gevrMpOptionsFromPause(s32 slot) { gevrMpOptionsOpen(slot, MENU_LOBBY); }
+
+/* START with the watch closed (mpwatchMenuTick; the headset's Menu, input.c): in
+ * an online deathmatch's warmup the folder opens, and in a Horde run's setup
+ * break, or at any time with a split screen (Horde has no LOBBY page: the
+ * folder is each player's menu); whether it did */
+s32 gevrMpOptionsStartPressed(s32 slot)
+{
+    if (!gevrMpOptionsAvailable(slot) || !gevrMpOptionsAsMenu()) return 0;   /* one player: the pause window */
+    if (netHordeActive() ? !netHordeSetupBreak() && netLocalSlotCount() < 2 : netGetPhase() != 1) return 0;
+    gevrMpOptionsOpen(slot, -1);
+    return gevrMpOptionsIsOpen(slot);
+}
+
+/* Horde (input.c): a pad's START, which the campaign watch must not see, for the folder up at slot: its START tab */
+void gevrMpOptionsQueueStart(s32 slot)
+{
+    if (slot >= 0 && slot < MAX_PLAYER_COUNT && gevrMpOptionsIsOpen(slot)) s_setupStartQueued[slot] = 1;
+}
+
 /* A on the LOBBY page: the selected action row */
 static s32 gevrMenuPageAction(void)
 {
@@ -600,7 +2393,36 @@ static s32 gevrMenuPageAction(void)
     const GevrMenuRow *r;
     if (page == NULL) return 0;
     gevrPageMoveCursor(page, 0);
+    gevrMenuPageSave(g_CurrentPlayer->mpmenumode, page);
     r = &page->rows[page->cursor];
+    if (r->step == rowCharacterStep && gevrRowVisible(r))
+    {
+        /* A on CHARACTER: the portraits (the stick still steps the name) */
+        gevrCharSelOpen(menuActingSlot(), 0);
+        mpwatchPlayBeep();
+        return 1;
+    }
+    if ((r->step == rowMyHealthStep || r->step == rowTeamStep) && gevrRowVisible(r))
+    {
+        /* A on YOUR HEALTH or YOUR TEAM: the game's Handicap or Teams screen (the stick still steps the row) */
+        if (r->step == rowMyHealthStep) gevrHandicapOpen(menuActingSlot());
+        else gevrTeamSelOpen(menuActingSlot());
+        if (gevrHandicapIsOpen(menuActingSlot()) || gevrTeamSelIsOpen(menuActingSlot()))
+        {
+            mpwatchPlayBeep();
+            return 1;
+        }
+    }
+    if ((r->step == rowMapStep || r->step == rowNextMapStep || r->step == rowHordeMapStep) && gevrRowVisible(r) && gevrRowEditable(r))
+    {
+        /* A on MAP or HORDE MAP (the host) or NEXT MAP (the vote): the photos (the stick still steps the row) */
+        gevrStageSelOpen(menuActingSlot(), r->step == rowNextMapStep);
+        if (gevrStageSelIsOpen(menuActingSlot()))
+        {
+            mpwatchPlayBeep();
+            return 1;
+        }
+    }
     if (!gevrRowVisible(r) || !gevrRowEditable(r) || r->kind != GEVR_ROW_ACTION || r->step == NULL) return 0;
     r->step(0);
     mpwatchPlayBeep();
@@ -628,10 +2450,21 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     /* Scores and status have their own pages; audio and lobby rows start at the top. */
     shown = g_CurrentPlayer->mpmenumode == MENU_PAUSE ? page->count : GEVR_MENU_ROWS_SHOWN;
     y0 = 37;
+    /*
+     * As many rows as the view holds above the legend. A split screen's view
+     * is about 110 high, and eight rows and the legend (150) ran past its
+     * foot, the legend unseen; the rest scroll, the legend's arrows show it.
+     */
+    {
+        s32 room = viGetViewTop() + viGetViewHeight() - (menu_top + y0 + MPMENU_YOFF) - 14;
+        s32 fit = room / 13;
+        if (fit < 1) fit = 1;
+        if (shown > fit) shown = fit;
+    }
     gevrPageMoveCursor(page, 0);
     for (i = 0; i < page->count && nvis < 32; i++)
     {
-        if (gevrRowVisible(&page->rows[i]))
+        if (gevrPageRowVisible(page, i))
         {
             if (i == page->cursor) ci = nvis;
             vis[nvis++] = i;
@@ -641,6 +2474,7 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     if (page->scroll < ci - shown + 1) page->scroll = ci - shown + 1;
     if (page->scroll > nvis - shown) page->scroll = nvis - shown;
     if (page->scroll < 0) page->scroll = 0;
+    gevrMenuPageSave(g_CurrentPlayer->mpmenumode, page);
 
     for (i = 0; i < shown && page->scroll + i < nvis; i++)
     {
@@ -652,7 +2486,15 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
         snprintf(label, sizeof(label), "%s%s %s%s", selected ? "> " : "  ", r->name, value, selected ? " <" : "");
         gevrUpper(label);
         textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        if (textwidth > viGetViewWidth() - 4)
+        {
+            /* a quarter of the screen: without the cursor's marks (its colour still shows it) */
+            snprintf(label, sizeof(label), "%s %s", r->name, value);
+            gevrUpper(label);
+            textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        }
         x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+        if (x < viGetViewLeft() + 2) x = viGetViewLeft() + 2;
         y = menu_top + y0 + i * 13 + MPMENU_YOFF;
         gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic,
                          dim ? 0x00ff0080 : selected ? 0xa0ffa0f0 : 0x00ff00b0, viGetX(), viGetY(), 0, 0);
@@ -662,7 +2504,15 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     snprintf(label, sizeof(label), "%sL-STICK:ROW  %s%s", page->scroll > 0 ? "^ " : "",
              gevrRowEditable(sel) ? sel->hint : "HOST ONLY", page->scroll + shown < nvis ? " v" : "");
     textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    if (textwidth > viGetViewWidth() - 4)
+    {
+        /* a quarter of the screen holds only the row's own hint (moving the cursor needs none) */
+        snprintf(label, sizeof(label), "%s%s%s", page->scroll > 0 ? "^ " : "",
+                 gevrRowEditable(sel) ? sel->hint : "HOST ONLY", page->scroll + shown < nvis ? " v" : "");
+        textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    }
     x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+    if (x < viGetViewLeft() + 2) x = viGetViewLeft() + 2;
     y = menu_top + y0 + shown * 13 + 2 + MPMENU_YOFF;
     gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viGetX(), viGetY(), 0, 0);
     return gdl;
@@ -679,15 +2529,25 @@ static int gevrPauseGroup(const GevrMenuRow *r)
 {
     const char *n=r->name;
     if (!strcmp(n,"NEXT ROUND") || !strcmp(n,"NEXT MAP") || !strcmp(n,"NEXT WEAPONS") || !strcmp(n,"MAP") || !strcmp(n,"WEAPONS") || !strcmp(n,"SCENARIO")) return GEVR_PAUSE_MATCH;
-    if (!strcmp(n,"NEXT ROUND READY") || !strcmp(n,"YOUR TEAM") || !strcmp(n,"CHARACTER") || !strncmp(n,"LOADOUT ",8) || !strcmp(n,"FAV MAP") || !strcmp(n,"FAV SET")) return GEVR_PAUSE_PLAYER;
+    if (!strcmp(n,"HORDE MAP") || !strcmp(n,"STARTING WAVE")) return GEVR_PAUSE_MATCH;
+    if (!strcmp(n,"NEXT ROUND READY") || !strcmp(n,"YOUR TEAM") || !strcmp(n,"YOUR HEALTH") || !strcmp(n,"CHARACTER") || !strncmp(n,"LOADOUT ",8) || !strcmp(n,"FAV MAP") || !strcmp(n,"FAV SET")) return GEVR_PAUSE_PLAYER;
     if (!strcmp(n,"MUSIC") || !strcmp(n,"SFX") || !strcmp(n,"VOICE") || !strcmp(n,"VOICE MODE") || !strcmp(n,"MIC")) return GEVR_PAUSE_AUDIO;
     return GEVR_PAUSE_RULES;
+}
+/* Co-op's and Horde's own rows (the host's): Horde's map and first wave on
+ * Match, friendly fire and the AI ally on Rules (the launcher's PvE options) */
+static int gevrPausePveRow(const GevrMenuRow *r)
+{
+    return r->step == rowHordeMapStep || r->step == rowHordeWaveStep || r->step == rowAllyStep ||
+           (r->step == rowFriendlyFireStep && r->visible == lobbyFriendlyFire);
 }
 /* field, choice count, and current index for the game's own named choices */
 static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
 {
     const char *n=r->name; int field=-1,count=0;
     if (!strcmp(n,"MAP")) { *selected=netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE)); return netStageCount(); }
+    if (!strcmp(n,"HORDE MAP")) { *selected=netStageIndexOf((u8)gevrNetConfigGet(CFG_HORDE_STAGE)); return netHordeStageCount(); }
+    if (!strcmp(n,"STARTING WAVE")) { *selected=gevrNetConfigGet(CFG_HORDE_START_WAVE)-1; return NET_HORDE_MAX_START_WAVE; }
     if (!strcmp(n,"NEXT MAP")) { *selected=netGetVote(0,netGetLocalSlot())+1; return netStageCount()+1; }
     if (!strcmp(n,"NEXT WEAPONS")) { *selected=netGetVote(1,netGetLocalSlot())+1; return netWeaponSetCount()+1; }
     if (!strcmp(n,"PLAYERS")) { *selected=gevrNetConfigGet(CFG_MAX_PLAYERS)-2; return 7; }
@@ -696,6 +2556,7 @@ static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
     if (!strcmp(n,"BOT DIFFICULTY")) {field=CFG_BOT_DIFFICULTY;count=NET_BOT_DIFF_COUNT;}
     if (!strcmp(n,"CHARACTER")) { *selected=gevrNetSlotChr(netGetLocalSlot()); return netCharacterCount(); }
     if (!strcmp(n,"YOUR TEAM")) { *selected=netGetSlotTeam(netGetLocalSlot()); return 3; }
+    if (!strcmp(n,"YOUR HEALTH")) { *selected=netSlotHandicapIndex(netGetLocalSlot()); return netHealthCount(); }
     if (!strncmp(n,"LOADOUT ",8)) { *selected=netItemIndexOf(gevrNetSlotLoadout(netGetLocalSlot(),n[8]-'1')); return netItemCount(); }
     if (!strncmp(n,"CUSTOM ",7)) { *selected=netItemIndexOf(gevrNetConfigGet(CFG_CUSTOM0+n[7]-'1')); return netItemCount(); }
     if (!strcmp(n,"WEAPONS")) {field=CFG_WEAPON_SET;count=netWeaponSetCount();}
@@ -716,12 +2577,26 @@ static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
     if(field>=0) *selected=gevrNetConfigGet(field);
     return count;
 }
+/*
+ * The match's rows the Multiplayer Options folder holds (an online
+ * deathmatch's, a Horde run's): the pause window leaves them to it, opened
+ * from its Match and Player tabs (vr_pause_menu.cpp GEVR_PAUSE_SETUP), and
+ * keeps the votes, READY and the favorites (the LOBBY page's quick rows), its
+ * own rules (host equalization, the fun rules, movement speed) and the audio.
+ * Co-op has no folder: its rows stay.
+ */
+static int gevrPauseInFolder(int id, const GevrMenuRow *r)
+{
+    if (id >= 100 || gevrLobbyQuickRow(r) || r->step == rowFavMapStep || r->step == rowFavSetStep) return 0;
+    return gevrMpOptionsAsMenu() && gevrMpOptionsAvailable(netGetLocalSlot());   /* one player: the window has them all */
+}
 int gevrPauseReadField(int tab,int index,GevrPauseField *out)
 {
     int seen=0;
     for(int id=0;id<200+(int)(sizeof(s_funRows)/sizeof(s_funRows[0]));id++) {
         const GevrMenuRow *r=gevrPauseRow(id);if(!r || r->kind==GEVR_ROW_ACTION || gevrPauseGroup(r)!=tab || !gevrRowVisible(r)) continue;
-        if(gevrCoopActive()) {
+        if(gevrPauseInFolder(id,r)) continue;
+        if(gevrCoopActive() && !gevrPausePveRow(r)) {
             /* Campaign rules come from the mission: no deathmatch ballots, teams or kits. */
             if(tab==GEVR_PAUSE_MATCH || (tab==GEVR_PAUSE_PLAYER && strcmp(r->name,"CHARACTER")) ||
                (tab==GEVR_PAUSE_RULES && id<100)) continue;
@@ -750,7 +2625,8 @@ const char *gevrPauseChoice(int id,int index)
     if(!strcmp(n,"BOT COUNT")) { const char*names[]={"1","2","3","4","5","6","7"};return names[index]; }
     if(!strcmp(n,"BOTS"))return netBotModeName(index);
     if(!strcmp(n,"BOT DIFFICULTY"))return netBotDifficultyName(index);
-    if(!strcmp(n,"MAP"))return netStageName(index);
+    if(!strcmp(n,"MAP") || !strcmp(n,"HORDE MAP"))return netStageName(index);
+    if(!strcmp(n,"STARTING WAVE")) { static char wave[16];snprintf(wave,sizeof(wave),"%d",index+1);return wave; }
     if(!strcmp(n,"WEAPONS"))return netWeaponSetName(index);
     if(!strcmp(n,"SCENARIO"))return netScenarioName(index);
     if(!strcmp(n,"LENGTH"))return netGameLengthName(index);
@@ -760,6 +2636,12 @@ const char *gevrPauseChoice(int id,int index)
     if(!strcmp(n,"VOICE MODE"))return netVoiceModeName(index);
     if(!strcmp(n,"CHARACTER"))return netCharacterName(index);
     if(!strcmp(n,"YOUR TEAM"))return netTeamName(index);
+    if(!strcmp(n,"YOUR HEALTH")) {
+        /* the match's own health says so: picking it follows the host's */
+        static char health[48];
+        if(index!=gevrNetConfigGet(CFG_HEALTH))return netHealthName(index);
+        snprintf(health,sizeof(health),"%s (match)",netHealthName(index));return health;
+    }
     if(!strncmp(n,"CUSTOM ",7) || !strncmp(n,"LOADOUT ",8))return netItemName(gevrNetItemAt(index));
     if(!strcmp(n,"MOVEMENT SPEED")) {const char*names[]={"50%","75%","100% (default)","125%","150%","175%","200%"};return names[index];}
     if(!strcmp(n,"GUN SIZE")) {const char*names[]={"Normal","Tiny","Big"};return names[index];}
@@ -776,6 +2658,8 @@ void gevrPauseSelect(int id,int index)
     if(!strcmp(r->name,"NEXT MAP")) {if(index && !netStageEligible(index-1))return;netSetLocalVote(0,index-1);return;}
     if(!strcmp(r->name,"NEXT WEAPONS")) {netSetLocalVote(1,index-1);return;}
     if(!strcmp(r->name,"SCENARIO"))gevrNetConfigSet(CFG_SCENARIO,index);
+    else if(!strcmp(r->name,"HORDE MAP"))gevrNetConfigSet(CFG_HORDE_STAGE,index);
+    else if(!strcmp(r->name,"STARTING WAVE"))gevrNetConfigSet(CFG_HORDE_START_WAVE,index+1);
     else if(!strcmp(r->name,"PLAYERS"))gevrNetConfigSet(CFG_MAX_PLAYERS,index+2);
     else if(!strcmp(r->name,"BOTS"))gevrNetConfigSet(CFG_BOT_MODE,index);
     else if(!strcmp(r->name,"BOT COUNT"))gevrNetConfigSet(CFG_BOT_COUNT,index+1);
@@ -853,6 +2737,13 @@ s32 mpwatchMenuCanGoRight(void)
         case MENU_EXIT:
         case MENU_EXIT_CONFIRM:
         case MENU_FINISHED:
+#ifdef GEVR
+        case MENU_CHARSEL:
+        case MENU_STAGESEL:
+        case MENU_HANDICAP:
+        case MENU_TEAMSEL:
+        case MENU_SETUP:
+#endif
             return 0;
         case MENU_SCORES:
 #ifdef GEVR
@@ -881,6 +2772,13 @@ s32 mpwatchMenuCanGoLeft(void)
         case MENU_GOWOC:
         case MENU_EXIT_CONFIRM:
         case MENU_FINISHED:
+#ifdef GEVR
+        case MENU_CHARSEL:
+        case MENU_STAGESEL:
+        case MENU_HANDICAP:
+        case MENU_TEAMSEL:
+        case MENU_SETUP:
+#endif
             return 0;
         case MENU_LOSSES:
             return g_gameOverFlag ? 1 : 0;
@@ -1455,6 +3353,18 @@ void mpwatchMenuTick(void)
     }
 
 #ifdef GEVR
+    /* Select Character (co-op too, whose watch is the solo pause): nothing else
+     * reads the pad meanwhile. After the game-over timer, which the first player drives. */
+    gevrMpOptionsAutoTick(player_num);
+    gevrMpOptionsHoldTick(player_num);
+    if (gevrCharSelTick(player_num)) return;
+    if (gevrStageSelTick(player_num)) return;
+    if (gevrHandicapTick(player_num)) return;
+    if (gevrTeamSelTick(player_num)) return;
+    if (gevrMpOptionsTick(player_num)) return;
+#endif
+
+#ifdef GEVR
     /* co-op (#94): the solo watch is the pause menu (bondview2.c) */
     if (player_count != 1 && !gevrCoopActive())
 #else
@@ -1505,6 +3415,11 @@ void mpwatchMenuTick(void)
             {
 #ifdef GEVR
                 gevrMenuPagesTick(player_num);
+                if (gevrMpOptionsFromResults(player_num))
+                {
+                    /* the results left for the folder */
+                }
+                else
 #endif
                 if (mpwatchIsPlayerPressingRight(player_num) && mpwatchMenuCanGoRight())
                 {
@@ -1561,7 +3476,7 @@ void mpwatchMenuTick(void)
                     }
                 }
 #ifdef GEVR
-                else if (netIsActive() && player_num == netGetLocalSlot() &&
+                else if (netIsActive() && gevrNetSlotIsLocalHuman(player_num) &&
                          (g_CurrentPlayer->mpmenumode == MENU_LOBBY || g_CurrentPlayer->mpmenumode == MENU_FUN) &&
                          joyGetButtonsPressedThisFrame(player_num, A_BUTTON) && gevrMenuPageAction())
                 {
@@ -1628,6 +3543,11 @@ void mpwatchMenuTick(void)
                         mpwatchPlayBeep();
 #ifdef GEVR
                         if (netIsActive()) {
+                            if (netLocalSeatOfSlot(player_num) > 0) {
+                                g_CurrentPlayer->mpmenuon = FALSE;
+                                netRequestRemoveLocalGuest(player_num);
+                                return;
+                            }
                             gevrLobbySessionStopped();
                             gevrRestartToLauncher();
                             return;
@@ -1652,10 +3572,14 @@ void mpwatchMenuTick(void)
             if (joyGetButtonsPressedThisFrame(player_num, START_BUTTON))
             {
                 mpwatchPlayBeep();
+#ifdef GEVR
+                /* online deathmatch's warmup: START opens the Multiplayer Options folder */
+                if (gevrMpOptionsStartPressed(player_num)) return;
+#endif
                 g_CurrentPlayer->mpmenuon = TRUE;
                 g_CurrentPlayer->mpmenumode =
 #ifdef GEVR
-                    MENU_STATUS;
+                    (netIsActive() && netLocalSlotCount() > 1) ? MENU_LOBBY : MENU_STATUS;
 #else
                     MENU_SCORES;
 #endif
@@ -2044,6 +3968,35 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
     curplayernum = get_cur_playernum();
     player_count = getPlayerCount();
     self_paused = 0;
+
+#ifdef GEVR
+    if (gevrCharSelIsOpen(curplayernum))
+    {
+        s32 px;
+        s32 py;
+        s32 pw;
+        s32 ph;
+
+        gevrMenuPanelRect(&px, &py, &pw, &ph);
+        return frontCharSelectDraw(gdl, curplayernum, netCharacterCount(), px, py, pw, ph);
+    }
+    if (gevrStageSelIsOpen(curplayernum))
+    {
+        return gevrStageSelDraw(gdl, curplayernum);
+    }
+    if (gevrHandicapIsOpen(curplayernum))
+    {
+        return gevrHandicapDraw(gdl, curplayernum);
+    }
+    if (gevrTeamSelIsOpen(curplayernum))
+    {
+        return gevrTeamSelDraw(gdl, curplayernum);
+    }
+    if (gevrMpOptionsIsOpen(curplayernum))
+    {
+        return gevrMpOptionsDraw(gdl, curplayernum);
+    }
+#endif
  
 #ifdef GEVR
     if (player_count == 1 || gevrCoopActive())   /* co-op (#94): the solo watch instead */
