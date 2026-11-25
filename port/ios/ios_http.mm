@@ -33,6 +33,8 @@ struct IosHttpState {
     NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
     _state->reply.status = (int)http.statusCode;
     _state->reply.length = response.expectedContentLength;   // -1 when not given
+    NSString *where = [http valueForHTTPHeaderField:@"Location"];
+    if (where) _state->reply.location = where.UTF8String;
     handler(NSURLSessionResponseAllow);
 }
 
@@ -56,6 +58,15 @@ struct IosHttpState {
         _state->stopped = true;
         [task cancel];
     }
+}
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
+    willPerformHTTPRedirection:(NSHTTPURLResponse *)response
+                    newRequest:(NSURLRequest *)request
+             completionHandler:(void (^)(NSURLRequest *))handler
+{
+    // followRedirects false: the 3xx itself is the answer (Drive's resumable "308, go on")
+    handler(_state->req->followRedirects ? request : nil);
 }
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error

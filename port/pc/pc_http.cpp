@@ -19,6 +19,7 @@
 #include <bcrypt.h>
 #elif !defined(GEVR_IOS)
 #include <curl/curl.h>   // Linux: libcurl in WinHTTP's place (and Android's, over mbedTLS)
+#include <strings.h>     // strncasecmp: the Location header
 #include <cerrno>
 #include <poll.h>
 #endif
@@ -415,6 +416,10 @@ HttpReply httpSend(const HttpRequest &r)
     if (connect) {
         request = WinHttpOpenRequest(connect, wide(r.method).c_str(), path.c_str(), nullptr, WINHTTP_NO_REFERER,
                                      WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
+        if (request && !r.followRedirects) {
+            DWORD off = WINHTTP_DISABLE_REDIRECTS;
+            WinHttpSetOption(request, WINHTTP_OPTION_DISABLE_FEATURE, &off, sizeof(off));
+        }
     }
     if (request) {
         std::string headers;
@@ -433,6 +438,12 @@ HttpReply httpSend(const HttpRequest &r)
             if (WinHttpQueryHeaders(request, WINHTTP_QUERY_CONTENT_LENGTH, WINHTTP_HEADER_NAME_BY_INDEX,
                                     len, &size, WINHTTP_NO_HEADER_INDEX)) {
                 reply.length = _wtoi64(len);
+            }
+            wchar_t where[2048];
+            size = sizeof(where);
+            if (WinHttpQueryHeaders(request, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX,
+                                    where, &size, WINHTTP_NO_HEADER_INDEX)) {
+                reply.location = narrow(where);
             }
             ok = true;
             std::vector<char> chunk(r.sink ? (1 << 16) : 4096);
@@ -485,6 +496,23 @@ HttpReply httpSend(const HttpRequest &r)
         }
         return n;
     };
+    // the Location header (the last answer's, after any redirects)
+    auto header = +[](char *data, size_t size, size_t count, void *user) -> size_t {
+        HttpReply *rep = (HttpReply *)user;
+        const size_t n = size * count;
+        if (n > 9 && !strncasecmp(data, "location:", 9)) {
+            std::string v(data + 9, n - 9);
+            while (!v.empty() && (v.back() == '\r' || v.back() == '\n' || v.back() == ' ')) v.pop_back();
+            size_t b = 0;
+            while (b < v.size() && v[b] == ' ') b++;
+            rep->location = v.substr(b);
+        } else if (n > 5 && !strncasecmp(data, "HTTP/", 5)) {
+            rep->location.clear();   // a new answer (after a redirect)
+        }
+        return n;
+    };
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &reply);
     struct curl_slist *headers = nullptr;
     for (const std::string &h : r.headers) headers = curl_slist_append(headers, h.c_str());
     curl_easy_setopt(curl, CURLOPT_URL, r.url.c_str());
@@ -496,7 +524,7 @@ HttpReply httpSend(const HttpRequest &r)
     curl_easy_setopt(curl, CURLOPT_CAINFO_BLOB, &ca);
 #endif
     curl_easy_setopt(curl, CURLOPT_USERAGENT, r.agent.c_str());
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, r.followRedirects ? 1L : 0L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);   // worker threads
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, (long)r.connectMs);

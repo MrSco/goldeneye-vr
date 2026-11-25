@@ -76,12 +76,14 @@ struct HttpRequest {
     int connectMs = 5000, readMs = 5000;
     size_t maxReply = 65536;               // what the body keeps (the rest is read and dropped)
     std::function<bool(const char *data, size_t n)> sink;   // streams the body instead; false stops (cancelled)
+    bool followRedirects = true;           // false: a 3xx is the answer (Drive's resumable "308, go on")
 };
 
 struct HttpReply {
     int status = 0;
     std::string body;
     long long length = -1;                 // Content-Length, when given
+    std::string location;                  // the Location header, when given (Drive's resumable upload)
 };
 
 /* One request; redirects followed (GitHub's assets live on another host).
