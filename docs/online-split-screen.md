@@ -146,6 +146,12 @@ Files: `port/src/net/net_protocol.h`, `net_rules.h`, `net_core.c`, `net_game.h`,
 - **Launcher:** "Player handicaps" (host, match options, `MpHandicaps` in goldeneye-vr.ini; the server lists it with `--list`), "Your health" beside "Your team" in the lobby, each player's health in the roster's Character tooltip, and the host's Health chooser in a player's menu.
 - **Flat screens only:** VR keeps the rows (YOUR HEALTH, HANDICAPS, YOUR TEAM) and the pause window's dropdowns.
 
+### The Multiplayer Options folder (in-game match setup)
+
+- **Where the match is set up:** an online deathmatch's own GoldenEye Multiplayer Options folder (`MENU_SETUP`, front.c `frontMpOptionsDraw`), one per seat in its own view, a listed game screen like those above (so on the headset it is on the HUD panel). The host's rows (Players, Scenario, Level, Game Length, Weapons, Bots...) are dimmed at the other seats; each seat sets its own Characters, Health, Teams and Loadout. START is the START tab: the host's START MATCH, anyone else's READY. See `docs/in-game-match-setup.md`.
+- **Split screen:** a pad's START in the warmup opens that seat's folder (the LOBBY page has a MULTIPLAYER OPTIONS row in a round); a new seat joining in a warmup gets the folder on its Select Character. A quarter view uses the compact layout (label and value on one line, small font).
+- **Opens by itself** on arriving and after RETURN TO LOBBY, and on NEXT MAP when the host asks for votes. Round notices say `START: ...`.
+
 ### Phase 5 — Dedicated server & automated tests
 Files: `port/server/server_host.c`, `port/tests/net_core_native.c`, `port/tests/multiplayer_native.c`, PC `--input-script` integration tests.
 
