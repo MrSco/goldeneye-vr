@@ -13,9 +13,15 @@
  */
 #include "gevr_sync_core.h"
 #include "gevr_sync_store.h"
+#if !defined(GEVR_SYNC_TEST) || defined(GEVR_SYNC_DRIVE)
+#define GEVR_SYNC_FILES 1   // ROMs and packs (gevr_sync_files.cpp, the PC services' files)
+#include "gevr_sync_files.h"
+#include "pc_http.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -46,6 +52,7 @@ extern "C" {
 #include "system.h"
 }
 #include "gevr_icloud.h"
+#include <SDL.h>   // SDL_OpenURL: the sign-in page in the device's browser
 #endif
 #include "gevr_sync.h"
 
@@ -170,6 +177,18 @@ static bool isDir(const std::string &path)
 #endif
 }
 
+static long long fileSize(const std::string &path)
+{
+#ifdef _WIN32
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    if (!GetFileAttributesExW(W(path).c_str(), GetFileExInfoStandard, &a)) return -1;
+    return (long long)(((unsigned long long)a.nFileSizeHigh << 32) | a.nFileSizeLow);
+#else
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 ? (long long)st.st_size : -1;
+#endif
+}
+
 static long long fileTimeMs(const std::string &path)
 {
 #ifdef _WIN32
@@ -246,8 +265,68 @@ public:
         *why = "could not write " + name;
         return false;
     }
+    /* blobs: "blob-<id>" beside the records */
+    bool listBlobs(std::map<std::string, long long> *blobs, std::string *why) override
+    {
+        if (!isDir(dir_)) {
+            *why = "no folder " + dir_;
+            return false;
+        }
+        blobs->clear();
+        for (const std::string &n : listDir(dir_)) {
+            if (n.compare(0, 5, "blob-") != 0 || n.find(".sync-tmp") != std::string::npos) continue;
+            (*blobs)[n.substr(5)] = fileSize(dir_ + "/" + n);
+        }
+        return true;
+    }
+    bool putBlob(const std::string &id, const std::string &, const std::string &localPath, const Progress &progress,
+                 std::string *why) override
+    {
+        return copyFile(localPath, dir_ + "/blob-" + id, progress, why);
+    }
+    bool getBlob(const std::string &id, const std::string &localPath, const Progress &progress,
+                 std::string *why) override
+    {
+        return copyFile(dir_ + "/blob-" + id, localPath, progress, why);
+    }
+    bool removeBlob(const std::string &id, std::string *why) override
+    {
+        if (removeFile(dir_ + "/blob-" + id)) return true;
+        *why = "could not remove blob " + id;
+        return false;
+    }
 
 private:
+    static bool copyFile(const std::string &from, const std::string &to, const Progress &progress, std::string *why)
+    {
+        FILE *in = openFile(from, "rb");
+        if (!in) {
+            *why = "could not read " + from;
+            return false;
+        }
+        const long long total = fileSize(from);
+        const std::string tmp = to + ".sync-tmp";
+        FILE *out = openFile(tmp, "wb");
+        bool ok = out != nullptr;
+        long long done = 0;
+        std::vector<char> buf(1 << 20);
+        size_t n;
+        while (ok && (n = fread(buf.data(), 1, buf.size(), in)) > 0) {
+            ok = fwrite(buf.data(), 1, n, out) == n;
+            done += (long long)n;
+            if (ok && progress && !progress(done, total)) {
+                ok = false;
+                *why = "stopped";
+            }
+        }
+        ok = ok && !ferror(in);
+        fclose(in);
+        if (out) ok = fclose(out) == 0 && ok;
+        if (ok && replaceFile(tmp, to)) return true;
+        removeFile(tmp);
+        if (why->empty()) *why = "could not copy to " + to;
+        return false;
+    }
     std::string dir_;
 };
 
@@ -294,6 +373,15 @@ DeviceRecord g_mine;
 Baseline g_base;
 std::string g_status, g_message;
 bool g_pushQueued = false;
+bool g_romArrived = false;     // a ROM came: the launcher scans again
+
+// ROMs and packs: the background worker (filesWorker)
+std::condition_variable g_filesWake;
+bool g_filesKick = false;
+[[maybe_unused]] bool g_filesStop = false, g_filesRunning = false;   // (unused in the offline test build)
+bool g_filesBusy = false;      // a transfer under way
+float g_filesDone = -1;        // its share, -1 unknown
+std::string g_filesLine;       // "Sync: uploading ge.z64"
 
 std::string statePath(const std::string &name) { return g_root + "/.gevr-sync/" + name; }
 
@@ -545,6 +633,118 @@ void pushNow()
 
 }   // namespace
 
+/* ---- saves set aside (step 4): <save>.before-sync-<date>, the last five ---- */
+
+/* the set-aside saves, newest first */
+std::vector<std::string> savesAside()
+{
+    std::vector<std::string> out;
+    for (const std::string &n : listDir(g_root)) {
+        const size_t at = n.find(".before-sync-");
+        if (at != std::string::npos && isSaveName(n.substr(0, at))) out.push_back(n);
+    }
+    std::sort(out.begin(), out.end(), [](const std::string &a, const std::string &b) {
+        return a.substr(a.find(".before-sync-")) > b.substr(b.find(".before-sync-"));
+    });
+    return out;
+}
+
+/* launch, before the sync: the one the player chose (.gevr-sync/use-save.txt) back
+ * in place, written now, so it is the newest everywhere; the save it replaces is
+ * set aside in turn */
+void useSaveAside()
+{
+    std::string chosen;
+    if (!readFile(statePath("use-save.txt"), &chosen)) return;
+    removeFile(statePath("use-save.txt"));
+    chosen = trimmed(chosen);
+    const size_t at = chosen.find(".before-sync-");
+    if (at == std::string::npos || chosen.find('/') != std::string::npos || chosen.find('\\') != std::string::npos) return;
+    const std::string save = chosen.substr(0, at);
+    std::string data, current;
+    if (!isSaveName(save) || !readFile(g_root + "/" + chosen, &data)) return;
+    if (readFile(g_root + "/" + save, &current) && current != data) backupSave(save, current);
+    if (writeFileAtomic(g_root + "/" + save, data)) {
+        removeFile(g_root + "/" + chosen);
+        notifyWritten(g_root + "/" + save);
+        g_message = "Sync: the save you chose is in use, and goes to your other devices.";
+        syncLog("%s back in place as %s", chosen.c_str(), save.c_str());
+    }
+}
+
+#ifdef GEVR_SYNC_FILES
+/* ---- ROMs and packs: a pass after launch, every 15 minutes, and on a kick ---- */
+
+bool packsOn()
+{
+    std::string v;
+    readFile(statePath("packs.txt"), &v);
+    return trimmed(v) == "1";
+}
+
+/* one pass, g_lock held on entry and on return (unlocked while it works) */
+FilesResult filesRunOnce(std::unique_lock<std::mutex> &lock)
+{
+    g_filesKick = false;
+    const std::string root = g_root, device = g_mine.id;
+    lock.unlock();
+    std::unique_ptr<Store> store = linkedStore();   // its own: the push may use g_store meanwhile
+    FilesResult res;
+    if (store) {
+        FilesPassArgs a;
+        a.root = root;
+        a.deviceId = device;
+        a.packs = packsOn();
+        a.now = wallMs();
+        a.progress = [](const std::string &line, float done) {
+            std::lock_guard<std::mutex> hold(g_lock);
+            g_filesBusy = true;
+            g_filesLine = line;
+            g_filesDone = done;
+        };
+        a.stop = [] {
+            std::lock_guard<std::mutex> hold(g_lock);
+            return g_filesStop;
+        };
+        a.freeBytes = [](const std::string &path) { return pcnet::freeSpace(path); };
+        res = filesPass(store.get(), a);
+    }
+    lock.lock();
+    g_filesBusy = false;
+    g_filesDone = -1;
+    g_filesLine.clear();
+    for (const std::string &p : res.arrived) syncLog("%s came from another device", p.c_str());
+    for (const std::string &p : res.deferred) syncLog("%s came from another device: in place next launch", p.c_str());
+    if (!res.arrived.empty()) {
+        g_message = res.arrived.size() == 1 ? "Sync: " + res.arrived[0] + " came from your other devices."
+                                            : "Sync: " + std::to_string(res.arrived.size()) + " files came from your other devices.";
+        g_romArrived = true;
+    } else if (!res.deferred.empty()) {
+        g_message = "Sync: an updated " + res.deferred[0] + " came from another device. It is used from the next start.";
+    }
+    if (res.failed) {
+        syncLog("files: %d failed (%s)", res.failed, res.error.c_str());
+        g_status = "Sync: " + std::to_string(res.failed) + (res.failed == 1 ? " file" : " files") +
+                   " didn't move: " + res.error;
+    } else if (res.moved) {
+        syncLog("files: %d moved", res.moved);
+    }
+    return res;
+}
+
+void filesWorker()
+{
+    std::unique_lock<std::mutex> lock(g_lock);
+    // a moment for the launch: the game is loading
+    g_filesWake.wait_for(lock, std::chrono::seconds(4), [] { return g_filesStop; });
+    while (!g_filesStop && g_active) {
+        filesRunOnce(lock);
+        g_filesWake.wait_for(lock, std::chrono::minutes(15), [] { return g_filesStop || g_filesKick; });
+    }
+    g_filesRunning = false;
+}
+#endif
+
 /* the game's entry points, around the state above */
 
 void launchAt(const std::string &root, const std::string &kind)
@@ -556,6 +756,19 @@ void launchAt(const std::string &root, const std::string &kind)
     while (g_root.size() > 1 && (g_root.back() == '/' || g_root.back() == '\\')) g_root.pop_back();
     g_kind = kind;
     makeDir(g_root + "/.gevr-sync");
+    useSaveAside();         // a save set aside that the player chose to use again
+#ifdef GEVR_SYNC_FILES
+    {
+        // downloads that waited for this launch (the game had the file open)
+        std::vector<std::string> installed;
+        if (filesInstallReady(g_root, &installed)) {
+            for (const std::string &p : installed) syncLog("%s put in place (it came while the game ran)", p.c_str());
+            g_message = installed.size() == 1 ? "Sync: " + installed[0] + " came from your other devices."
+                                              : "Sync: " + std::to_string(installed.size()) + " files came from your other devices.";
+            g_romArrived = true;
+        }
+    }
+#endif
     g_store = linkedStore();
     if (!g_store) return;   // nothing linked: off
     std::string text;
@@ -568,12 +781,25 @@ void launchAt(const std::string &root, const std::string &kind)
     }
     // before the sync: a kind's keys go into the record as "key@kind"
     g_mine.kind = kind;
-    if (g_mine.name.empty()) g_mine.name = kindLabel(kind);
+    {
+        // the player's name for this device ("Den"), else its kind's
+        std::string name;
+        readFile(statePath("name.txt"), &name);
+        name = trimmed(name);
+        g_mine.name = name.empty() ? kindLabel(kind) : name;
+    }
 #ifdef GEVR_APP_VERSION
     g_mine.version = GEVR_APP_VERSION;
 #endif
     syncLog("launch: %s, device %s (%s)", g_store->label().c_str(), id.c_str(), kind.c_str());
     launchSync();
+#ifdef GEVR_SYNC_FILES
+    if (g_active && !g_filesRunning && !getenv("GEVR_SYNC_NO_FILES_WORKER")) {   // a test runs the passes itself
+        g_filesRunning = true;
+        g_filesStop = false;
+        std::thread(filesWorker).detach();
+    }
+#endif
 }
 
 void fileSaved(const std::string &path)
@@ -597,6 +823,18 @@ void fileSaved(const std::string &path)
 
 /* a test's push without the wait */
 void pushForTest() { pushNow(); }
+
+#ifdef GEVR_SYNC_FILES
+/* a test's files pass, now: "moved failed arrived deferred error" */
+std::string filesPassForTest()
+{
+    std::unique_lock<std::mutex> lock(g_lock);
+    if (!g_active) return "inactive";
+    const FilesResult r = filesRunOnce(lock);
+    return std::to_string(r.moved) + " " + std::to_string(r.failed) + " " + std::to_string(r.arrived.size()) + " " +
+           std::to_string(r.deferred.size()) + " " + r.error;
+}
+#endif
 
 #if !defined(GEVR_SYNC_TEST) || defined(GEVR_SYNC_DRIVE)
 /* ---- Google Drive's link, for the launcher ---- */
@@ -626,6 +864,8 @@ void driveUnlinkNow()
             g_active = false;
             g_store.reset();
             g_status.clear();
+            g_filesStop = true;   // the files worker ends after its current step
+            g_filesWake.notify_all();
         }
     }
     driveSignInCancel();
@@ -724,4 +964,117 @@ extern "C" int gevrSyncActive(void)
 {
     std::lock_guard<std::mutex> hold(gsync::g_lock);
     return gsync::g_active ? 1 : 0;
+}
+
+extern "C" void gevrSyncKick(void)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    gsync::g_filesKick = true;
+    gsync::g_filesWake.notify_all();
+}
+
+extern "C" int gevrSyncProgress(float *done, char *buf, int size)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    if (!gsync::g_filesBusy) return 0;
+    if (done) *done = gsync::g_filesDone;
+    if (buf && size > 0) snprintf(buf, (size_t)size, "%s", gsync::g_filesLine.c_str());
+    return 1;
+}
+
+extern "C" int gevrSyncTakeRomArrived(void)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    const bool r = gsync::g_romArrived;
+    gsync::g_romArrived = false;
+    return r ? 1 : 0;
+}
+
+extern "C" int gevrSyncPacks(void)
+{
+#ifdef GEVR_SYNC_FILES
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    return !gsync::g_root.empty() && gsync::packsOn() ? 1 : 0;
+#else
+    return 0;
+#endif
+}
+
+extern "C" void gevrSyncSetPacks(int on)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    if (gsync::g_root.empty()) return;
+    gsync::writeFileAtomic(gsync::statePath("packs.txt"), on ? "1\n" : "0\n");
+    gsync::g_filesKick = true;   // a pass now, with or without them
+    gsync::g_filesWake.notify_all();
+}
+
+extern "C" void gevrSyncDeviceName(char *buf, int size)
+{
+    if (!buf || size <= 0) return;
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    std::string name;
+    if (!gsync::g_root.empty()) gsync::readFile(gsync::statePath("name.txt"), &name);
+    name = gsync::trimmed(name);
+    if (name.empty()) name = gsync::kindLabel(gsync::g_kind.empty() ? gsync::buildKind() : gsync::g_kind);
+    snprintf(buf, (size_t)size, "%s", name.c_str());
+}
+
+extern "C" void gevrSyncSetDeviceName(const char *name)
+{
+    std::string n = gsync::trimmed(name ? name : "");
+    for (char &c : n) {
+        if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+    }
+    if (n.size() > 40) n.resize(40);
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    if (gsync::g_root.empty()) return;
+    gsync::writeFileAtomic(gsync::statePath("name.txt"), n + "\n");
+    if (gsync::g_active) {
+        // the record carries it: the other devices' notes name this one by it
+        gsync::g_mine.name = n.empty() ? gsync::kindLabel(gsync::g_kind) : n;
+        gsync::keepState(gsync::g_base, gsync::g_mine);
+        std::shared_ptr<gsync::Store> store = gsync::g_store;
+        const gsync::DeviceRecord mine = gsync::g_mine;
+        std::thread([store, mine] { if (store) gsync::upload(store.get(), mine); }).detach();
+    }
+}
+
+extern "C" int gevrSyncSavesAside(char (*names)[96], int max)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    if (gsync::g_root.empty()) return 0;
+    const std::vector<std::string> all = gsync::savesAside();
+    int n = 0;
+    for (const std::string &s : all) {
+        if (n >= max) break;
+        snprintf(names[n++], 96, "%s", s.c_str());
+    }
+    return n;
+}
+
+extern "C" void gevrSyncUseSaveAside(const char *name)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    if (gsync::g_root.empty() || !name) return;
+    gsync::writeFileAtomic(gsync::statePath("use-save.txt"), std::string(name) + "\n");
+}
+
+extern "C" void gevrSyncOpenUrl(const char *url)
+{
+#ifndef GEVR_SYNC_TEST
+    if (url && url[0] && SDL_OpenURL(url) != 0) gsync::syncLog("could not open %s: %s", url, SDL_GetError());
+#else
+    (void)url;
+#endif
+}
+
+extern "C" int gevrSyncSaveChosen(char *buf, int size)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    if (gsync::g_root.empty()) return 0;
+    std::string v;
+    if (!gsync::readFile(gsync::statePath("use-save.txt"), &v)) return 0;
+    if (buf && size > 0) snprintf(buf, (size_t)size, "%s", gsync::trimmed(v).c_str());
+    return 1;
 }

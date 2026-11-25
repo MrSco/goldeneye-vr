@@ -22,6 +22,9 @@
 namespace gsync {
 void launchAt(const std::string &root, const std::string &kind);
 void pushForTest();
+#ifdef GEVR_SYNC_DRIVE
+std::string filesPassForTest();
+#endif
 }
 
 using namespace gsync;
@@ -371,6 +374,37 @@ int main(int argc, char **argv)
         return 0;
     }
 #ifdef GEVR_SYNC_DRIVE
+    // ROMs and packs: a launch, then one files pass (GEVR_SYNC_NO_FILES_WORKER keeps the
+    // worker out); "packs" turns Big packs too on first
+    if (argc >= 4 && (!strcmp(argv[1], "files") || !strcmp(argv[1], "files-packs"))) {
+        gsync::launchAt(argv[2], argv[3]);
+        if (!strcmp(argv[1], "files-packs")) gevrSyncSetPacks(1);
+        printf("files=%s\n", gsync::filesPassForTest().c_str());
+        char msg[512];
+        if (gevrSyncTakeMessage(msg, sizeof(msg))) printf("message=%s\n", msg);
+        printf("rom=%d\n", gevrSyncTakeRomArrived());
+        return 0;
+    }
+    // step 4: this device's name, and a save set aside used again
+    if (argc >= 5 && !strcmp(argv[1], "name")) {
+        gsync::launchAt(argv[2], argv[3]);
+        gevrSyncSetDeviceName(argv[4]);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));   // its upload runs in the background
+        char name[64];
+        gevrSyncDeviceName(name, sizeof(name));
+        printf("name=%s\n", name);
+        return 0;
+    }
+    if (argc >= 4 && !strcmp(argv[1], "aside")) {
+        gsync::launchAt(argv[2], argv[3]);
+        char names[5][96];
+        const int n = gevrSyncSavesAside(names, 5);
+        for (int i = 0; i < n; i++) printf("aside=%s\n", names[i]);
+        if (argc >= 5) gevrSyncUseSaveAside(argv[4]);
+        char chosen[96];
+        if (gevrSyncSaveChosen(chosen, sizeof(chosen))) printf("chosen=%s\n", chosen);
+        return 0;
+    }
     // Google Drive against test_sync.py's stand-in (GEVR_GOOGLE_*_URL)
     if (argc >= 4 && (!strcmp(argv[1], "drive-link") || !strcmp(argv[1], "drive-unlink"))) {
         gsync::launchAt(argv[2], argv[3]);

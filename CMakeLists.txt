@@ -927,7 +927,8 @@ if(NOT GEVR_MOBILE)
     "${CMAKE_SOURCE_DIR}/port/pc/pc_updater.cpp"
     "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync.cpp"
     "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync_core.cpp"
-    "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync_drive.cpp")
+    "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync_drive.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync_files.cpp")
   target_compile_definitions(gevr PRIVATE GEVR_NATIVE_SERVICES=1 "GEVR_APP_VERSION=\"${GEVR_APP_VERSION}\"")
 
   include(FetchContent)

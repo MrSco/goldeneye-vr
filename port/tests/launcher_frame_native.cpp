@@ -9,16 +9,32 @@
 #include "gevr_romlayout.h"
 #include "gevr_ghosts_ui.h"
 #include "gevr_sync.h"   // Play tab: Google Drive sync (stubs: no GEVR_PC here)
-/* the Play tab drawn with Google Drive's longest state (unlinked, after a failed try),
- * as a build with the Google client shows it */
+/* Play > Sync drawn with its longest state: linked, a pack on its way, a device
+ * name, and five saves set aside, as a build with the Google client shows it */
 static int gevrTestSyncDrive(GevrSyncDriveInfo *out)
 {
     memset(out, 0, sizeof(*out));
-    out->state = GEVR_SYNC_DRIVE_FAILED;
-    snprintf(out->note, sizeof(out->note), "Google Drive signed this device out. Link it again to keep syncing.");
+    out->state = GEVR_SYNC_DRIVE_LINKED;
+    out->syncing = 1;
+    snprintf(out->account, sizeof(out->account), "a.rather.long.address.for.a.player@gmail.com");
+    snprintf(out->status, sizeof(out->status), "Sync: 12 settings from your other devices");
     return out->state;
 }
+static int gevrTestSyncProgress(float *done, char *buf, int size)
+{
+    *done = 0.4f;
+    snprintf(buf, (size_t)size, "Sync: downloading ge007-bean-community-edition");
+    return 1;
+}
+static int gevrTestSyncSavesAside(char (*names)[96], int max)
+{
+    int n = 0;
+    for (; n < 5 && n < max; n++) snprintf(names[n], 96, "eeprom-hack-mario.bin.before-sync-2026112%d-201400", n);
+    return n;
+}
 #define gevrSyncDrive gevrTestSyncDrive
+#define gevrSyncProgress gevrTestSyncProgress
+#define gevrSyncSavesAside gevrTestSyncSavesAside
 #include "gevr_sync_ui.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>

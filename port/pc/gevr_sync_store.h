@@ -6,6 +6,8 @@
 #ifndef GEVR_SYNC_STORE_H
 #define GEVR_SYNC_STORE_H
 
+#include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -21,6 +23,38 @@ public:
     virtual bool read(const std::string &name, std::string *data, std::string *why) = 0;
     /* replaces the whole file, never half of it */
     virtual bool write(const std::string &name, const std::string &data, std::string *why) = 0;
+
+    /* ---- blobs: ROMs and packs by content (gevr_sync_files.cpp), any size ---- */
+    typedef std::function<bool(long long done, long long total)> Progress;   // false: stop
+    /* every blob there: id -> bytes */
+    virtual bool listBlobs(std::map<std::string, long long> *blobs, std::string *why)
+    {
+        (void)blobs;
+        *why = "no files in this store";
+        return false;
+    }
+    /* the local file up as blob `id`; `label` names it for a person looking ("ge.z64") */
+    virtual bool putBlob(const std::string &id, const std::string &label, const std::string &localPath,
+                         const Progress &progress, std::string *why)
+    {
+        (void)id, (void)label, (void)localPath, (void)progress;
+        *why = "no files in this store";
+        return false;
+    }
+    /* blob `id` down into localPath (made whole or not at all) */
+    virtual bool getBlob(const std::string &id, const std::string &localPath, const Progress &progress,
+                         std::string *why)
+    {
+        (void)id, (void)localPath, (void)progress;
+        *why = "no files in this store";
+        return false;
+    }
+    virtual bool removeBlob(const std::string &id, std::string *why)
+    {
+        (void)id;
+        *why = "no files in this store";
+        return false;
+    }
 };
 
 std::unique_ptr<Store> folderStore(const std::string &dir);

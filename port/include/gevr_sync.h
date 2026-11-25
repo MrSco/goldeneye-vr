@@ -61,6 +61,30 @@ void gevrSyncDriveLink(void);
 void gevrSyncDriveCancel(void);
 void gevrSyncDriveUnlink(void);
 
+/* ROMs and packs (port/pc/gevr_sync_files.cpp): a ROM or pack was added or
+ * replaced, so the files pass looks now. */
+void gevrSyncKick(void);
+/* a transfer under way: 1, its share (-1 unknown) and its line ("Sync: uploading ge.z64") */
+int gevrSyncProgress(float *done, char *buf, int size);
+/* 1 once after a ROM (or pack) came: the launcher scans its ROMs again */
+int gevrSyncTakeRomArrived(void);
+/* "Big packs too": the texture packs travel as well (this device's choice) */
+int gevrSyncPacks(void);
+void gevrSyncSetPacks(int on);
+
+/* This device's name in the sync ("Den"), its kind's ("Apple TV") by default. */
+void gevrSyncDeviceName(char *buf, int size);
+void gevrSyncSetDeviceName(const char *name);
+
+/* Saves set aside by the sync (<save>.before-sync-<date>), newest first; one
+ * chosen is used again from the next start, and goes to the other devices. */
+int gevrSyncSavesAside(char (*names)[96], int max);
+void gevrSyncUseSaveAside(const char *name);
+int gevrSyncSaveChosen(char *buf, int size);   /* the one waiting for the next start */
+
+/* The device's browser at that address (the sign-in page), where it has one. */
+void gevrSyncOpenUrl(const char *url);
+
 #else
 
 static inline void gevrSyncLaunch(void) {}
@@ -72,6 +96,17 @@ static inline int gevrSyncDrive(GevrSyncDriveInfo *out) { if (out) { out->state 
 static inline void gevrSyncDriveLink(void) {}
 static inline void gevrSyncDriveCancel(void) {}
 static inline void gevrSyncDriveUnlink(void) {}
+static inline void gevrSyncKick(void) {}
+static inline int gevrSyncProgress(float *done, char *buf, int size) { (void)done; if (buf && size > 0) buf[0] = 0; return 0; }
+static inline int gevrSyncTakeRomArrived(void) { return 0; }
+static inline int gevrSyncPacks(void) { return 0; }
+static inline void gevrSyncSetPacks(int on) { (void)on; }
+static inline void gevrSyncDeviceName(char *buf, int size) { if (buf && size > 0) buf[0] = 0; }
+static inline void gevrSyncSetDeviceName(const char *name) { (void)name; }
+static inline int gevrSyncSavesAside(char (*names)[96], int max) { (void)names; (void)max; return 0; }
+static inline void gevrSyncUseSaveAside(const char *name) { (void)name; }
+static inline int gevrSyncSaveChosen(char *buf, int size) { if (buf && size > 0) buf[0] = 0; return 0; }
+static inline void gevrSyncOpenUrl(const char *url) { (void)url; }
 
 #endif
 

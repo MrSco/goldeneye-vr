@@ -1,8 +1,9 @@
 # Cross-platform sync (Google Drive)
 
-Status 2026-11-25: steps 1 and 2 built: settings and saves sync through the
-player's Google Drive once they link it (launcher, Play > Sync). ROMs and packs
-(step 3) and the polish (step 4) are still to come.
+Status 2026-11-25: steps 1 to 4 built. Settings, saves and ROMs (and, opted
+in, texture packs) sync through the player's Google Drive once they link it
+(launcher, Play > Sync). Steps 3 and 4 are tested against a stand-in for
+Google, not yet live.
 
 User idea, 2026-11-25: give the devices without iCloud (Quest, Steam Frame,
 Android, PC flat, PC VR) the same sync as [iCloud sync](icloud-sync.md):
@@ -60,8 +61,11 @@ settings, saves and ROMs, with big packs opt-in. Decisions (user):
   player removed the access, or Testing's 7 days ran out), the device signs
   itself out and the launcher says "Google Drive signed this device out.
   Link it again" (`.gevr-sync/google-signed-out.txt` until it is).
-  Later (step 4): a QR code, the PC's own browser with a loopback redirect,
-  and ASWebAuthenticationSession on iPhone, iPad and Vision Pro.
+  Step 4 added a QR code of google.com/device beside the code (a phone's
+  camera opens the page) and **Open in the browser** (SDL_OpenURL; not on
+  the Apple TV). A one-tap sign-in in the device's own browser (a loopback
+  redirect on PC, ASWebAuthenticationSession on Apple) would need two more
+  OAuth clients (Desktop, iOS) in the Google project; not done.
 - **Client ID and secret:** installed-app secrets are not confidential by
   Google's own rules, but they stay out of the public repo (a build setting,
   like the Discord SDK path), so forks use their own Google project.
@@ -81,8 +85,8 @@ many run together.
 | File in the store | Written by | Holds |
 | --- | --- | --- |
 | `device-<deviceId>.txt` | that device | its name, kind, app version, last seen; every setting it set (stamped); its saves (bytes, time written, has-progress) |
-| `files/<sha256>` (step 3) | the first uploader | a ROM or pack archive, by content (same ROM from two devices = one file) |
-| `files/index-<deviceId>.txt` (step 3) | that device | which content it has, by path |
+| `files-<deviceId>.txt` | that device | its ROMs and packs: path, kind, size, content id, when it changed |
+| a blob (Drive: tagged `gevr=blob`, named `ge.z64` or `hd.zip`; folder: `blob-<id>`) | the first device with that content | a ROM, or a pack as one zip; its id is what is in it (`r`+SHA-256, or `p`+SHA-256 over each file's path, size and SHA-256), so the same content is uploaded once |
 
 A record is tab-separated text, one line per item, so a player can read it.
 Saves ride in the record (GoldenEye's EEPROM is 512 bytes): one file per
@@ -107,22 +111,39 @@ device, one read per device at launch. `deviceId` is random per install
   wins; a save with no progress never replaces one with progress; the one
   replaced is kept on the device (`eeprom.bin.before-sync-<date>`, last five).
   The winner is the same on every device: progress first, then the newest,
-  then the device id. When this device's own save and the winner were both
-  written since its last launch sync, the launcher says so (built); offering
-  to switch back ("Use the save from Den, written 20:14") is step 4.
+  then the device id. Each save in a record carries the save it replaced on
+  its device; when the winner wasn't built on this device's own save (its
+  device hadn't seen it), the launcher says so. Play > Sync lists the saves
+  set aside (the newest three) with **Use this one**: the chosen save comes
+  back at the next start, written then, so it is the newest everywhere; the
+  one it replaces is set aside in turn.
 - **Joining:** the iCloud rule. A newly linked device first reads what is
   there; the others' settings win, and it adds only keys nobody has set.
-- **Files:** Drive's resumable upload; downloads land beside the target and
-  are moved in at the next launch if the game has the file open. ROMs and
-  saves by default; HD, AI, Bean and mod packs only with **Big packs too**.
-  Nothing is deleted from Drive when a file is removed on a device.
+- **ROMs and packs (step 3, gevr_sync_files.cpp):** ROMs (`*.z64/v64/n64`
+  in the save folder and `data/`) always; the packs in `texture-packs/` only
+  with **Big packs too** (Play > Sync, this device's choice). Per path, the
+  newest entry among the devices' indexes wins. iCloud's rules: **already
+  here stays** (what a device has the first time it syncs keeps as it is),
+  then a change here goes up and a change elsewhere comes down (both: the
+  others' copy). A download whose target is there waits in
+  `.gevr-sync/ready/` and goes in place at the next launch, before the game
+  reads it. A pack needs twice its size free. Nothing is deleted on a device
+  when a file is removed (it comes back); a blob no index names any more is
+  removed by the device that replaced it. Uploads are Drive's resumable
+  upload in 4 MiB pieces (the session address is the reply's `Location`,
+  which `pc_http` now hands back; Drive's "308, go on" mustn't be taken for a
+  redirect, so the Drive calls set `followRedirects = false`). Not yet:
+  "Wi-Fi only" on phones (iCloud has it).
 - **When:** at launch (everyone's records read, the winners written into the
   files before the game reads them) and after the game writes a settings file
   or a save (this device's record only, 1.5 s later, in the background; a
   push lost to the game closing is caught at the next launch). Nothing comes
   in mid-session. A launch that can't read the store, or one record of it,
   changes nothing: a partial view could put this device's values over one it
-  couldn't read. Files (step 3) will poll every 15 minutes.
+  couldn't read. ROMs and packs: a background pass 4 s after a launch that
+  synced, every 15 minutes, and when a ROM is chosen or a pack imported
+  (gevrSyncKick); the line under START shows its bar; a ROM that came makes
+  the launcher look for ROMs again.
 
 ## Many devices, one account (the two Apple TVs)
 
@@ -138,12 +159,19 @@ Sync moves **data**, never **who a device is online**:
   device only", so setting up four pads in the den doesn't scramble the
   living room's.
 - **Same name twice in a match:** the shared name makes both Apple TVs
-  "Rocco". The lobby adds the device name when names collide in one match
-  ("Rocco (Den)").
+  "Rocco". The host already numbers a joiner whose name is taken ("Rocco
+  2"), but it also took a joiner with a connected player's name for that
+  player back on a new connection, and dropped the first. Now that happens
+  only when the first connection has been quiet for 2 s
+  (`netSameNameIsReconnect`, net_rules.h; no protocol change), so both
+  Apple TVs stay in. **Device names** (step 4): each device has one, "Den"
+  or its kind's ("Apple TV") by default, set on Play > Sync; sync notes on
+  the other devices use it ("the save from Den").
 - **Both finish the same co-op mission:** same progress, either save is
   right. Different missions since the last sync: the conflict offer above.
-- Online split screen across rooms (4 + 4) is phase 2 of split screen, a
-  protocol change; sync neither needs it nor gets in its way.
+- Online split screen across rooms (4 + 4): the batch's protocol 28 carries
+  the guest seats; their names come from each device's own guest seats
+  (never synced), so they don't collide through the sync.
 
 ## Apple devices: iCloud and Google Drive together
 
@@ -186,8 +214,18 @@ value back: each uploads only what differs from what it last synced.
   `port/include/gevr_google_oauth.h`. Without it the build has no Google
   Drive and the launcher shows nothing. The Mac's checkout needs its own
   copy of the file for the Apple builds.
+- `port/pc/gevr_sync_files.cpp`: ROMs and packs (indexes, content ids, the
+  move rule, zip with miniz, unpack with `unzipBounded`, the ready/ folder).
+  The store interface's blob calls: the folder store copies, Drive's uses
+  the resumable upload, `alt=media` downloads and DELETE.
+- `port/vr/gevr_sync_ui.h`: Play > Sync (header only, so the launcher's
+  frame test draws it in its longest states).
+- `.gevr-sync/` also holds `files-mine.txt`, `files-state.txt`, `ready/`,
+  `work/`, `packs.txt`, `name.txt` and `use-save.txt`.
 - Hooks: main.c (launch), config.c and vr_settings.cpp (settings written),
-  libultra.c (EEPROM written), vr_launcher.cpp (the note under START).
+  libultra.c (EEPROM written), vr_launcher.cpp (the note under START, the
+  progress bar, the ROM list after a ROM came, gevrSyncKick when a ROM is
+  chosen), gevr_bean_import.c (gevrSyncKick after a pack import).
 - Builds: PC flat and VR, Linux, Apple (port/pc globbed), Quest and Frame
   APKs (listed in CMakeLists.txt). Not the Android phone APK (no native
   services there yet) or the server.
@@ -196,7 +234,10 @@ value back: each uploads only what differs from what it last synced.
   `python port/tests/test_sync_drive.py` (the Drive store and sign-in against
   a stand-in for Google on 127.0.0.1: code, polling, the folder made once,
   renamed and trashed records, two devices, token refresh, a revoked
-  sign-in, unlink).
+  sign-in, unlink; then ROMs and packs: a ROM in resumable pieces, a pack
+  zipped and unpacked, already here stays, a changed ROM waiting for the
+  next launch, the old blob removed, a folder store; the device name in
+  the record, a save set aside used again).
 - Try it by hand: `GEVR_SYNC_DIR=<a folder>` (or that path in
   `.gevr-sync/folder.txt`) makes a folder the store; two PC run folders
   pointed at one folder sync with each other.
@@ -213,9 +254,12 @@ value back: each uploads only what differs from what it last synced.
    Trap: the first sign-in showed "Access blocked: has not completed the
    Google verification process" though the account was a test user; the
    same code worked a few minutes later.
-3. ROMs and packs (resumable upload, content hash).
-4. Polish: native browser sign-in on PC and Apple, device names in the
-   lobby, the save-conflict offer.
+3. Done 2026-11-25: ROMs and packs (above), tests against the stand-in.
+   Live check against the owner's Drive still to do.
+4. Done 2026-11-25: the QR code and Open in the browser, device names, the
+   saves set aside with Use this one, both devices of a player kept in one
+   match. Not done: the one-tap browser sign-in (needs Desktop and iOS OAuth
+   clients).
 
 Owner setup (2026-11-25): Google Cloud project "GoldenEye VR", Drive API on,
 OAuth client "GoldenEye VR devices" (TVs and Limited Input), consent screen

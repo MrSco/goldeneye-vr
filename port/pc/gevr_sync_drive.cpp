@@ -89,16 +89,18 @@ static std::string form(const std::vector<std::pair<std::string, std::string>> &
 
 /* one request; status 0 and why when nothing answered */
 static HttpReply send(const std::string &method, const std::string &url, const std::string *body,
-                      const std::vector<std::string> &headers, std::string *why, size_t maxReply = 4u << 20)
+                      const std::vector<std::string> &headers, std::string *why, size_t maxReply = 4u << 20,
+                      int readMs = 10000)
 {
     HttpRequest r;
+    r.followRedirects = false;   // Drive answers a resumable upload's piece with 308, no redirect
     r.method = method;
     r.url = url;
     r.body = body;
     r.headers = headers;
     r.agent = "GoldenEyeVR-Sync";
     r.connectMs = 5000;
-    r.readMs = 10000;
+    r.readMs = readMs;
     r.maxReply = maxReply;
     try {
         return httpSend(r);
@@ -270,27 +272,208 @@ public:
         return true;
     }
 
+    /* ---- blobs: ROMs and packs, tagged gevr=blob, blob=<id> ---- */
+
+    bool listBlobs(std::map<std::string, long long> *blobs, std::string *why) override
+    {
+        blobFiles_.clear();
+        blobs->clear();
+        std::string page;
+        do {
+            const std::string url = apiUrl() + "/drive/v3/files?spaces=drive&pageSize=1000&orderBy=createdTime"
+                                    "&fields=nextPageToken,files(id,size,appProperties)&q=" +
+                                    urlEncode("appProperties has { key='gevr' and value='blob' } and trashed=false") +
+                                    (page.empty() ? "" : "&pageToken=" + urlEncode(page));
+            HttpReply r;
+            if (!api("GET", url, nullptr, {}, &r, why)) return false;
+            jspan o, files, f, props;
+            if (!jsonParse(r.body, &o) || !jsonGet(o, "files", &files)) {
+                *why = "Drive's list made no sense";
+                return false;
+            }
+            for (int i = 0; jsonAt(files, i, &f); i++) {
+                if (!jsonGet(f, "appProperties", &props)) continue;
+                const std::string id = jsonGetStr(props, "blob"), fid = jsonGetStr(f, "id");
+                if (id.empty() || fid.empty() || blobFiles_.count(id)) continue;   // oldest first: a duplicate is left
+                blobFiles_[id] = fid;
+                // Drive gives the size as a string
+                (*blobs)[id] = atoll(jsonGetStr(f, "size", "0").c_str());
+            }
+            page = jsonGetStr(o, "nextPageToken");
+        } while (!page.empty());
+        return true;
+    }
+
+    /* Drive's resumable upload: a session, then 4 MiB pieces (a multiple of 256 KiB) */
+    bool putBlob(const std::string &id, const std::string &label, const std::string &localPath,
+                 const Progress &progress, std::string *why) override
+    {
+        const long long total = fileSize(localPath);
+        if (total < 0) {
+            *why = "could not read " + localPath;
+            return false;
+        }
+        std::string folder;
+        if (!rootFolder(&folder, why)) return false;
+        const std::string meta = "{\"name\":" + q(label) + ",\"parents\":[" + q(folder) +
+                                 "],\"appProperties\":{\"gevr\":\"blob\",\"blob\":" + q(id) + "}}";
+        HttpReply r;
+        if (!api("POST", apiUrl() + "/upload/drive/v3/files?uploadType=resumable&fields=id", &meta,
+                 { "Content-Type: application/json; charset=UTF-8", "X-Upload-Content-Type: application/octet-stream",
+                   "X-Upload-Content-Length: " + std::to_string(total) }, &r, why)) {
+            return false;
+        }
+        const std::string session = r.location;
+        if (session.empty()) {
+            *why = "Drive gave no upload address";
+            return false;
+        }
+        FILE *f = openFile(localPath, "rb");
+        if (!f) {
+            *why = "could not read " + localPath;
+            return false;
+        }
+        static const size_t kPiece = 4u << 20;
+        std::string piece;
+        long long done = 0;
+        bool ok = true;
+        do {
+            piece.resize(kPiece);
+            const size_t n = fread(&piece[0], 1, kPiece, f);
+            piece.resize(n);
+            if (n == 0 && total > 0) {
+                ok = false;
+                *why = "the file ended early";
+                break;
+            }
+            const std::string range = total == 0 ? "bytes */0"
+                                                  : "bytes " + std::to_string(done) + "-" + std::to_string(done + (long long)n - 1) +
+                                                        "/" + std::to_string(total);
+            if (!api("PUT", session, &piece, { "Content-Range: " + range }, &r, why, 120000)) {
+                ok = false;
+                break;
+            }
+            done += (long long)n;
+            if (progress && !progress(done, total)) {
+                ok = false;
+                *why = "stopped";
+                break;
+            }
+            if (r.status != 308) break;   // 200/201: all of it is there
+        } while (done < total);
+        fclose(f);
+        if (!ok) return false;
+        if (r.status != 200 && r.status != 201) {
+            *why = "Drive stopped the upload early (HTTP " + std::to_string(r.status) + ")";
+            return false;
+        }
+        jspan o;
+        if (jsonParse(r.body, &o) && !jsonGetStr(o, "id").empty()) blobFiles_[id] = jsonGetStr(o, "id");
+        return true;
+    }
+
+    bool getBlob(const std::string &id, const std::string &localPath, const Progress &progress,
+                 std::string *why) override
+    {
+        if (!blobFiles_.count(id)) {
+            std::map<std::string, long long> all;
+            if (!listBlobs(&all, why)) return false;
+        }
+        auto it = blobFiles_.find(id);
+        if (it == blobFiles_.end()) {
+            *why = "no such file in Drive (another device may have replaced it)";
+            return false;
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+            if (!token(why)) return false;
+            const std::string tmp = localPath + ".sync-part";
+            FILE *out = openFile(tmp, "wb");
+            if (!out) {
+                *why = "could not write " + tmp;
+                return false;
+            }
+            long long done = 0;
+            bool full = false;
+            HttpRequest r;
+            r.url = apiUrl() + "/drive/v3/files/" + it->second + "?alt=media";
+            r.headers = { "Authorization: Bearer " + access_ };
+            r.agent = "GoldenEyeVR-Sync";
+            r.connectMs = 5000;
+            r.readMs = 60000;
+            r.sink = [&](const char *data, size_t n) {
+                if (fwrite(data, 1, n, out) != n) {
+                    full = true;
+                    return false;
+                }
+                done += (long long)n;
+                return !progress || progress(done, -1);
+            };
+            HttpReply reply;
+            try {
+                reply = httpSend(r);
+            } catch (const HttpError &e) {
+                fclose(out);
+                removeFile(tmp);
+                *why = full ? "the disk is full" : e.status == -1 ? "stopped" : e.message;
+                return false;
+            }
+            const bool closed = fclose(out) == 0;
+            if (reply.status == 401 && attempt == 0) {
+                removeFile(tmp);
+                access_.clear();
+                continue;
+            }
+            if (reply.status != 200 || !closed) {
+                removeFile(tmp);
+                *why = reply.status != 200 ? replyError(reply) : "could not write " + tmp;
+                return false;
+            }
+            removeFile(localPath);
+            if (!movePath(tmp, localPath, true)) {
+                removeFile(tmp);
+                *why = "could not write " + localPath;
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    bool removeBlob(const std::string &id, std::string *why) override
+    {
+        auto it = blobFiles_.find(id);
+        if (it == blobFiles_.end()) return true;   // not there: nothing to do
+        HttpReply r;
+        if (!api("DELETE", apiUrl() + "/drive/v3/files/" + it->second, nullptr, {}, &r, why)) return false;
+        blobFiles_.erase(it);
+        return true;
+    }
+
 private:
     /* an API call with the access token, refreshed once when it ran out */
     bool api(const std::string &method, const std::string &url, const std::string *body,
-             std::vector<std::string> headers, HttpReply *r, std::string *why)
+             std::vector<std::string> headers, HttpReply *r, std::string *why, int readMs = 10000)
     {
         for (int attempt = 0; attempt < 2; attempt++) {
-            if (access_.empty() || nowMs() > accessUntil_) {
-                if (!refresh(why)) return false;
-            }
+            if (!token(why)) return false;
             std::vector<std::string> h = headers;
             h.push_back("Authorization: Bearer " + access_);
-            *r = send(method, url, body, h, why);
+            *r = send(method, url, body, h, why, 4u << 20, readMs);
             if (r->status == 401 && attempt == 0) {
                 access_.clear();
                 continue;
             }
-            if (r->status >= 200 && r->status < 300) return true;
+            if ((r->status >= 200 && r->status < 300) || r->status == 308) return true;
             if (r->status) *why = replyError(*r);
             return false;
         }
         return false;
+    }
+
+    bool token(std::string *why)
+    {
+        if (!access_.empty() && nowMs() < accessUntil_) return true;
+        return refresh(why);
     }
 
     bool refresh(std::string *why)
@@ -380,6 +563,7 @@ private:
     std::string access_;
     long long accessUntil_ = 0;
     std::map<std::string, std::string> ids_;   // record name -> Drive file id
+    std::map<std::string, std::string> blobFiles_;   // blob id -> Drive file id
     bool listed_ = false;
     std::string folder_;
 };

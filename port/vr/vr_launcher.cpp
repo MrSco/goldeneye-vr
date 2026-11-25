@@ -3617,6 +3617,7 @@ extern "C" void gevrLauncherRun(void)
                     message = "ROM chosen.";
                     romError = false;
                     gevrCloudKick();   // to the player's other Apple devices
+                    gevrSyncKick();    // and to the others (Google Drive)
                     vr_log("launcher: picked ROM adopted");
                 } else {
                     message = r.good ? "Could not replace the ROM in the data folder." :
@@ -3637,6 +3638,7 @@ extern "C" void gevrLauncherRun(void)
                     message = "Found " + r.path.substr(dir.size()) + " - using it.";
                     romError = false;
                     gevrCloudKick();
+                    gevrSyncKick();
                     launcherSession.romSelectionFinished();
                     vr_log("launcher: renamed %s to ge.z64", r.path.c_str());
                     active = activeRomPath();
@@ -4370,26 +4372,35 @@ extern "C" void gevrLauncherRun(void)
                 scan();   // a ROM that came down
             }
             // the cross-platform sync (port/pc/gevr_sync.cpp): what the launch brought
-            // from the other devices, or a save conflict, once, a little longer
+            // from the other devices (once), and any note since (a save conflict, a
+            // ROM or pack that came: the ROM list looks again), a little longer
             static bool s_syncTold = false;
-            if (!s_syncTold) {
+            char sync[512];
+            const bool note = gevrSyncTakeMessage(sync, sizeof(sync)) != 0;
+            if (note) {
+                s_cloudNote = sync;
+                s_cloudNoteUntil = SDL_GetTicks() + 15000;
                 s_syncTold = true;
-                char sync[512];
-                const bool note = gevrSyncTakeMessage(sync, sizeof(sync)) != 0;
-                if (!note) gevrSyncStatus(sync, sizeof(sync));
-                if (note || (sync[0] && !strstr(sync, "up to date"))) {
+            } else if (!s_syncTold) {
+                s_syncTold = true;
+                gevrSyncStatus(sync, sizeof(sync));
+                if (sync[0] && !strstr(sync, "up to date")) {
                     s_cloudNote = sync;
-                    s_cloudNoteUntil = SDL_GetTicks() + (note ? 15000 : 8000);
+                    s_cloudNoteUntil = SDL_GetTicks() + 8000;
                 }
             }
+            if (gevrSyncTakeRomArrived()) scan();
             if (footerNote.empty() && !s_cloudNote.empty() && SDL_GetTicks() < s_cloudNoteUntil) footerNote = s_cloudNote;
         }
         }   // the START footer
         }   // reportPage
         float cloudDone = 0;
         char cloudLine[192];
-        if (footerNote.empty() && gevrCloudProgress(&cloudDone, cloudLine, sizeof(cloudLine))) {
-            ImGui::ProgressBar(cloudDone, ImVec2(-1, ImGui::GetTextLineHeight()), cloudLine);
+        if (footerNote.empty() && (gevrCloudProgress(&cloudDone, cloudLine, sizeof(cloudLine)) ||
+                                   gevrSyncProgress(&cloudDone, cloudLine, sizeof(cloudLine)))) {
+            // a share not known yet (packing a pack, checking a ROM): the bar's own pulse
+            ImGui::ProgressBar(cloudDone < 0 ? -1.0f * (float)ImGui::GetTime() : cloudDone,
+                               ImVec2(-1, ImGui::GetTextLineHeight()), cloudLine);
         } else if (footerNote.empty()) {
 #if defined(GEVR_TVOS)
             ImGui::TextDisabled("Use the remote, or a pad's stick and A.");
