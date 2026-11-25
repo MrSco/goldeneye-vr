@@ -415,9 +415,10 @@ extern "C" void gevrFriendsTick(int inGame) {
     static bool settingsSent = false;
     const uint32_t now = SDL_GetTicks();
     s_inGame = inGame != 0;
-    // the lobby roster's Add friend (vr_launcher.cpp gevrLobbyRoster): this player's friend
-    // code, shared with the players in the lobby while signed in and findable (Friends >
-    // the search setting), "" otherwise (net_core.c NET_MSG_FRIEND_CODE)
+    // this player's friend code, shared with the players in the match while signed in and
+    // findable (Friends > the search setting), "" otherwise (net_core.c NET_MSG_FRIEND_CODE);
+    // the launcher's lobby roster offered Add friend by it until the match moved into the
+    // game (docs/in-game-match-setup.md), and nothing reads it now
     netSetLocalFriendCode(s_model.status == "ready" && s_model.searchable ? s_model.friendCode.c_str() : "");
     // and how this player reloads (the roster's Reload, the host's "Hand reload only"):
     // by hand in VR with Hand reload on, else with the button
