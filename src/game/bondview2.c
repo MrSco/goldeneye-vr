@@ -24173,6 +24173,10 @@ static struct font *gevrBottomCaptionFont(s32 index)
 #endif
 }
 
+#ifdef GEVR
+static s32 gevrTopMessageLayout(TopMessageLocals *msg, char **text, char *wrapped);   /* below */
+#endif
+
 /**
  * Address: 7F08A5FC
  */
@@ -24313,9 +24317,53 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                 gDPNoOpTag(arg0++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
             }
 #endif
+#ifdef GEVR
+            /*
+             * Quarter views put this line at the view's top, beside the radar
+             * (the cartridge's place for 3-4 players). On a wide screen it was
+             * stretched across the radar and its rings (owner's 4-view Horde
+             * screenshot, 2026-11-24: "MENU: START WAVE 2"). Laid out as the
+             * top message is: 4:3 proportions, left of the radar, wrapped if
+             * longer, in the aspect anchor that reaches that stretch.
+             */
+            char *gevrBotText = stringbuffer_lowerleft[status_bar_text_buffer_index];
+            char gevrBotWrapped[BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH * 2];
+            s32 gevrBotMode = -1;
+            if (!g_gevrStereo && vcount >= 3 && vidx >= 0)
+            {
+                TopMessageLocals bm;
+                s32 line_top = view_top - view_top_offset;
+
+                bm.textwidth = view_left_offset;
+                bm.textheight = view_top_offset;
+                gevrBotMode = gevrTopMessageLayout(&bm, &gevrBotText, gevrBotWrapped);
+                if (gevrBotMode >= 0)
+                {
+                    view_left = bm.x;
+                    view_horiz = bm.x + bm.textwidth;
+                    if (bm.textheight > view_top_offset)
+                    {
+                        view_top = line_top + bm.textheight;   /* wrapped: grows downwards */
+                        view_top_offset = bm.textheight;
+                    }
+                    if (portNativeAspect() > 1.3334f)
+                    {
+                        gSPHudAspectEXT(arg0++, gevrBotMode);
+                    }
+                }
+            }
+#endif
             view_vert = view_top - view_top_offset;
             arg0 = draw_blackbox_to_screen(arg0, &view_left, &view_vert, &view_horiz, &view_top); /* PORT: addresses were cast to s32 */
+#ifdef GEVR
+            arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, gevrBotText, captionchars, captionfont, -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
+            if (gevrBotMode >= 0 && portNativeAspect() > 1.3334f)
+            {
+                gSPHudAspectEXT(arg0++, GE_HUD_ASPECT_NONE);   /* back to the split screen's (PORT_HUD_ASPECT) */
+            }
+#else
             arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
+#endif
 #ifdef GEVR
             if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
             {
