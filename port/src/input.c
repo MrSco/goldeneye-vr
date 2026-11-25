@@ -82,16 +82,27 @@ extern void gevrMpOptionsQueueStart(s32 slot);   /* mpmenu.c: the folder's START
  * in the player's own view; one player's START in a run is the pause window,
  * as the headset's Menu is (its Match tab: Retry Horde). With the folder up
  * START is its START tab (START WAVE); over a game screen it leaves it.
- * Co-op keeps its watch. The seat's START never reaches the game.
+ * Co-op keeps its watch. The seat's START never reaches the game. A new
+ * seat's first START is the one that dropped it in (its Select Character is
+ * up): not a press here.
  */
+extern int gevrNetSlotIsLocalHuman(int slot);
 static void inputHordeStart(s32 slot, OSContPad *npad)
 {
     static int was[MAX_PLAYER_COUNT];
+    static int seated[MAX_PLAYER_COUNT];
     const int start = (npad->button & START_BUTTON) != 0;
     struct player *pl;
 
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) {
+        if (!gevrNetSlotIsLocalHuman(i)) seated[i] = 0;
+    }
     if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
     pl = g_playerPointers[slot];
+    if (!seated[slot]) {
+        seated[slot] = 1;
+        was[slot] = 1;   /* held from the drop-in: an edge only once it is let go */
+    }
     if (!netIsActive() || !netHordeActive() || pl == NULL) {
         was[slot] = start;
         return;

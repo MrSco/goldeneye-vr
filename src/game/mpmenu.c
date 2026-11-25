@@ -1542,6 +1542,7 @@ enum { SETUP_OPEN_NONE, SETUP_OPEN_SCENARIO, SETUP_OPEN_STAGES, SETUP_OPEN_VOTE,
 #define SETUP_LINES 20
 typedef struct {
     s32 id;                  /* the main sheet's GEVR_SETUP_*, a sheet's index */
+    const char *brief;       /* a quarter view's label (NULL: the label) */
     char label[40];
     char value[48];
     void (*step)(s32 dir);   /* left / right; NULL: none */
@@ -1549,32 +1550,33 @@ typedef struct {
     u8 open;                 /* SETUP_OPEN_* */
 } GevrSetupLine;
 /* the folder's own rows; the others' labels are the original folder's (TITLE_STR_77 .. 83: "Scenario:",
- * "Characters"): a value with a colon, a row that opens a screen without */
-static const struct { u16 text; const char *label; void (*step)(s32); u8 open; } s_setupItems[GEVR_SETUP_ROW_COUNT] = {
-    [GEVR_SETUP_PLAYERS]       = { getStringID(LTITLE, TITLE_STR_77_PLAYERS), NULL, rowPlayersStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_SCENARIO]      = { getStringID(LTITLE, TITLE_STR_78_SCENARIO), NULL, rowScenarioStep, SETUP_OPEN_SCENARIO },
-    [GEVR_SETUP_LEVEL]         = { getStringID(LTITLE, TITLE_STR_79_LEVEL), NULL, rowMapStep, SETUP_OPEN_STAGES },
-    [GEVR_SETUP_NEXT_MAP]      = { 0, "Next Map:", rowNextMapStep, SETUP_OPEN_VOTE },
-    [GEVR_SETUP_LENGTH]        = { getStringID(LTITLE, TITLE_STR_80_GAMELENGTH), NULL, rowLengthStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_WEAPONS]       = { getStringID(LTITLE, TITLE_STR_81_WEAPONS), NULL, rowWeaponsStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_CUSTOM]        = { 0, "Custom Set", NULL, SETUP_OPEN_CUSTOM },
-    [GEVR_SETUP_NEXT_WEAPONS]  = { 0, "Next Weapons:", rowNextWeaponsStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_CHARACTER]     = { getStringID(LTITLE, TITLE_STR_82_CHARACTER), NULL, rowCharacterStep, SETUP_OPEN_CHARSEL },
-    [GEVR_SETUP_HEALTH]        = { getStringID(LTITLE, TITLE_STR_83_HEALTH), NULL, NULL, SETUP_OPEN_HANDICAP },
-    [GEVR_SETUP_HANDICAPS]     = { 0, "Handicaps:", rowHandicapsStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_TEAMS]         = { 0, "Teams", rowTeamStep, SETUP_OPEN_TEAMS },
-    [GEVR_SETUP_DUAL_WIELD]    = { 0, "Dual Wield:", rowDualStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_LOADOUTS]      = { 0, "Loadouts:", rowLoadoutsStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_LOADOUT]       = { 0, "Your Loadout", NULL, SETUP_OPEN_LOADOUT },
-    [GEVR_SETUP_BOTS]          = { 0, "Bots", NULL, SETUP_OPEN_BOTS },
-    [GEVR_SETUP_NEXT_ROUND]    = { 0, "Next Round:", rowNextRoundStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_FRIENDLY_FIRE] = { 0, "Friendly Fire:", rowFriendlyFireStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_RETURN]        = { 0, "Return to Lobby", rowReturnStep, SETUP_OPEN_ACTION },
-    [GEVR_SETUP_DROP_OUT]      = { 0, "Drop Out", rowDropOutStep, SETUP_OPEN_ACTION },
-    [GEVR_SETUP_FULL_MENU]     = { 0, "Full Menu", NULL, SETUP_OPEN_FULLMENU },
-    [GEVR_SETUP_HORDE_MAP]     = { getStringID(LTITLE, TITLE_STR_79_LEVEL), NULL, rowHordeMapStep, SETUP_OPEN_STAGES },
-    [GEVR_SETUP_STARTING_WAVE] = { 0, "Starting Wave:", rowHordeWaveStep, SETUP_OPEN_NONE },
-    [GEVR_SETUP_AI_ALLY]       = { 0, "AI Ally:", rowAllyStep, SETUP_OPEN_NONE },
+ * "Characters"): a value with a colon, a row that opens a screen without. brief: a quarter view's
+ * label, beside a value that takes half its width ("CHARACTE." was the original's cut) */
+static const struct { u16 text; const char *label; void (*step)(s32); u8 open; const char *brief; } s_setupItems[GEVR_SETUP_ROW_COUNT] = {
+    [GEVR_SETUP_PLAYERS]       = { getStringID(LTITLE, TITLE_STR_77_PLAYERS), NULL, rowPlayersStep, SETUP_OPEN_NONE, "Players:" },
+    [GEVR_SETUP_SCENARIO]      = { getStringID(LTITLE, TITLE_STR_78_SCENARIO), NULL, rowScenarioStep, SETUP_OPEN_SCENARIO, "Mode:" },
+    [GEVR_SETUP_LEVEL]         = { getStringID(LTITLE, TITLE_STR_79_LEVEL), NULL, rowMapStep, SETUP_OPEN_STAGES, "Level:" },
+    [GEVR_SETUP_NEXT_MAP]      = { 0, "Next Map:", rowNextMapStep, SETUP_OPEN_VOTE, "Map:" },
+    [GEVR_SETUP_LENGTH]        = { getStringID(LTITLE, TITLE_STR_80_GAMELENGTH), NULL, rowLengthStep, SETUP_OPEN_NONE, "Length:" },
+    [GEVR_SETUP_WEAPONS]       = { getStringID(LTITLE, TITLE_STR_81_WEAPONS), NULL, rowWeaponsStep, SETUP_OPEN_NONE, "Guns:" },
+    [GEVR_SETUP_CUSTOM]        = { 0, "Custom Set", NULL, SETUP_OPEN_CUSTOM, "Custom" },
+    [GEVR_SETUP_NEXT_WEAPONS]  = { 0, "Next Weapons:", rowNextWeaponsStep, SETUP_OPEN_NONE, "Guns:" },
+    [GEVR_SETUP_CHARACTER]     = { getStringID(LTITLE, TITLE_STR_82_CHARACTER), NULL, rowCharacterStep, SETUP_OPEN_CHARSEL, "Char." },
+    [GEVR_SETUP_HEALTH]        = { getStringID(LTITLE, TITLE_STR_83_HEALTH), NULL, NULL, SETUP_OPEN_HANDICAP, "Health" },
+    [GEVR_SETUP_HANDICAPS]     = { 0, "Handicaps:", rowHandicapsStep, SETUP_OPEN_NONE, "Handicaps:" },
+    [GEVR_SETUP_TEAMS]         = { 0, "Teams", rowTeamStep, SETUP_OPEN_TEAMS, "Team" },
+    [GEVR_SETUP_DUAL_WIELD]    = { 0, "Dual Wield:", rowDualStep, SETUP_OPEN_NONE, "Dual:" },
+    [GEVR_SETUP_LOADOUTS]      = { 0, "Loadouts:", rowLoadoutsStep, SETUP_OPEN_NONE, "Loadouts:" },
+    [GEVR_SETUP_LOADOUT]       = { 0, "Your Loadout", NULL, SETUP_OPEN_LOADOUT, "My Guns" },
+    [GEVR_SETUP_BOTS]          = { 0, "Bots", NULL, SETUP_OPEN_BOTS, "Bots" },
+    [GEVR_SETUP_NEXT_ROUND]    = { 0, "Next Round:", rowNextRoundStep, SETUP_OPEN_NONE, "Next:" },
+    [GEVR_SETUP_FRIENDLY_FIRE] = { 0, "Friendly Fire:", rowFriendlyFireStep, SETUP_OPEN_NONE, "Fr. Fire:" },
+    [GEVR_SETUP_RETURN]        = { 0, "Return to Lobby", rowReturnStep, SETUP_OPEN_ACTION, "Lobby" },
+    [GEVR_SETUP_DROP_OUT]      = { 0, "Drop Out", rowDropOutStep, SETUP_OPEN_ACTION, "Drop Out" },
+    [GEVR_SETUP_FULL_MENU]     = { 0, "Full Menu", NULL, SETUP_OPEN_FULLMENU, "Full Menu" },
+    [GEVR_SETUP_HORDE_MAP]     = { getStringID(LTITLE, TITLE_STR_79_LEVEL), NULL, rowHordeMapStep, SETUP_OPEN_STAGES, "Level:" },
+    [GEVR_SETUP_STARTING_WAVE] = { 0, "Starting Wave:", rowHordeWaveStep, SETUP_OPEN_NONE, "Wave:" },
+    [GEVR_SETUP_AI_ALLY]       = { 0, "AI Ally:", rowAllyStep, SETUP_OPEN_NONE, "Ally:" },
 };
 static s32 s_setupSheet[MAX_PLAYER_COUNT];
 static s32 s_setupCursor[MAX_PLAYER_COUNT][SETUP_SHEET_COUNT];   /* the main sheet: a row id or SETUP_START_TAB; else an index */
@@ -1636,6 +1638,7 @@ static void gevrSetupLine(GevrSetupLine *l, s32 id, const char *label, void (*va
     u32 k;
 
     l->id = id;
+    l->brief = NULL;
     snprintf(l->label, sizeof(l->label), "%s", label);
     l->value[0] = '\0';
     if (value != NULL) value(l->value, sizeof(l->value));
@@ -1745,7 +1748,8 @@ static s32 gevrSetupLines(s32 slot, s32 sheet, GevrSetupLine *out)
                 case GEVR_SETUP_RETURN: value = rowReturnValue; break;
                 default: break;
             }
-            gevrSetupLine(&out[n++], id, name, value, step, editable, s_setupItems[id].open);
+            gevrSetupLine(&out[n], id, name, value, step, editable, s_setupItems[id].open);
+            out[n++].brief = s_setupItems[id].brief;
         }
     }
     return n;
@@ -1785,7 +1789,7 @@ static const char *gevrSetupStartTab(s32 slot, s32 *usable)
     if (netHordeActive())
     {
         *usable = gevrSetupHostSeat(slot) && netHordeHostCanStart();
-        if (!gevrSetupHostSeat(slot)) return "WAITING FOR HOST|WAITING";
+        if (!gevrSetupHostSeat(slot)) return "WAITING FOR HOST|WAITING|WAIT";
         if (netHordeRestartPending()) return "RESTART ON NEW MAP|RESTART";
         snprintf(word, sizeof(word), "START WAVE %d|WAVE %d", gevrNetConfigGet(CFG_HORDE_START_WAVE), gevrNetConfigGet(CFG_HORDE_START_WAVE));
         return word;
@@ -1851,7 +1855,7 @@ static void gevrSetupInfo(s32 slot, char *b, s32 n, s32 narrow)
         }
         else
         {
-            snprintf(state, sizeof(state), "%sSTART WAVE %d", go, (int)wave);
+            snprintf(state, sizeof(state), "%sBEGIN WAVE %d", go, (int)wave);
         }
     }
     else if (secs > 0)
@@ -2142,7 +2146,8 @@ static Gfx *gevrMpOptionsDraw(Gfx *gdl, s32 slot)
     }
     for (i = 0; i < count; i++)
     {
-        rows[i].label = lines[i].label;
+        /* a quarter view (the layout's compact, front.c frontMpOptionsLayout): the short labels */
+        rows[i].label = w < 220 && lines[i].brief != NULL ? lines[i].brief : lines[i].label;
         rows[i].value = lines[i].value;
         rows[i].dim = !lines[i].editable;   /* the host's, at another seat: the original's locked row */
         rows[i].more = lines[i].open != SETUP_OPEN_NONE && lines[i].open != SETUP_OPEN_ACTION;
@@ -2312,11 +2317,12 @@ static s32 gevrMpOptionsFromResults(s32 slot)
     return gevrMpOptionsIsOpen(slot);
 }
 
-/* A split screen's new seat (input.c): in the warmup, the folder on its Select
- * Character, which comes back to it; in a round, Select Character as a drop-in */
+/* A split screen's new seat (input.c): in the warmup (Horde: the setup break),
+ * the folder on its Select Character, which comes back to it; in a round,
+ * Select Character as a drop-in */
 void gevrMpOptionsDropIn(s32 slot)
 {
-    if (netGetPhase() == 1 && gevrMpOptionsAvailable(slot))
+    if ((netHordeActive() ? netHordeSetupBreak() : netGetPhase() == 1) && gevrMpOptionsAvailable(slot))
     {
         gevrMpOptionsOpen(slot, -1);
         s_setupCursor[slot][SETUP_SHEET_MAIN] = GEVR_SETUP_CHARACTER;

@@ -7423,6 +7423,74 @@ static void frontPanelFit(char *out, s32 size, const char *text, s32 w, struct f
     }
 }
 
+/*
+ * A screen's list of names cut alike (the Handicap and Teams screens): a
+ * split screen's guests are "Name (2)", "Name (3)"... and cut one by one they
+ * came out "AGENT 44." beside "AGENT 446.(2)" (owner, 2026-11-24). Here each
+ * name's own part (before a last "(...)", less its space) is cut to the same
+ * length, the longest every name of the list fits within w with, a '.' where
+ * cut, the "(...)" kept whole; a name that fits as it is stays whole. Past
+ * that (a view too narrow for "A.(2)"), each is cut as frontPanelFit cuts it.
+ */
+#define PANEL_NAME_LEN 48
+static s32 frontPanelNameBase(const char *name, const char **tail)
+{
+    s32 n = (s32)strlen(name);
+    const char *t = strrchr(name, '(');
+    s32 base = n;
+
+    *tail = "";
+    if (t != NULL && t > name && n > 0 && name[n - 1] == ')')
+    {
+        *tail = t;
+        base = (s32)(t - name);
+        while (base > 0 && name[base - 1] == ' ') base--;
+    }
+    return base;
+}
+static void frontPanelNameCut(char *out, const char *name, s32 keep, struct fontchar *chars, struct font *font, s32 w)
+{
+    const char *tail;
+    s32 base = frontPanelNameBase(name, &tail);
+    s32 th;
+    s32 tw;
+
+    snprintf(out, PANEL_NAME_LEN, "%s", name);
+    textMeasure(&th, &tw, out, chars, font, 0);
+    if (tw <= w || keep >= base) return;
+    while (keep > 1 && name[keep - 1] == ' ') keep--;   /* "AGENT.(2)", not "AGENT .(2)" */
+    snprintf(out, PANEL_NAME_LEN, "%.*s.%s", (int)keep, name, tail);
+}
+static void frontPanelFitNames(char (*out)[PANEL_NAME_LEN], const char *const *names, s32 n, s32 w,
+                               struct fontchar *chars, struct font *font)
+{
+    s32 keep = 0;
+    s32 i;
+
+    for (i = 0; i < n; i++)
+    {
+        const char *tail;
+        s32 base = frontPanelNameBase(names[i] != NULL ? names[i] : "", &tail);
+        if (base > keep) keep = base;
+    }
+    for (; keep >= 1; keep--)
+    {
+        s32 fits = 1;
+
+        for (i = 0; i < n && fits; i++)
+        {
+            s32 th;
+            s32 tw;
+
+            frontPanelNameCut(out[i], names[i] != NULL ? names[i] : "", keep, chars, font, w);
+            textMeasure(&th, &tw, out[i], chars, font, 0);
+            fits = tw <= w;
+        }
+        if (fits) return;
+    }
+    for (i = 0; i < n; i++) frontPanelFit(out[i], PANEL_NAME_LEN, names[i] != NULL ? names[i] : "", w, chars, font);
+}
+
 /* the sheet and its title; the next line's top */
 static Gfx *frontPanelSheet(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh, char *title, s32 *top)
 {
@@ -7593,25 +7661,41 @@ Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count
     first = cursor - rows / 2;
     if (first > count - rows) first = count - rows;
     if (first < 0) first = 0;
-    for (i = first; i < first + rows && i < count; i++)
     {
-        s32 left = vx + 4;
-        s32 right = vx + vw - 4;
+        /* every name cut alike, to the room the widest health shown leaves */
+        static char names[MAX_PLAYER_COUNT][PANEL_NAME_LEN];
+        const char *list[MAX_PLAYER_COUNT];
+        s32 widest = 0;
         s32 lw;
-        u32 colour = i == cursor ? 0xFFFFFFFF : 0x000000FF;
+        s32 n = 0;
 
-        y = top + (i - first) * (bank + 1);
-        if (i == cursor) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x101010E0);
-        else if (e[i].me) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x00000030);
-        snprintf(text, sizeof(text), "%s%s%s%s", !big && i == cursor && e[i].editable ? "< " : "", e[i].match ? "MATCH" : e[i].label,
-                 e[i].host ? " *" : "", !big && i == cursor && e[i].editable ? " >" : "");
-        textMeasure(&th, &lw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
-        x = right - lw;
-        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
-        frontPanelFit(name, sizeof(name), e[i].name, right - lw - left - 8, ptrFontBankGothicChars, ptrFontBankGothic);
-        x = left;
-        y = top + (i - first) * (bank + 1);
-        DL = textRender(DL, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+        for (i = first; i < first + rows && i < count && n < MAX_PLAYER_COUNT; i++)
+        {
+            snprintf(text, sizeof(text), "%s%s%s%s", !big && i == cursor && e[i].editable ? "< " : "", e[i].match ? "MATCH" : e[i].label,
+                     e[i].host ? " *" : "", !big && i == cursor && e[i].editable ? " >" : "");
+            textMeasure(&th, &lw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            if (lw > widest) widest = lw;
+            list[n++] = e[i].name;
+        }
+        frontPanelFitNames(names, list, n, vw - 8 - widest - 8, ptrFontBankGothicChars, ptrFontBankGothic);
+        for (i = first; i < first + rows && i < count; i++)
+        {
+            s32 left = vx + 4;
+            s32 right = vx + vw - 4;
+            u32 colour = i == cursor ? 0xFFFFFFFF : 0x000000FF;
+
+            y = top + (i - first) * (bank + 1);
+            if (i == cursor) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x101010E0);
+            else if (e[i].me) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x00000030);
+            snprintf(text, sizeof(text), "%s%s%s%s", !big && i == cursor && e[i].editable ? "< " : "", e[i].match ? "MATCH" : e[i].label,
+                     e[i].host ? " *" : "", !big && i == cursor && e[i].editable ? " >" : "");
+            textMeasure(&th, &lw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            x = right - lw;
+            DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+            x = left;
+            y = top + (i - first) * (bank + 1);
+            DL = textRender(DL, &x, &y, names[i - first], ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+        }
     }
 
     DL = frontPanelFooter(DL, vx, vy, vw, vh, note, buttons);
@@ -7626,6 +7710,8 @@ Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count
  * does while it is not yet theirs; a player whose team changes at the next
  * round is starred.
  */
+static char s_teamNames[MAX_PLAYER_COUNT][PANEL_NAME_LEN];   /* frontTeamSelectDraw's names, cut alike */
+
 Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, s32 pick, s32 cap_red, s32 cap_blue,
                          const char *note, s32 vx, s32 vy, s32 vw, s32 vh)
 {
@@ -7661,6 +7747,21 @@ Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, 
     DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, zline + 1 + room * (bank + 1) + bank + 2) ? text : NULL, &top);
     if (room > (bottom - top - zline - 1 - bank - 2) / (bank + 1)) room = (bottom - top - zline - 1 - bank - 2) / (bank + 1);
     if (room < 1) room = 1;
+    {
+        /* every name cut alike to a column's room, less the star a change gets where one shows */
+        const char *list[MAX_PLAYER_COUNT];
+        s32 n = count < MAX_PLAYER_COUNT ? count : MAX_PLAYER_COUNT;
+        s32 star = 0;
+
+        for (i = 0; i < n; i++)
+        {
+            list[i] = e[i].name;
+            star |= e[i].next || (e[i].me && pick != e[i].team);
+        }
+        tw = 0;
+        if (star) textMeasure(&th, &tw, "*", ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        frontPanelFitNames(s_teamNames, list, n, colw - 6 - tw, ptrFontBankGothicChars, ptrFontBankGothic);
+    }
     for (t = 0; t < 2; t++)
     {
         s32 cx = vx + 3 + t * colw;
@@ -7690,8 +7791,8 @@ Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, 
             if (band) DL = microcode_constructor_related_to_menus(DL, cx, y, cx + colw - 1, y + bank, 0x101010E0);
             if (!(e[i].me && pick != e[i].team && !blink))
             {
-                snprintf(text, sizeof(text), "%s%s", e[i].next || (e[i].me && pick != e[i].team) ? "*" : "", e[i].name);
-                frontPanelFit(name, sizeof(name), text, colw - 6, ptrFontBankGothicChars, ptrFontBankGothic);
+                snprintf(name, sizeof(name), "%s%s", e[i].next || (e[i].me && pick != e[i].team) ? "*" : "",
+                         i < MAX_PLAYER_COUNT ? s_teamNames[i] : e[i].name);
                 DL = textRender(DL, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, band ? 0xFFFFFFFF : 0x000000FF,
                                 viGetX(), viGetY(), 0, 0);
             }
@@ -7967,17 +8068,18 @@ Gfx *frontMpOptionsDraw(Gfx *DL, s32 slot, const char *title, const FrontOptionR
         DL = textRender(DL, &x, &y, "v", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000C0, viGetX(), viGetY(), 0, 0);
     }
 
-    /* the tabs: START above PREVIOUS (a list: PREVIOUS alone) */
+    /* the tabs: START above PREVIOUS (a list: PREVIOUS alone), PREVIOUS as BACK where it is cut */
     DL = microcode_constructor_related_to_menus(DL, right, vy, right + 1, vy + vh, 0x00000060);
+    snprintf(value, sizeof(value), "%s|BACK", (char *)langGet(getStringID(LTITLE, TITLE_STR_06_PREVIOUS)));
     if (start != NULL)
     {
         DL = frontMpOptionsTab(DL, start, right, vy, vx + vw, vy + vh / 2, cursor == count, startdim);
         DL = microcode_constructor_related_to_menus(DL, right, vy + vh / 2, vx + vw, vy + vh / 2 + 1, 0x00000060);
-        DL = frontMpOptionsTab(DL, (char *)langGet(getStringID(LTITLE, TITLE_STR_06_PREVIOUS)), right, vy + vh / 2, vx + vw, vy + vh, 0, 0);
+        DL = frontMpOptionsTab(DL, value, right, vy + vh / 2, vx + vw, vy + vh, 0, 0);
     }
     else
     {
-        DL = frontMpOptionsTab(DL, (char *)langGet(getStringID(LTITLE, TITLE_STR_06_PREVIOUS)), right, vy, vx + vw, vy + vh, 0, 0);
+        DL = frontMpOptionsTab(DL, value, right, vy, vx + vw, vy + vh, 0, 0);
     }
 
     /* the info line */
