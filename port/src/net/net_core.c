@@ -4561,10 +4561,14 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             }
             uint8_t joiner_input, joiner_platform, joiner_reload;
             {
-                /* who is joining: an older build sends nothing, and is let in */
-                const uint8_t input = netbufReadLeft(&buf) >= 2 ? netbufReadU8(&buf) : NET_INPUT_UNKNOWN;
+                /* who is joining: an older build sends nothing, and is let in. A build
+                 * that sends it sends all three bytes, even when it has no class (a
+                 * headless client): read them by their presence, not the class, or the
+                 * platform byte reads as the split-screen guests' count below */
+                const bool described = netbufReadLeft(&buf) >= 2;
+                const uint8_t input = described ? netbufReadU8(&buf) : NET_INPUT_UNKNOWN;
                 joiner_input = input;
-                const uint8_t platform = input != NET_INPUT_UNKNOWN ? netbufReadU8(&buf) : NET_PLATFORM_UNKNOWN;
+                const uint8_t platform = described ? netbufReadU8(&buf) : NET_PLATFORM_UNKNOWN;
                 joiner_platform = platform <= NET_PLATFORM_MAX ? platform : NET_PLATFORM_UNKNOWN;
                 extern int VrMpVrOnly;   /* the host's "VR players only" */
                 NET_LOG("%s joins with %s (platform %u)", clean, netInputClassName(input), (unsigned)platform);
@@ -4574,8 +4578,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     break;
                 }
                 /* how it reloads: an older build sends nothing, and is let in */
-                const uint8_t reload = input != NET_INPUT_UNKNOWN && netbufReadLeft(&buf) >= 1 ? netbufReadU8(&buf)
-                                                                                             : NET_RELOAD_UNKNOWN;
+                const uint8_t reload = described && netbufReadLeft(&buf) >= 1 ? netbufReadU8(&buf) : NET_RELOAD_UNKNOWN;
                 joiner_reload = reload <= NET_RELOAD_HAND ? reload : NET_RELOAD_UNKNOWN;
                 extern int VrMpHandReloadOnly;   /* the host's "Hand reload only" */
                 if (VrMpHandReloadOnly && joiner_reload == NET_RELOAD_BUTTON) {
