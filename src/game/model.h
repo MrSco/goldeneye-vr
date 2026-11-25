@@ -103,7 +103,8 @@ void sub_GAME_7F074524(Gfx *param_1,struct Model *param_2, struct ModelNode *par
 void sub_GAME_7F074534(ModelRenderData* data, Model* model, ModelNode* node);
 void subdraw(ModelRenderData *arg0, struct Model *);
 #ifdef GEVR
-void modelDrawGunHand(ModelRenderData *mrData, struct Model *mdl, int pp7Carrier);
+s32 modelGunHandList(const struct ModelFileHeader *header, struct ModelNode *node, const char *file);
+void modelDrawGunHand(ModelRenderData *mrData, struct Model *mdl, const char *file);
 #endif
 #ifdef GEVR
 void gevrModelTraceNextDraw(void);
