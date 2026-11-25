@@ -84,6 +84,16 @@ def main():
         (Path(tmp) / "valid.bin").write_bytes(v1)
         (Path(tmp) / "bad.bin").write_bytes(v1[:-1])
         (Path(tmp) / "legacy.bin").write_bytes(b"RAW_ROM_MODEL")
+        prefix = b"GEVRWPN1" + struct.pack("<I", 2) + image * 2 + struct.pack("<I", 2)
+        first_picture = bytearray(corners)
+        first_picture[24::28] = bytes(3)
+        (Path(tmp) / "mixed.bin").write_bytes(prefix + first_picture + corners)
+        first_picture[23::28] = bytes((128,)) * 3
+        (Path(tmp) / "vertex-alpha.bin").write_bytes(prefix + first_picture + corners)
+        (Path(tmp) / "invalid-sidecar.bin").write_bytes(v1)
+        for model in ("mixed.bin", "vertex-alpha.bin"):
+            (Path(tmp) / (model + ".opaque")).write_bytes(b"0\r\n")
+        (Path(tmp) / "invalid-sidecar.bin.opaque").write_bytes(b"2\n")
         exe = Path(tmp) / ("packmesh_loader.exe" if os.name == "nt" else "packmesh_loader")
         subprocess.run([cc, "-std=gnu11", "-D_LANGUAGE_C=1", "-DGEVR=1",
                         "-DF3DEX_GBI_2=1", "-DVERSION=2", "-DVERSION_US=1", "-fno-builtin",
@@ -97,6 +107,7 @@ def main():
         run = subprocess.run([str(exe)], cwd=tmp, check=True, capture_output=True, text=True)
         assert "pack model valid.bin: 1 triangles, 2 RGBA textures" in run.stdout, run.stdout
         assert "refused pack model bad.bin: malformed model" in run.stdout, run.stdout
+        assert "refused pack model invalid-sidecar.bin: invalid .opaque picture indexes" in run.stdout, run.stdout
     print("PASS: both self-describing mesh layouts, texture and corner data, mount data, malformed inputs, legacy dispatch and native display-list loading")
 
 

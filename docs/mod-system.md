@@ -583,7 +583,15 @@ in-game screen). We maintain the adapters, not the mods.
     renderer uses signed 16-bit 10.5 vertex UVs, with room for a repeated
     image across a seam, and 10.2 tile bounds. If a picture pixel or a
     corner using it has alpha below 255, all its triangles use the
-    depth-tested blended pass; other triangles also write depth.
+    depth-tested blended pass; other triangles also write depth. If a
+    picture's alpha stores data other than opacity, add
+    `assets/models/<file>.opaque` beside that mesh (for example,
+    `body.bin.opaque`). List its zero-based picture indexes separated by
+    ASCII whitespace, each once, in fewer than 128 bytes. Those pictures
+    keep their RGB and ignore texture alpha; corner alpha still controls
+    blending. Unlisted pictures keep the original behavior, so one mesh
+    can use opaque body pictures and blended glass. The same applies
+    whether the file is held or attached. Invalid lists refuse the mesh.
     Files with invalid counts, non-finite values, missing bytes or extra
     bytes are refused and logged; an allocation failure is logged too.
     Pack geometry currently does not inherit world fog on guards.

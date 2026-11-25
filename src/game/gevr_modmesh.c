@@ -7,6 +7,7 @@
 #include "matrixmath.h"
 #include "system.h"
 #include <PR/gbi.h>
+#include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,12 +42,39 @@ static int tileMask(int size)
     return mask;
 }
 
-static size_t buildMesh(GevrModMesh *mesh)
+/* ASCII picture indexes separated by whitespace, bounded for 32 pictures. */
+static int readOpaquePictures(const char *name, unsigned pictures, uint32_t *mask)
+{
+    unsigned char bytes[128];
+    size_t i = 0, n;
+    FILE *f = gevrModAssetOpenModelOpacity(name);
+    *mask = 0;
+    if (f == NULL) return 1;
+    n = fread(bytes, 1, sizeof(bytes), f);
+    int complete = n < sizeof(bytes) && !ferror(f);
+    fclose(f);
+    if (!complete) return 0;
+    while (i < n) {
+        unsigned index = 0, digits = 0;
+        if (isspace(bytes[i])) { ++i; continue; }
+        while (i < n && bytes[i] >= '0' && bytes[i] <= '9') {
+            index = index * 10 + bytes[i++] - '0';
+            if (++digits > 2 || index >= pictures) return 0;
+        }
+        if (!digits || (i < n && !isspace(bytes[i]))) return 0;
+        if (*mask & (UINT32_C(1) << index)) return 0;
+        *mask |= UINT32_C(1) << index;
+    }
+    return 1;
+}
+
+static size_t buildMesh(GevrModMesh *mesh, uint32_t opaquePictures)
 {
     const GevrPackMeshView *view = &mesh->view;
     Gfx *gdl = mesh->commands;
     unsigned tex, pass;
     uint32_t used = 0, translucent = 0;
+    int rgb = 0;
     size_t tri;
     unsigned i;
 
@@ -78,7 +106,7 @@ static size_t buildMesh(GevrModMesh *mesh)
         const uint32_t bit = UINT32_C(1) << tex;
         const GevrPackPicture *pic = &view->pictures[tex];
         size_t a, bytes = (size_t)pic->width * pic->height * 4;
-        if (!(used & bit) || (translucent & bit)) continue;
+        if (!(used & bit) || ((translucent | opaquePictures) & bit)) continue;
         for (a = 3; a < bytes; a += 4) {
             if (pic->rgba[a] < 255) { translucent |= bit; break; }
         }
@@ -108,6 +136,16 @@ static size_t buildMesh(GevrModMesh *mesh)
             unsigned run = 0;
             int tile;
             if (!(used & bit) || ((translucent & bit) != 0) != (pass != 0)) continue;
+            const int ignoresTextureAlpha = (opaquePictures & bit) != 0;
+            if (rgb != ignoresTextureAlpha) {
+                rgb = ignoresTextureAlpha;
+                gDPPipeSync(gdl++);
+                if (rgb) {
+                    gDPSetCombineMode(gdl++, G_CC_MODULATERGB, G_CC_MODULATERGB2);
+                } else {
+                    gDPSetCombineMode(gdl++, G_CC_MODULATERGBA, G_CC_MODULATERGBA2);
+                }
+            }
             gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
             gDPLoadTextureBlock(gdl++, mesh->keys[tex], G_IM_FMT_RGBA, G_IM_SIZ_16b, 16, 16, 0,
                 G_TX_WRAP, G_TX_WRAP, 4, 4, G_TX_NOLOD, G_TX_NOLOD);
@@ -130,9 +168,10 @@ static size_t buildMesh(GevrModMesh *mesh)
             }
         }
     }
-    if (translucent) {
+    if (translucent || rgb) {
         gDPPipeSync(gdl++);
-        gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+        if (translucent) { gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2); }
+        if (rgb) { gDPSetCombineMode(gdl++, G_CC_MODULATERGBA, G_CC_MODULATERGBA2); }
     }
     gSPEndDisplayList(gdl++);
     return (size_t)(gdl - mesh->commands);
@@ -146,6 +185,7 @@ int gevrModMeshLoad(const char *name, const GevrModMesh **out)
     GevrModMesh *mesh = NULL;
     long length;
     size_t commands;
+    uint32_t opaquePictures;
     const char *reason = "invalid file length";
 
     *out = NULL;
@@ -171,7 +211,9 @@ int gevrModMeshLoad(const char *name, const GevrModMesh **out)
     reason = "malformed model";
     if (fread(bytes, 1, (size_t)length, f) != (size_t)length
         || gevrPackMeshRead(bytes, (size_t)length, &view) != 1) goto refused;
-    commands = 32 + (size_t)view.textures * 16;
+    reason = "invalid .opaque picture indexes";
+    if (!readOpaquePictures(name, view.textures, &opaquePictures)) goto refused;
+    commands = 32 + (size_t)view.textures * 18;
     reason = "display list size overflow";
     if (view.triangles > (SIZE_MAX / sizeof(Gfx) - commands) / 2
         || view.triangles > SIZE_MAX / sizeof(Vtx) / 3) goto refused;
@@ -185,7 +227,7 @@ int gevrModMeshLoad(const char *name, const GevrModMesh **out)
     mesh->bytes = bytes;
     mesh->view = view;
     snprintf(mesh->name, sizeof(mesh->name), "%s", name);
-    commands = buildMesh(mesh);
+    commands = buildMesh(mesh, opaquePictures);
     mesh->next = s_meshes;
     s_meshes = mesh;
     *out = mesh;
