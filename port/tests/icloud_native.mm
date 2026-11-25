@@ -77,6 +77,14 @@ int main()
         check(isLocalKey(kCfg, "Video.DefaultFullscreen") && isLocalKey(kCfg, "Audio.BufferSize")
                   && !isLocalKey(kCfg, "Game.Player1.CrosshairSize"),
               "cfg: video/audio the device's, crosshair shared");
+        // never synced at all: the room's (split-screen guest seats, pads) and the iCloud rows
+        check(isDeviceKey(kIni, "Guest2Name") && isDeviceKey(kIni, "Guest4Loadout3") && isDeviceKey(kIni, "Guest3Chr")
+                  && isDeviceKey(kIni, "ICloudSync") && isDeviceKey(kCfg, "Input.Player2.ControllerIndex")
+                  && isDeviceKey(kCfg, "Audio.BufferSize"),
+              "guest seats, pad assignments, audio and the iCloud rows stay on the device");
+        check(isLocalKey(kIni, "MasterVolume") && !isDeviceKey(kIni, "MasterVolume") && !isDeviceKey(kIni, "FrameRate")
+                  && !isLocalKey(kIni, "AdaptiveTriggers") && !isLocalKey(kIni, "MpLobby"),
+              "master volume per family; triggers and multiplayer choices shared");
     }
 
     char tmpl[] = "/tmp/gevr-icloud-test-XXXXXX";

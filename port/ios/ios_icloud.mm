@@ -55,6 +55,7 @@ extern "C" {
 #include "system.h"
 }
 #include "gevr_icloud.h"
+#include "gevr_sync_keys.h"
 
 #if defined(GEVR_VISIONOS)
 static const char *const kFamily = "vision";
@@ -208,34 +209,6 @@ std::string sha256File(const std::string &path)
 
 /* -------------------------------------------------------- settings (KVS) */
 
-/* goldeneye-vr.ini keys that belong to one kind of device: its display, its
- * frame rate, its touch screen, its room. Everything else is the player's. */
-const std::set<std::string> &localIniKeys()
-{
-    static const std::set<std::string> keys = {
-        "FrameRate", "DisplayHz", "SpaceWarp", "EyeMsaa", "CpuLevel", "ShowStats",
-        "ScreenDistance", "ScreenFov", "ScreenCurved", "ScreenPassthrough", "ScreenShape", "ScreenHeight",
-        "TouchControls", "TouchLayout", "TouchHaptics", "PlayMode", "SeatedMode", "PlayerHeight",
-        "MatchCharacterHeight", "WorldScale", "HudDistance", "StereoCrosshair", "PadDefaults",
-        "LookUprightFolders", "MicMuted", "LiveSplit", "LiveSplitHost", "ICloudSync", "ICloudPacks",
-        "MasterVolume",   // a phone's speaker and a living room's TV want their own
-    };
-    return keys;
-}
-
-/* goldeneye.ini: the window, the audio device and the input backends are the device's */
-bool localCfgKey(const std::string &k)
-{
-    static const char *const prefixes[] = {
-        "Video.", "Audio.", "Input.Use", "Input.FakeGamepads", "Input.FirstGamepadNum",
-        "Input.Mouse", "Game.MemorySize", "Game.ExtraSleep",
-    };
-    for (const char *p : prefixes) {
-        if (k.compare(0, strlen(p), p) == 0) return true;
-    }
-    return false;
-}
-
 struct IniFile {
     const char *name;      // in the save folder
     const char *kvBase;    // "ini" or "cfg"
@@ -249,10 +222,19 @@ const IniFile kCfg = { "goldeneye.ini", "cfg2", true };
 NSString *const kSavePrefix = @"save2:";
 const char *const kJoinedMarker = "joined2";
 
-bool isLocalKey(const IniFile &f, const std::string &k)
+/* Which keys travel: the table the cross-platform sync uses too
+ * (port/include/gevr_sync_keys.h). A kind's keys go to this family's
+ * dictionary; a device's own (the split-screen guest seats, which pad is which
+ * player, the audio output, the iCloud rows) never leave the device, and old
+ * builds' copies of them in the store are left alone. */
+gevrsync::KeyScope keyScope(const IniFile &f, const std::string &k)
 {
-    return f.sections ? localCfgKey(k) : localIniKeys().count(k) != 0;
+    return f.sections ? gevrsync::cfgKeyScope(k) : gevrsync::iniKeyScope(k);
 }
+
+bool isLocalKey(const IniFile &f, const std::string &k) { return keyScope(f, k) != gevrsync::KEY_SHARED; }
+
+bool isDeviceKey(const IniFile &f, const std::string &k) { return keyScope(f, k) == gevrsync::KEY_DEVICE; }
 
 std::string trimEol(const std::string &s)
 {
@@ -388,6 +370,7 @@ void iniPush(const IniFile &f, const std::map<std::string, std::string> &before,
     for (const auto &kv : now) {
         auto b = before.find(kv.first);
         if (b != before.end() && b->second == kv.second) continue;
+        if (isDeviceKey(f, kv.first)) continue;
         std::map<std::string, std::string> &dst = isLocalKey(f, kv.first) ? mine : shared;
         auto cur = dst.find(kv.first);
         if (cur != dst.end() && cur->second == kv.second) continue;
@@ -413,6 +396,7 @@ void iniLaunchMerge(const IniFile &f, bool joined)
 
     std::map<std::string, std::string> take;   // the cloud's values the file gets
     for (const auto &kv : remote) {
+        if (isDeviceKey(f, kv.first)) continue;   // an old build's copy of a device's own
         auto l = local.find(kv.first);
         if (l != local.end() && l->second == kv.second) continue;
         if (joined && l != local.end()) {

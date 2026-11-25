@@ -26,14 +26,26 @@ tvOS has no iCloud Drive (Apple QA1935), so files go through CloudKit on every
 platform. The key-value store holds 1 MB and 1024 keys: the settings are a few
 dictionaries, not one key per setting.
 
+Which keys travel is one table for iCloud and the cross-platform sync:
+[port/include/gevr_sync_keys.h](../port/include/gevr_sync_keys.h)
+([cloud-sync.md](cloud-sync.md)).
+
 **Per device kind** (not shared): frame rate, display Hz, SpaceWarp, MSAA,
 CPU level, stats, the flat screen's size/distance/shape/curve/passthrough,
 touch controls and layout, play mode, seated mode, height, world scale, HUD
 distance, stereo crosshair, pad-default and look-upright markers, mic mute,
-LiveSplit, and the two iCloud rows themselves; in `goldeneye.ini` the `Video.`,
-`Audio.`, mouse and input-backend keys. Everything else (controls, look speed,
-vibration, gameplay, cheats, gun fits, multiplayer choices, the player name,
-the active pack, Bean mode) is shared.
+LiveSplit, master volume; in `goldeneye.ini` the `Video.`, mouse and
+input-backend keys.
+
+**This device only** (never synced, not even to the same kind): the
+split-screen guest seats (`Guest2..4` name, character, loadouts), which pad
+is which player (`Input.PlayerN.ControllerIndex`), the audio output
+(`Audio.`), the window (`Video.Default*`) and the two iCloud rows. Two Apple
+TVs in two rooms keep their own couch setups. Copies an older build put in
+the store are ignored.
+
+Everything else (controls, look speed, vibration, gameplay, cheats, gun fits,
+multiplayer choices, the player name, the active pack, Bean mode) is shared.
 
 **Joining.** A device pushes nothing to the key-value store until it joins:
 when the store already has the other devices' settings (they win; only keys
