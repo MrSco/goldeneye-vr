@@ -1416,6 +1416,8 @@ EXPORT int test_core_bot_roster(void) {
     int red=0,blue=0;for(int i=0;i<4;i++) {red+=s_lobby_state.slots[i].team==NET_TEAM_RED;blue+=s_lobby_state.slots[i].team==NET_TEAM_BLUE;}
     CHECK(red==2 && blue==2);
     gevrNetConfigSet(CFG_SCENARIO,0);CHECK(s_lobby_state.slots[1].team==NET_TEAM_NONE);
+    /* the folder's Scenario list asks without changing anything (mpmenu.c) */
+    CHECK(gevrNetScenarioAccepted(5) && gevrNetScenarioAccepted(0) && !gevrNetScenarioAccepted(netScenarioCount()) && !gevrNetScenarioAccepted(-1) && gevrNetConfigGet(CFG_SCENARIO)==0);
     /* eight bots' names fit the lobby packet */
     static ENetHost bot_host;s_host=&bot_host;
     gevrNetConfigSet(CFG_MAX_PLAYERS,8);CHECK(botsIn()==7);

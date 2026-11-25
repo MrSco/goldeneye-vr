@@ -60,6 +60,13 @@ void gevrHandicapOpen(s32 slot);
 s32 gevrHandicapIsOpen(s32 slot);
 void gevrTeamSelOpen(s32 slot);
 s32 gevrTeamSelIsOpen(s32 slot);
+/* online deathmatch: the Multiplayer Options folder in a player's view (from: the
+ * watch page PREVIOUS goes back to, -1 closes the menu); START in the warmup opens it */
+void gevrMpOptionsOpen(s32 slot, s32 from);
+s32 gevrMpOptionsIsOpen(s32 slot);
+s32 gevrMpOptionsAvailable(s32 slot);
+s32 gevrMpOptionsStartPressed(s32 slot);
+void gevrMpOptionsFromPause(s32 slot);
 #endif
 
 #endif

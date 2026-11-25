@@ -3316,18 +3316,30 @@ int gevrNetConfigGet(int field) {
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
     }
 }
+/* a scenario's own weapons and length, as the host chooses it */
+static void netConfigTakeScenario(NetMatchConfig *c, int value) {
+    c->scenario = value;
+    if (value == SCENARIO_MWTGG) c->weapon_set = 13;
+    if (value == SCENARIO_LTK) c->weapon_set = 1;
+    if (value == SCENARIO_YOLT) c->game_length = 7;
+    else if (c->game_length > (value == SCENARIO_TLD ? 3 : 6)) c->game_length = 2;
+}
+/* whether the host's setter takes scenario now: valid, and the party fits its sides (netLobbySetConfig) */
+int gevrNetScenarioAccepted(int scenario) {
+    if (!netIsHost() || scenario < 0 || scenario > 255) return 0;
+    NetMatchConfig c = s_lobby_state.config;
+    netConfigTakeScenario(&c, scenario);
+    if (!netValidConfig(&c)) return 0;
+    for (int i = netConfigSlots(&c); i < GEVR_MAX_PLAYERS; i++)
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot) return 0;
+    return netGetHumanPlayerCount() <= netConfigMaxPlayers(&c);
+}
 void gevrNetConfigSet(int field, int value) {
     if (!netIsHost() || value < 0 || value > 255) return;
     NetMatchConfig c = s_lobby_state.config;
     switch (field) {
     case CFG_STAGE: if (!netStageEligible(value)) return; c.stage = netStage(value)->level_id; break;
-    case CFG_SCENARIO:
-        c.scenario = value;
-        if (value == SCENARIO_MWTGG) c.weapon_set = 13;
-        if (value == SCENARIO_LTK) c.weapon_set = 1;
-        if (value == SCENARIO_YOLT) c.game_length = 7;
-        else if (c.game_length > (value == SCENARIO_TLD ? 3 : 6)) c.game_length = 2;
-        break;
+    case CFG_SCENARIO: netConfigTakeScenario(&c, value); break;
     case CFG_WEAPON_SET: if (c.scenario == SCENARIO_MWTGG) return; c.weapon_set = value; break;
     case CFG_GAME_LENGTH: c.game_length = value; break;
     case CFG_HEALTH: c.health = value; break;

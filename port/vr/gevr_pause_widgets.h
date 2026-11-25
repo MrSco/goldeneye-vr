@@ -34,6 +34,7 @@ struct GevrPauseView {
     bool portraits=false;   /* the Player tab offers the game's Select Character screen, Match its Select Stage grid (in stereo on the HUD) */
     bool handicap=false;    /* a deathmatch: the Player tab offers the game's Handicap screen */
     bool teams=false;       /* and with teams its Teams screen (in stereo on the HUD) */
+    bool setup=false;       /* an online deathmatch: the Match tab opens the game's Multiplayer Options folder */
 };
 struct GevrPauseUi {
     int tab=0;
@@ -45,7 +46,7 @@ struct GevrPauseUi {
 };
 /* HD textures is the Mods/Fun section's row now, and Reset sound gone with #229 (owner, 2026-11-23) */
 enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,
-       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_HANDICAP,GEVR_PAUSE_TEAMSEL,GEVR_PAUSE_HORDE_START,GEVR_PAUSE_KICK_BASE=100 };
+       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_HANDICAP,GEVR_PAUSE_TEAMSEL,GEVR_PAUSE_HORDE_START,GEVR_PAUSE_SETUP,GEVR_PAUSE_KICK_BASE=100 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -291,9 +292,15 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 if(ImGui::Button("Request votes",ImVec2(350,48)))action=GEVR_PAUSE_REQUEST_VOTES;
                 ImGui::EndDisabled();
             }
-            if(model.portraits && (model.host || model.voting)) {
+            if(model.portraits && (model.host || model.voting || model.setup)) {
                 /* GoldenEye's own Select Stage photos, in the game's view (mpmenu.c): the host's map, everyone's vote */
                 float x=18;
+                if(model.setup) {
+                    /* the game's Multiplayer Options folder (mpmenu.c), where the whole match is set up */
+                    ImGui::SetCursorPos(ImVec2(x,822));
+                    if(ImGui::Button("Multiplayer Options",ImVec2(300,38)))action=GEVR_PAUSE_SETUP;
+                    x+=316;
+                }
                 if(model.host) {
                     ImGui::SetCursorPos(ImVec2(x,822));
                     if(ImGui::Button("Map photos",ImVec2(220,38)))action=GEVR_PAUSE_STAGESEL;

@@ -43,6 +43,8 @@ extern "C" void gevrCharSelOpen(int slot, int dropin);   // mpmenu.c: the Select
 extern "C" void gevrStageSelOpen(int slot, int vote);     // mpmenu.c: the Select Stage photo grid in the view (stereo: the HUD)
 extern "C" void gevrHandicapOpen(int slot);               // mpmenu.c: the Handicap screen (everyone's health) in the view (stereo: the HUD)
 extern "C" void gevrTeamSelOpen(int slot);                // mpmenu.c: the Teams screen in the view (stereo: the HUD)
+extern "C" void gevrMpOptionsFromPause(int slot);         // mpmenu.c: the Multiplayer Options folder in the view (stereo: the HUD)
+extern "C" int gevrMpOptionsAvailable(int slot);
 // vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
 void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
 namespace {
@@ -212,6 +214,7 @@ extern "C" void gevrNativePauseRender(void) {
     view.teams=view.handicap&&netScenarioHasTeams(gevrNetConfigGet(CFG_SCENARIO));
 #endif
     view.portraits=true;   /* the game's own screens: in the view, or in stereo on the head-locked HUD (mpmenu.c) */
+    view.setup=gevrMpOptionsAvailable(netGetLocalSlot())!=0;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {
@@ -288,6 +291,8 @@ extern "C" void gevrNativePauseRender(void) {
     if(action==GEVR_PAUSE_STAGESEL||action==GEVR_PAUSE_STAGEVOTE){gevrNativePauseResume();gevrStageSelOpen(netGetLocalSlot(),action==GEVR_PAUSE_STAGEVOTE);}
     if(action==GEVR_PAUSE_HANDICAP){gevrNativePauseResume();gevrHandicapOpen(netGetLocalSlot());}
     if(action==GEVR_PAUSE_TEAMSEL){gevrNativePauseResume();gevrTeamSelOpen(netGetLocalSlot());}
+    /* the folder; its PREVIOUS comes back to this window */
+    if(action==GEVR_PAUSE_SETUP){gevrNativePauseResume();gevrMpOptionsFromPause(netGetLocalSlot());}
     if(action==GEVR_PAUSE_LEAVE)leaveToLauncher();
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}
     if(action==GEVR_PAUSE_REQUEST_VOTES)netHostRequestVotes();

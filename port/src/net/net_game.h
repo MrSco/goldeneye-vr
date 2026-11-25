@@ -44,6 +44,7 @@ int netGetSlotHandicap(int slot);
 int netSlotHandicapIndex(int slot);
 int netRoundHandicapIndex(int slot);
 int netSlotHandicapEditable(int slot);
+int gevrNetScenarioAccepted(int scenario);   /* the host's setter would take it (the folder's Scenario list) */
 void netLobbySetHandicapSlot(int slot, int value);   /* a local seat's own (the host's seat: the host's) */
 void netHostSetSlotHandicap(int slot, int value);    /* the host: anyone's */
 int netGetSlotPing(int slot);
