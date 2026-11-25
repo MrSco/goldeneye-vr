@@ -7,7 +7,11 @@
 #pragma once
 
 #include "imgui/imgui.h"
+/* the game's PR/os.h defines BLOCKSIZE, an ImGui template parameter (as gevr_friends_ui.h) */
+#pragma push_macro("BLOCKSIZE")
+#undef BLOCKSIZE
 #include "imgui/imgui_internal.h"
+#pragma pop_macro("BLOCKSIZE")
 #include "gevr_sync.h"
 #include "gevr_tooltip.h"
 
