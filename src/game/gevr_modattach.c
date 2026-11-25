@@ -467,8 +467,11 @@ void gevrModAttachBeginGunDraw(void)
 int gevrModAttachGunFrame(int id, Mtxf *pose, s32 *mirrored)
 {
     Attachment *a = attachFind(id);
+    /* Input runs after the counter advances but before the next gun draw.
+     * BeginGunDraw clears every old entry when that draw starts, even if the
+     * part is then skipped, so only the latest view can answer. */
     if (a == NULL || !a->shown || a->drawnGun == NULL
-        || a->drawnFrame != os_scheduler.frameCount || !attachLocal()) return 0;
+        || (u32)os_scheduler.frameCount - a->drawnFrame > 1u || !attachLocal()) return 0;
     if (g_CurrentPlayer->hands[a->where].weaponModel.obj != a->drawnGun
         || a->node >= a->drawnGun->numMatrices
         || get_item_in_hand_or_watch_menu(a->where) != a->drawnItem

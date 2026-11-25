@@ -67,9 +67,19 @@ int main(void)
     gunMesh = file.mesh;
     assert(!gevrModAttachGunFrame(33, NULL, NULL));
     gunMesh = NULL;
+    /* The next frame's input tick runs before BeginGunDraw. It sees the last
+     * actual draw, but must not use a pose after a second tick without a draw. */
+    os_scheduler.frameCount++;
+    assert(gevrModAttachGunFrame(33, &pose, &mirrored) && mirrored && pose.m[3][0] == 5);
     os_scheduler.frameCount++;
     assert(!gevrModAttachGunFrame(33, NULL, NULL));
+
     gevrModAttachBeginGunDraw();
+    assert(gevrModAttachDrawGun(list, &rd, GUNRIGHT, gun) == list + 1);
+    os_scheduler.frameCount++;
+    assert(gevrModAttachGunFrame(33, NULL, NULL));
+    gevrModAttachBeginGunDraw();
+    assert(!gevrModAttachGunFrame(33, NULL, NULL));  /* even before the skipped part below */
     header.numMatrices = 1;
     assert(gevrModAttachDrawGun(list, &rd, GUNRIGHT, gun) == list);
     assert(!gevrModAttachGunFrame(33, NULL, NULL));

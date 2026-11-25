@@ -22,7 +22,7 @@ def main():
         if build.returncode:
             raise RuntimeError(build.stderr)
         subprocess.run([str(exe)], check=True)
-    print("PASS: attachment poses, mirroring, and stale or undrawn frame rejection")
+    print("PASS: attachment poses, mirroring, next-tick lookup, and stale or undrawn frame rejection")
 
 
 if __name__ == "__main__":
