@@ -27,7 +27,10 @@ enum {
     GEVR_SETUP_RETURN,         /* RETURN TO LOBBY: the host, during a countdown or a round */
     GEVR_SETUP_DROP_OUT,       /* a split screen's guest leaves the match */
     GEVR_SETUP_FULL_MENU,      /* the pause window (one player) or the full panel (split screen) */
-    /* Horde's rows go here (LEVEL of its stages, STARTING WAVE, AI ALLY: in-game-match-setup.md) */
+    /* Horde's own (the host's, pending until START WAVE or Retry Horde: docs/horde-mode.md) */
+    GEVR_SETUP_HORDE_MAP,      /* the run's map: opens the stage photos filtered to Horde's maps */
+    GEVR_SETUP_STARTING_WAVE,  /* the run's first wave, 1..50 */
+    GEVR_SETUP_AI_ALLY,        /* the host's AI ally (GoldenEye's campaign only) */
     GEVR_SETUP_ROW_COUNT
 };
 enum { GEVR_SETUP_MODE_DEATHMATCH, GEVR_SETUP_MODE_COOP, GEVR_SETUP_MODE_HORDE };
@@ -45,10 +48,11 @@ typedef struct {
     unsigned char can_return;  /* the host may RETURN TO LOBBY now */
     unsigned char split;       /* more than one player at this machine */
     unsigned char guest;       /* this seat is a split screen's guest (not the machine's first) */
+    unsigned char ally;        /* Horde: the AI ally is on offer (GoldenEye's campaign) */
 } GevrSetupState;
 
 /* The rows for s, top to bottom, into ids (room for GEVR_SETUP_ROW_COUNT);
  * hostonly[i]: the host's row, read-only (dimmed) at any other seat. The
- * count: 0 is no folder (co-op plays its own menus; Horde's rows are to come). */
+ * count: 0 is no folder (co-op plays its own menus). */
 int gevrMpOptionsRowSet(const GevrSetupState *s, unsigned char *ids, unsigned char *hostonly);
 #endif

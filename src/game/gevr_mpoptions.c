@@ -2,8 +2,10 @@
  * The Multiplayer Options folder's rows in an online match (mpmenu.c draws
  * and drives them, docs/in-game-match-setup.md): GoldenEye's own folder
  * (Players, Scenario, Level, Game Length, Weapons, Character, Health) and the
- * online match's rows after them. The host's rows show at every seat, dimmed
- * where they cannot be changed, as the original dimmed a locked row.
+ * online match's rows after them; Horde's run (its map, first wave, friendly
+ * fire, AI ally) and the player's character. The host's rows show at every
+ * seat, dimmed where they cannot be changed, as the original dimmed a locked
+ * row.
  */
 #include "gevr_mpoptions.h"
 
@@ -24,9 +26,15 @@ int gevrMpOptionsRowSet(const GevrSetupState *s, unsigned char *ids, unsigned ch
         case GEVR_SETUP_MODE_DEATHMATCH:
             break;
         case GEVR_SETUP_MODE_HORDE:
-            /* to come: LEVEL (the Horde stages), STARTING WAVE, FRIENDLY FIRE, AI ALLY,
-             * CHARACTER, then DROP OUT and FULL MENU (in-game-match-setup.md) */
-            return 0;
+            /* PvE: no handicaps (the waves set the damage), no teams, votes or bots */
+            n = add(ids, hostonly, n, GEVR_SETUP_HORDE_MAP, 1);
+            n = add(ids, hostonly, n, GEVR_SETUP_STARTING_WAVE, 1);
+            n = add(ids, hostonly, n, GEVR_SETUP_FRIENDLY_FIRE, 1);
+            if (s->ally) n = add(ids, hostonly, n, GEVR_SETUP_AI_ALLY, 1);
+            n = add(ids, hostonly, n, GEVR_SETUP_CHARACTER, 0);
+            if (s->split && s->guest) n = add(ids, hostonly, n, GEVR_SETUP_DROP_OUT, 0);
+            if (!s->guest) n = add(ids, hostonly, n, GEVR_SETUP_FULL_MENU, 0);
+            return n;
         default:
             return 0;   /* co-op: the party's own menus (net_coop_menu.c) */
     }

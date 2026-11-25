@@ -601,6 +601,12 @@ void netPlayerSyncAfterTick(s32 playernum) {
             static u64 next_notice_us;
             char notice[128];u64 now=sysGetMicroseconds();
             netRoundNoticeTextFit(notice,sizeof(notice),gevrLocalViewCount()>=3);
+            {
+                /* the headset has no START: its Menu opens the Multiplayer Options folder in the warmup */
+                extern s32 g_gevrStereo;
+                char *go=g_gevrStereo?strstr(notice,"START: "):NULL;
+                if(go) { memmove(go+6,go+7,strlen(go+7)+1);memcpy(go,"MENU: ",6); }
+            }
             if(notice[0] && (strcmp(notice,last_notice) || now>=next_notice_us)) {
                 extern void gevrHudTopReplace(const char *mess, const char *prefix);
                 gevrHudTopReplace(notice,last_notice[0]?last_notice:notice);

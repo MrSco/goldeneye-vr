@@ -79,6 +79,7 @@ extern int netVoiceCaptureFailed(void);
 #include "../../port/vr/gevr_pause_menu.h"
 #include "glass.h"
 #include <stdlib.h>
+#include <string.h>
 void mpwatchPlayBeep(void);
 s32 mpwatchIsPlayerPressingRight(s32 player);
 extern int netMpPlayerCount(int fallback);
@@ -1551,6 +1552,9 @@ static const struct { u16 text; const char *label; void (*step)(s32); u8 open; }
     [GEVR_SETUP_RETURN]        = { 0, "Return to Lobby", rowReturnStep, SETUP_OPEN_ACTION },
     [GEVR_SETUP_DROP_OUT]      = { 0, "Drop Out", rowDropOutStep, SETUP_OPEN_ACTION },
     [GEVR_SETUP_FULL_MENU]     = { 0, "Full Menu", NULL, SETUP_OPEN_FULLMENU },
+    [GEVR_SETUP_HORDE_MAP]     = { getStringID(LTITLE, TITLE_STR_79_LEVEL), NULL, rowHordeMapStep, SETUP_OPEN_STAGES },
+    [GEVR_SETUP_STARTING_WAVE] = { 0, "Starting Wave:", rowHordeWaveStep, SETUP_OPEN_NONE },
+    [GEVR_SETUP_AI_ALLY]       = { 0, "AI Ally:", rowAllyStep, SETUP_OPEN_NONE },
 };
 static s32 s_setupSheet[MAX_PLAYER_COUNT];
 static s32 s_setupCursor[MAX_PLAYER_COUNT][SETUP_SHEET_COUNT];   /* the main sheet: a row id or SETUP_START_TAB; else an index */
@@ -1558,6 +1562,7 @@ static s32 s_setupFrom[MAX_PLAYER_COUNT];      /* the page PREVIOUS goes back to
 static s32 s_setupLeaving[MAX_PLAYER_COUNT];   /* closes once the button that closed it is let go */
 static s32 s_setupHeld[MAX_PLAYER_COUNT];      /* held in the warmup (netSetSlotChoosing) */
 static s32 s_setupOwed[MAX_PLAYER_COUNT];      /* opens by itself at the next warmup's load (gevrMpOptionsAutoTick) */
+static s32 s_setupStartQueued[MAX_PLAYER_COUNT];   /* a START input.c took for the folder (Horde: gevrMpOptionsQueueStart) */
 extern const char *netGetLobbyCode(void);
 
 static s32 gevrSetupHostSeat(s32 slot) { return netIsHost() && slot == netGetLocalSlot(); }
@@ -1579,17 +1584,18 @@ static s32 gevrSetupRows(s32 slot, u8 *ids, u8 *hostonly)
     s.can_return = lobbyCanReturn();
     s.split = netLocalSlotCount() > 1;
     s.guest = netLocalSeatOfSlot(slot) > 0;
+    s.ally = lobbyAlly();
     return gevrMpOptionsRowSet(&s, ids, hostonly);
 }
 
-/* whether slot can have the folder: an online deathmatch's local player, in a stage */
+/* whether slot can have the folder: an online deathmatch's or Horde run's local player, in a stage */
 s32 gevrMpOptionsAvailable(s32 slot)
 {
     u8 ids[GEVR_SETUP_ROW_COUNT];
     u8 hostonly[GEVR_SETUP_ROW_COUNT];
 
     if (!netIsActive() || slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(slot) ||
-        g_playerPointers[slot] == NULL || bossGetStageNum() == LEVELID_TITLE || gevrCoopActive()) return 0;
+        g_playerPointers[slot] == NULL || bossGetStageNum() == LEVELID_TITLE || (gevrCoopActive() && !netHordeActive())) return 0;
     return gevrSetupRows(slot, ids, hostonly) > 0;
 }
 
@@ -1745,10 +1751,25 @@ static s32 gevrSetupCursorIndex(s32 slot, s32 sheet, const GevrSetupLine *lines,
     return count;
 }
 
+/* Horde's START tab is its setup break's: START WAVE for the host, WAITING FOR HOST elsewhere */
+static s32 gevrSetupHasStartTab(void) { return !netHordeActive() || netHordeSetupBreak(); }
+
 /* The START tab: the host's START MATCH (an empty warmup restarts with the
- * changes), anyone else's READY; whether it can be pressed now */
+ * changes), anyone else's READY; Horde's START WAVE (or the restart on the
+ * new map); whether it can be pressed now. A word may give a shorter form
+ * after a '|' for a short tab (front.c frontMpOptionsTab). */
 static const char *gevrSetupStartTab(s32 slot, s32 *usable)
 {
+    static char word[48];
+
+    if (netHordeActive())
+    {
+        *usable = gevrSetupHostSeat(slot) && netHordeHostCanStart();
+        if (!gevrSetupHostSeat(slot)) return "WAITING FOR HOST|WAITING";
+        if (netHordeRestartPending()) return "RESTART ON NEW MAP|RESTART";
+        snprintf(word, sizeof(word), "START WAVE %d|WAVE %d", gevrNetConfigGet(CFG_HORDE_START_WAVE), gevrNetConfigGet(CFG_HORDE_START_WAVE));
+        return word;
+    }
     if (gevrSetupHostSeat(slot))
     {
         *usable = lobbyCanStart();
@@ -1769,32 +1790,66 @@ static void gevrSetupStartPress(s32 slot)
         mpwatchPlayBeep();
         return;
     }
-    if (gevrSetupHostSeat(slot)) rowStartStep(0);
+    if (netHordeActive()) rowHordeStartStep(0);
+    else if (gevrSetupHostSeat(slot)) rowStartStep(0);
     else netLobbySetReadySlot(slot, !netSlotReady(slot));
     frontPanelChosenSound();
 }
 
-/* the line along the bottom: what START does now, the countdown, the lobby code */
+/*
+ * The line along the bottom: what START does now, the countdown, the lobby
+ * code. A pad's START presses the START tab; the headset's Menu leaves the
+ * folder (input.c), so there it is the tab, reached with the stick and A.
+ */
 static void gevrSetupInfo(s32 slot, char *b, s32 n, s32 narrow)
 {
     const char *code = netGetLobbyCode();
+    const char *go = g_gevrStereo ? "START TAB: " : "START: ";
     char state[64];
     s32 secs = netCountdownSecondsLeft();
 
-    if (secs > 0)
+    if (netHordeActive())
+    {
+        const s32 wave = gevrNetConfigGet(CFG_HORDE_START_WAVE);
+
+        if (!netHordeSetupBreak())
+        {
+            /* a run under way: the host's changes wait for Retry Horde */
+            snprintf(state, sizeof(state), "%s", gevrSetupHostSeat(slot) ? (narrow ? "NEXT RUN" : "CHANGES APPLY ON RETRY") : "");
+        }
+        else if (!gevrSetupHostSeat(slot))
+        {
+            snprintf(state, sizeof(state), "%s", "WAITING FOR HOST");
+        }
+        else if (netHordeRestartPending())
+        {
+            snprintf(state, sizeof(state), "%s%s", go, narrow ? "NEW MAP" : "RESTART ON THE NEW MAP");
+        }
+        else if (narrow)
+        {
+            snprintf(state, sizeof(state), "%sWAVE %d", go, (int)wave);
+        }
+        else
+        {
+            snprintf(state, sizeof(state), "%sSTART WAVE %d", go, (int)wave);
+        }
+    }
+    else if (secs > 0)
     {
         snprintf(state, sizeof(state), narrow || !gevrSetupHostSeat(slot) ? "STARTING IN %d" : "STARTING IN %d - CHANGES UN-READY ALL", (int)secs);
     }
     else if (gevrSetupHostSeat(slot))
     {
-        snprintf(state, sizeof(state), "%s",
-                 netGetPhase() == 2 ? (narrow ? "NEXT ROUND" : "CHANGES APPLY NEXT ROUND")
-                 : netGetConnectedPlayerCount() == 1 ? (narrow ? "START: RESTART" : "START: RESTART WARMUP WITH CHANGES")
-                 : netHostStartRequested() ? "WAITING FOR READY"
-                 /* a START with changes reloads the warmup first (net_core.c netTryHostStartRequest) */
-                 : netWarmupSettingsPending() ? (narrow ? "START: LOAD" : "START: LOAD THE CHANGES INTO THE WARMUP")
-                 : netRoundRosterReady() ? (narrow ? "START: MATCH" : "START: BEGIN THE MATCH")
-                 : (narrow ? "START: ASK READY" : "START: REQUEST READY"));
+        const char *what = netGetPhase() == 2 ? NULL
+                           : netGetConnectedPlayerCount() == 1 ? (narrow ? "RESTART" : "RESTART WARMUP WITH CHANGES")
+                           : netHostStartRequested() ? NULL
+                           /* a START with changes reloads the warmup first (net_core.c netTryHostStartRequest) */
+                           : netWarmupSettingsPending() ? (narrow ? "LOAD" : "LOAD THE CHANGES INTO THE WARMUP")
+                           : netRoundRosterReady() ? (narrow ? "MATCH" : "BEGIN THE MATCH")
+                           : (narrow ? "ASK READY" : "REQUEST READY");
+
+        if (what != NULL) snprintf(state, sizeof(state), "%s%s", go, what);
+        else snprintf(state, sizeof(state), "%s", netGetPhase() == 2 ? (narrow ? "NEXT ROUND" : "CHANGES APPLY NEXT ROUND") : "WAITING FOR READY");
     }
     else if (netSlotReady(slot))
     {
@@ -1804,11 +1859,11 @@ static void gevrSetupInfo(s32 slot, char *b, s32 n, s32 narrow)
     {
         s32 usable;
         gevrSetupStartTab(slot, &usable);
-        snprintf(state, sizeof(state), "%s", !usable ? (narrow ? "CHOOSE A TEAM" : "CHOOSE A TEAM, THEN READY")
-                                          : netGetPhase() == 2 ? (narrow ? "NEXT ROUND" : "START: READY FOR THE NEXT ROUND")
-                                          : (narrow ? "START: READY" : "START: READY UP"));
+        if (!usable) snprintf(state, sizeof(state), "%s", narrow ? "CHOOSE A TEAM" : "CHOOSE A TEAM, THEN READY");
+        else if (netGetPhase() == 2 && narrow) snprintf(state, sizeof(state), "%s", "NEXT ROUND");
+        else snprintf(state, sizeof(state), "%s%s", go, netGetPhase() == 2 ? "READY FOR THE NEXT ROUND" : narrow ? "READY" : "READY UP");
     }
-    if (!narrow && code != NULL && code[0]) snprintf(b, n, "%s   CODE %s", state, code);
+    if (!narrow && code != NULL && code[0]) snprintf(b, n, state[0] ? "%s   CODE %s" : "%sCODE %s", state, code);
     else snprintf(b, n, "%s", state);
 }
 
@@ -1823,6 +1878,7 @@ void gevrMpOptionsOpen(s32 slot, s32 from)
     s_setupArmed[slot] = 0;
     s_setupLeaving[slot] = 0;
     s_setupOwed[slot] = 0;
+    s_setupStartQueued[slot] = 0;
     s_panelToSetup[slot] = 0;
     frontPanelPadReset(slot);
     pl->mpmenuon = TRUE;
@@ -1905,6 +1961,8 @@ static s32 gevrMpOptionsTick(s32 player_num)
     s32 total;
     s32 cursor;
     s32 result;
+    s32 queued;
+    s32 tab;
     s32 dx;
     s32 dy;
 
@@ -1932,10 +1990,21 @@ static s32 gevrMpOptionsTick(s32 player_num)
         s_setupSheet[player_num] = SETUP_SHEET_MAIN;   /* the bots' sheet once a round starts */
         return 1;
     }
-    total = count + (sheet == SETUP_SHEET_MAIN ? 1 : 0);
+    tab = sheet == SETUP_SHEET_MAIN && gevrSetupHasStartTab();
+    total = count + tab;
     cursor = gevrSetupCursorIndex(player_num, sheet, lines, count);
-    if (sheet == SETUP_SHEET_MAIN && joyGetButtonsPressedThisFrame(player_num, START_BUTTON))
+    if (cursor >= total) cursor = total - 1;   /* Horde's tab went with the setup break */
+    queued = s_setupStartQueued[player_num];
+    s_setupStartQueued[player_num] = 0;
+    if (sheet == SETUP_SHEET_MAIN && (queued || joyGetButtonsPressedThisFrame(player_num, START_BUTTON)))
     {
+        if (!tab)
+        {
+            /* no START tab (a Horde run under way): START leaves, as it leaves the watch */
+            mpwatchPlayBeep();
+            gevrMpOptionsClose(player_num, 0);
+            return 1;
+        }
         s_setupCursor[player_num][sheet] = SETUP_START_TAB;
         gevrSetupStartPress(player_num);
         return 1;
@@ -2036,6 +2105,7 @@ static Gfx *gevrMpOptionsDraw(Gfx *gdl, s32 slot)
     s32 w;
     s32 h;
 
+    if (sheet == SETUP_SHEET_MAIN && !gevrSetupHasStartTab() && cursor >= count) cursor = count - 1;
     gevrMenuPanelRect(&x, &y, &w, &h);
     gevrSetupInfo(slot, info, sizeof(info), w < 220);
     if (sheet == SETUP_SHEET_SCENARIO)
@@ -2057,7 +2127,7 @@ static Gfx *gevrMpOptionsDraw(Gfx *gdl, s32 slot)
         rows[i].dim = !lines[i].editable;   /* the host's, at another seat: the original's locked row */
         rows[i].more = lines[i].open != SETUP_OPEN_NONE && lines[i].open != SETUP_OPEN_ACTION;
     }
-    if (sheet == SETUP_SHEET_MAIN) start = gevrSetupStartTab(slot, &usable);
+    if (sheet == SETUP_SHEET_MAIN && gevrSetupHasStartTab()) start = gevrSetupStartTab(slot, &usable);
     return frontMpOptionsDraw(gdl, slot, titles[sheet], rows, count, cursor, start, !usable, info, x, y, w, h);
 }
 
@@ -2121,13 +2191,63 @@ static void gevrMpOptionsVoteOpen(s32 slot)
     s_setupCursor[slot][SETUP_SHEET_MAIN] = GEVR_SETUP_NEXT_MAP;
 }
 
+/*
+ * Horde: each local player's folder opens by itself in a run's setup break
+ * (the first wave waits for the host's START WAVE): on arriving, and after
+ * Retry Horde or a restart on another map lands in a new one; once per stage
+ * load, so a player who leaves it plays on. START WAVE ends the break: the
+ * folders close for the countdown to the first wave (a game screen opened
+ * from one stays, its player choosing).
+ */
+static unsigned s_setupHordeLoads;   /* the stage load whose setup break owed its openings */
+static s32 s_setupHordeBreak;        /* netHordeSetupBreak seen */
+
+static void gevrMpOptionsHordeAutoTick(s32 slot)
+{
+    struct player *pl;
+    s32 brk = netHordeSetupBreak();
+    s32 i;
+
+    if (netSessionCount() != s_setupSession)
+    {
+        s_setupSession = netSessionCount();
+        s_setupHordeLoads = netStageLoadCount() - 1;
+        s_setupHordeBreak = 0;
+    }
+    if (s_setupHordeBreak && !brk)
+    {
+        for (i = 0; i < MAX_PLAYER_COUNT; i++)
+        {
+            s_setupOwed[i] = 0;
+            if (gevrNetSlotIsLocalHuman(i) && gevrMpOptionsIsOpen(i)) gevrMpOptionsClose(i, 0);
+        }
+    }
+    s_setupHordeBreak = brk;
+    if (netHordeSetupBreak() && netStageLoadCount() != s_setupHordeLoads)
+    {
+        s_setupHordeLoads = netStageLoadCount();
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) s_setupOwed[i] = gevrNetSlotIsLocalHuman(i) != 0;
+    }
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !s_setupOwed[slot]) return;
+    pl = g_playerPointers[slot];
+    if (pl == NULL || pl->bonddead || !netHordeSetupBreak()) return;
+    s_setupOwed[slot] = 0;
+    if (!pl->mpmenuon) gevrMpOptionsOpen(slot, -1);
+}
+
 static void gevrMpOptionsAutoTick(s32 slot)
 {
     struct player *pl;
     s32 vote;
     s32 i;
 
-    if (!netIsActive() || gevrNetConfigPve()) return;
+    if (!netIsActive()) return;
+    if (netHordeActive())
+    {
+        gevrMpOptionsHordeAutoTick(slot);
+        return;
+    }
+    if (gevrNetConfigPve()) return;
     if (netSessionCount() != s_setupSession)
     {
         /* arriving: the stage loaded now counts (or, joining a round, the next warmup's) */
@@ -2194,12 +2314,21 @@ void gevrMpOptionsDropIn(s32 slot)
 void gevrMpOptionsFromPause(s32 slot) { gevrMpOptionsOpen(slot, MENU_LOBBY); }
 
 /* START with the watch closed (mpwatchMenuTick; the headset's Menu, input.c): in
- * an online deathmatch's warmup the folder opens; whether it did */
+ * an online deathmatch's warmup the folder opens, and in a Horde run's setup
+ * break, or at any time with a split screen (Horde has no LOBBY page: the
+ * folder is each player's menu); whether it did */
 s32 gevrMpOptionsStartPressed(s32 slot)
 {
-    if (netGetPhase() != 1 || !gevrMpOptionsAvailable(slot)) return 0;
+    if (!gevrMpOptionsAvailable(slot)) return 0;
+    if (netHordeActive() ? !netHordeSetupBreak() && netLocalSlotCount() < 2 : netGetPhase() != 1) return 0;
     gevrMpOptionsOpen(slot, -1);
     return gevrMpOptionsIsOpen(slot);
+}
+
+/* Horde (input.c): a pad's START, which the campaign watch must not see, for the folder up at slot: its START tab */
+void gevrMpOptionsQueueStart(s32 slot)
+{
+    if (slot >= 0 && slot < MAX_PLAYER_COUNT && gevrMpOptionsIsOpen(slot)) s_setupStartQueued[slot] = 1;
 }
 
 /* A on the LOBBY page: the selected action row */

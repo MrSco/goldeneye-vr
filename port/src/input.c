@@ -71,6 +71,42 @@ extern int flatTouchTakeLookDeg(float *yaw, float *pitch);
 extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
 extern s32 gevrMenuPanelCancel(s32 slot);   /* mpmenu.c: leaves a game screen in a match (Select Character...) */
 extern s32 gevrMpOptionsStartPressed(s32 slot);   /* mpmenu.c: a deathmatch warmup's START opens the Multiplayer Options folder */
+extern s32 gevrMpOptionsIsOpen(s32 slot);
+extern void gevrMpOptionsQueueStart(s32 slot);   /* mpmenu.c: the folder's START tab, for a START taken here */
+
+#ifdef GEVR_FLAT   /* a PC window, a phone: the pads' START (the headset's Menu: below) */
+/*
+ * Horde online: a pad's START is not the campaign watch, which has nothing
+ * for a Horde run. It opens the seat's own Multiplayer Options folder
+ * (mpmenu.c) in the run's setup break, and with a split screen at any time,
+ * in the player's own view; one player's START in a run is the pause window,
+ * as the headset's Menu is (its Match tab: Retry Horde). With the folder up
+ * START is its START tab (START WAVE); over a game screen it leaves it.
+ * Co-op keeps its watch. The seat's START never reaches the game.
+ */
+static void inputHordeStart(s32 slot, OSContPad *npad)
+{
+    static int was[MAX_PLAYER_COUNT];
+    const int start = (npad->button & START_BUTTON) != 0;
+    struct player *pl;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    pl = g_playerPointers[slot];
+    if (!netIsActive() || !netHordeActive() || pl == NULL) {
+        was[slot] = start;
+        return;
+    }
+    if (start && !was[slot]) {
+        if (gevrMpOptionsIsOpen(slot)) gevrMpOptionsQueueStart(slot);
+        else if (gevrMenuPanelCancel(slot)) pl->mpmenuon = 0;
+        else if (!pl->mpmenuon && gevrMpOptionsStartPressed(slot)) {}
+        else if (slot == netGetLocalSlot()) pl->mpmenuon = !pl->mpmenuon;   /* the pause window */
+        else pl->mpmenuon = 0;
+    }
+    npad->button &= ~START_BUTTON;
+    was[slot] = start;
+}
+#endif
 extern s32 gevrScopeZoomStick(void);  /* bondview2.c: aiming the sniper, this stick zooms */
 extern s32 gevrTeleportTakesStick(void);   /* gevr_teleport.c: the move stick aims a jump */
 extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator, the watch gadgets (#31) */
@@ -2665,28 +2701,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
                 LOGI("input: panel opened%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
             }
-            /*
-             * Horde online: this window's first player's START is the pause
-             * window, as the headset's Menu is (its Match tab: the setup break's
-             * START WAVE, the host's map and wave, Retry Horde), not the campaign
-             * watch, which has nothing for a Horde run; with a split screen too,
-             * over every view, until the Multiplayer Options folder draws in the
-             * player's own (docs/horde-mode.md). Co-op keeps its watch.
-             */
-            {
-                static int hordeStartWas;
-                const int start = (npad->button & START_BUTTON) != 0;
-                const int ls = netGetLocalSlot();
-                if (netIsActive() && netHordeActive() && ls >= 0 && ls < MAX_PLAYER_COUNT
-                        && g_playerPointers[ls] && !s_gevrPanel) {
-                    if (start && !hordeStartWas) {
-                        if (gevrMenuPanelCancel(ls)) g_playerPointers[ls]->mpmenuon = 0;
-                        else g_playerPointers[ls]->mpmenuon = !g_playerPointers[ls]->mpmenuon;
-                    }
-                    npad->button &= ~START_BUTTON;
-                }
-                hordeStartWas = start;
-            }
+            /* Horde online: this window's first player's START (inputHordeStart) */
+            if (!s_gevrPanel) inputHordeStart(netGetLocalSlot(), npad);
             if (gevrNativePauseOpen()) {   /* the panel, or the online pause, has the input */
                 npad->button = 0;
                 npad->stick_x = npad->stick_y = 0;
@@ -2720,6 +2736,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                                SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
                                -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
         }
+        /* Horde online: a split screen's guest's START is their own folder, as the first player's */
+        if (isLocalOnline && me != NULL) inputHordeStart(player, npad);
         if (gevrNativePauseOpen()) {
             npad->button = 0;
             npad->stick_x = npad->stick_y = 0;

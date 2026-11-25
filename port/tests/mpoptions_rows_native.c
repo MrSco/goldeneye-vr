@@ -114,13 +114,34 @@ int main(void)
     n = gevrMpOptionsRowSet(&s, ids, hostonly);
     for (int i = 0; i < n; i++) CHECK(ids[i] != GEVR_SETUP_BOTS && ids[i] != GEVR_SETUP_RETURN, "a dedicated server's player");
 
-    /* no folder for co-op (its own menus) and, for now, Horde */
+    /* no folder for co-op (its own menus) */
     s = dm(1);
     s.mode = GEVR_SETUP_MODE_COOP;
     CHECK(gevrMpOptionsRowSet(&s, ids, hostonly) == 0, "co-op: no folder");
-    s.mode = GEVR_SETUP_MODE_HORDE;
-    CHECK(gevrMpOptionsRowSet(&s, ids, hostonly) == 0, "Horde: its rows are to come");
     CHECK(gevrMpOptionsRowSet(NULL, ids, hostonly) == 0, "no state");
+
+    /* Horde: the run's map, first wave, friendly fire and AI ally (the host's), the character, then the way out */
+    s = dm(1);
+    s.mode = GEVR_SETUP_MODE_HORDE;
+    s.ally = 1;
+    n = gevrMpOptionsRowSet(&s, ids, hostonly);
+    CHECK(n == 6 && ids[0] == GEVR_SETUP_HORDE_MAP && ids[1] == GEVR_SETUP_STARTING_WAVE && ids[2] == GEVR_SETUP_FRIENDLY_FIRE &&
+          ids[3] == GEVR_SETUP_AI_ALLY && ids[4] == GEVR_SETUP_CHARACTER && ids[5] == GEVR_SETUP_FULL_MENU,
+          "Horde: Map, Starting Wave, Friendly Fire, AI Ally, Character, Full Menu (%d rows)", n);
+    for (int i = 0; i < 4; i++) CHECK(hostonly[i], "Horde: row %d is the host's", ids[i]);
+    CHECK(!hostonly[4] && !hostonly[5], "Horde: the character and the full menu are anyone's");
+    CHECK(!has(GEVR_SETUP_HEALTH) && !has(GEVR_SETUP_HANDICAPS) && !has(GEVR_SETUP_TEAMS) && !has(GEVR_SETUP_BOTS) &&
+          !has(GEVR_SETUP_LEVEL) && !has(GEVR_SETUP_RETURN), "Horde: no handicaps, teams, bots, deathmatch map or return");
+    s.ally = 0;
+    s.host = 0;
+    s.split = 1;
+    s.guest = 1;
+    s.playing = 1;
+    s.teams = 1;
+    s.voting = 1;
+    n = gevrMpOptionsRowSet(&s, ids, hostonly);
+    CHECK(n == 5 && !has(GEVR_SETUP_AI_ALLY) && hostonly[at(GEVR_SETUP_HORDE_MAP)] && ids[n - 1] == GEVR_SETUP_DROP_OUT &&
+          !has(GEVR_SETUP_FULL_MENU) && !has(GEVR_SETUP_NEXT_MAP), "Horde, a guest: no ally offered, the host's rows read-only, DROP OUT");
 
     /* every combination stays within the table and lists no row twice */
     for (int bits = 0; bits < (1 << 10); bits++)

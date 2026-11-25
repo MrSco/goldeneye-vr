@@ -7820,10 +7820,18 @@ static Gfx *frontMpOptionsTab(Gfx *DL, const char *word, s32 x0, s32 y0, s32 x1,
     s32 h;
 
     if (lit) DL = microcode_constructor_related_to_menus(DL, x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0x101010E0);
-    snprintf(text, sizeof(text), "%s", word);
     setTextSpacingInverted(TRUE);
-    /* sideways: the measured height is the word's length, the width its glyphs' height */
-    textMeasure(&glyph, &len, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    /* sideways: the measured height is the word's length, the width its glyphs' height;
+     * "LONG|SHORT": the first form that fits, the last cut */
+    do
+    {
+        const char *bar = strchr(word, '|');
+        s32 n = bar != NULL ? (s32)(bar - word) : (s32)strlen(word);
+
+        snprintf(text, sizeof(text), "%.*s", (int)n, word);
+        textMeasure(&glyph, &len, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        word = bar != NULL ? bar + 1 : NULL;
+    } while (word != NULL && len > y1 - y0 - 4);
     while (len > y1 - y0 - 4 && strlen(text) > 1)
     {
         text[strlen(text) - 1] = '\0';

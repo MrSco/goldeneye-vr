@@ -1,6 +1,6 @@
 """The in-match Multiplayer Options folder's rows (src/game/gevr_mpoptions.c gevrMpOptionsRowSet), compiled as
 written: the original folder's order, the host's rows read-only at other seats, teams, votes, scenarios, a round
-in progress, split-screen seats, a dedicated server's players, and no folder for co-op (Horde's rows to come)."""
+in progress, split-screen seats, a dedicated server's players, Horde's rows, and no folder for co-op."""
 from pathlib import Path
 import shutil, subprocess, tempfile
 
