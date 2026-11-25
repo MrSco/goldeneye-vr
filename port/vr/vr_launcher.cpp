@@ -5,6 +5,7 @@
 #include "gevr_bean.h"
 #include "gevr_icloud.h"
 #include "gevr_sync.h"
+#include "gevr_sync_ui.h"
 #include "gevr_bean_ce.h"
 #include "gevr_oddjobhat.h"
 /*
@@ -4046,6 +4047,11 @@ extern "C" void gevrLauncherRun(void)
                 if (sub == GEVR_LSUB_PLAY_GHOSTS) {
                     // the ghost boards and which run each mission races (vr_ghosts.cpp, docs/speedrun.md)
                     gevrGhostsPage(gold, good, bad);
+                    break;
+                }
+                if (sub == GEVR_LSUB_PLAY_SYNC) {
+                    // Google Drive sync (gevr_sync_ui.h, docs/cloud-sync.md)
+                    gevrSyncPage(gold, bad);
                     break;
                 }
                 gevrSettingsSection(settings, GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER);

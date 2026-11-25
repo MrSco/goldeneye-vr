@@ -8,6 +8,18 @@
 #include "gevr_settings_ui.h"
 #include "gevr_romlayout.h"
 #include "gevr_ghosts_ui.h"
+#include "gevr_sync.h"   // Play tab: Google Drive sync (stubs: no GEVR_PC here)
+/* the Play tab drawn with Google Drive's longest state (unlinked, after a failed try),
+ * as a build with the Google client shows it */
+static int gevrTestSyncDrive(GevrSyncDriveInfo *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->state = GEVR_SYNC_DRIVE_FAILED;
+    snprintf(out->note, sizeof(out->note), "Google Drive signed this device out. Link it again to keep syncing.");
+    return out->state;
+}
+#define gevrSyncDrive gevrTestSyncDrive
+#include "gevr_sync_ui.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>
 #include <cstdlib>
@@ -229,8 +241,9 @@ int main() {
     pages += sweep("co-op host");
     s_host = 0; s_coop = 0; s_config.mode = 0; s_config.scenario = 1; s_netSpeed = 4;
     pages += sweep("deathmatch joiner");
-    // 13 a state: Comfort & display > Graphics joined General (the graphics rows had run General out of room)
-    check(pages == 4 * 13, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
+    // 14 a state: Comfort & display > Graphics joined General (the graphics rows had run General out of room),
+    // Play > Sync (Google Drive) joined Play's sub-tabs
+    check(pages == 4 * 14, "every settings page, Ghosts, Sync, and Multiplayer's Fun and Audio, in four states");
     // both tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     int bars = 0;

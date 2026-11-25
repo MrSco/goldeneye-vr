@@ -258,6 +258,44 @@ add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>)
 add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-function>)
 add_compile_options(-Wno-format-security -Wno-invalid-token-paste)
 
+# Google Drive sync's OAuth client (port/pc/gevr_sync_drive.cpp, docs/cloud-sync.md):
+# gevr.googleClientId / gevr.googleClientSecret from build/google/oauth.properties,
+# never committed. Looked for in GEVR_GOOGLE_OAUTH, this checkout's build/ and the
+# main checkout's (a worktree's git common dir). Without it: no Google Drive.
+set(GEVR_GOOGLE_OAUTH_FILE "$ENV{GEVR_GOOGLE_OAUTH}")
+if(NOT GEVR_GOOGLE_OAUTH_FILE OR NOT EXISTS "${GEVR_GOOGLE_OAUTH_FILE}")
+  set(GEVR_GOOGLE_OAUTH_FILE "${CMAKE_SOURCE_DIR}/build/google/oauth.properties")
+endif()
+if(NOT EXISTS "${GEVR_GOOGLE_OAUTH_FILE}")
+  execute_process(COMMAND git rev-parse --path-format=absolute --git-common-dir
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE GEVR_GIT_COMMON
+    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  if(GEVR_GIT_COMMON)
+    get_filename_component(GEVR_MAIN_CHECKOUT "${GEVR_GIT_COMMON}" DIRECTORY)
+    set(GEVR_GOOGLE_OAUTH_FILE "${GEVR_MAIN_CHECKOUT}/build/google/oauth.properties")
+  endif()
+endif()
+set(GEVR_GOOGLE_ID "")
+set(GEVR_GOOGLE_SECRET "")
+if(EXISTS "${GEVR_GOOGLE_OAUTH_FILE}")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GEVR_GOOGLE_OAUTH_FILE}")
+  file(STRINGS "${GEVR_GOOGLE_OAUTH_FILE}" GEVR_GOOGLE_ID REGEX "^gevr\\.googleClientId=")
+  file(STRINGS "${GEVR_GOOGLE_OAUTH_FILE}" GEVR_GOOGLE_SECRET REGEX "^gevr\\.googleClientSecret=")
+  string(REGEX REPLACE "^[^=]*=" "" GEVR_GOOGLE_ID "${GEVR_GOOGLE_ID}")
+  string(REGEX REPLACE "^[^=]*=" "" GEVR_GOOGLE_SECRET "${GEVR_GOOGLE_SECRET}")
+  string(STRIP "${GEVR_GOOGLE_ID}" GEVR_GOOGLE_ID)
+  string(STRIP "${GEVR_GOOGLE_SECRET}" GEVR_GOOGLE_SECRET)
+endif()
+set(GEVR_GOOGLE_OAUTH_H "${CMAKE_BINARY_DIR}/port/include/gevr_google_oauth.h")
+if(GEVR_GOOGLE_ID AND GEVR_GOOGLE_SECRET)
+  file(CONFIGURE OUTPUT "${GEVR_GOOGLE_OAUTH_H}" CONTENT
+    "/* made by CMakeLists.txt from build/google/oauth.properties: never commit */\n#define GEVR_GOOGLE_CLIENT_ID \"@GEVR_GOOGLE_ID@\"\n#define GEVR_GOOGLE_CLIENT_SECRET \"@GEVR_GOOGLE_SECRET@\"\n" @ONLY)
+  message(STATUS "Google Drive sync: on (${GEVR_GOOGLE_OAUTH_FILE})")
+else()
+  file(REMOVE "${GEVR_GOOGLE_OAUTH_H}")
+  message(STATUS "Google Drive sync: off (no build/google/oauth.properties)")
+endif()
+
 # Include directories
 set(GEVR_INCLUDES
   "${CMAKE_BINARY_DIR}/port/include"
@@ -888,7 +926,8 @@ if(NOT GEVR_MOBILE)
     "${CMAKE_SOURCE_DIR}/port/pc/pc_reports.cpp"
     "${CMAKE_SOURCE_DIR}/port/pc/pc_updater.cpp"
     "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync.cpp"
-    "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync_core.cpp")
+    "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync_core.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/gevr_sync_drive.cpp")
   target_compile_definitions(gevr PRIVATE GEVR_NATIVE_SERVICES=1 "GEVR_APP_VERSION=\"${GEVR_APP_VERSION}\"")
 
   include(FetchContent)

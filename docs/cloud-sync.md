@@ -1,8 +1,8 @@
 # Cross-platform sync (Google Drive)
 
-Status 2026-11-25: step 1 built (the engine, a folder store, the game's hooks,
-the shared key table iCloud uses too). Google Drive (step 2) not yet: no
-build syncs for players until it is.
+Status 2026-11-25: steps 1 and 2 built: settings and saves sync through the
+player's Google Drive once they link it (launcher, Play > Sync). ROMs and packs
+(step 3) and the polish (step 4) are still to come.
 
 User idea, 2026-11-25: give the devices without iCloud (Quest, Steam Frame,
 Android, PC flat, PC VR) the same sync as [iCloud sync](icloud-sync.md):
@@ -39,19 +39,29 @@ settings, saves and ROMs, with big packs opt-in. Decisions (user):
   from 2027-04-01). Standard tier limits (checked 2026-11-25): 1,000,000
   quota units a minute for the whole project, 325,000 per player; a list
   costs about 100 units, a read 5, a write 50, a download 200. The project
-  limit is shared by every player, so the client is frugal: one changes
-  list at launch, on resume and every 15 minutes, nothing when idle, and
-  random jitter and backoff so a release day's launches don't arrive at
-  once. 10,000 players in game at once is about 70,000 units a minute.
+  limit is shared by every player, so the client is frugal: a launch is
+  one token refresh, one list and one read per device (about 100 + 5 x
+  devices units), a settings or save change one write, nothing when idle.
+  10,000 players launching in the same minute is about 1.2 million units:
+  the busiest minute of a release day could see some 429s, which a launch
+  treats as "couldn't reach" (nothing changes; the next launch syncs).
   Sign-in and app verification are free too (`drive.file` needs no
   paid security assessment). There is no server of ours in the path.
-- **Sign-in, phase 1: the device code flow on every platform.** The launcher
-  shows a QR code and a short code for google.com/device; the player approves
-  on a phone. It works on the Quest and Steam Frame (no Google Play services),
-  the Apple TV (no browser) and everywhere else. Where a browser exists
-  (PC, phones), an **Open in browser** button goes to the same page.
-  Later: the PC's own browser with a loopback redirect, and
-  ASWebAuthenticationSession on iPhone, iPad and Vision Pro.
+- **Sign-in: the device code flow on every platform (built).** Launcher,
+  Play > Sync (its own sub-tab: on the General page it made flat screens
+  scroll): Link Google Drive shows the address
+  (google.com/device) and a code; the player enters it on a phone and allows
+  GoldenEye VR; the page moves on by itself and shows the account. It works
+  on the Quest and Steam Frame (no Google Play services), the Apple TV (no
+  browser) and everywhere else. The device syncs from its next start (the
+  game has already read its files). The refresh token stays in the save
+  folder's `.gevr-sync/google.txt`, never synced. Unlink (with a confirm)
+  forgets it and revokes it at Google. When Google refuses the token (the
+  player removed the access, or Testing's 7 days ran out), the device signs
+  itself out and the launcher says "Google Drive signed this device out.
+  Link it again" (`.gevr-sync/google-signed-out.txt` until it is).
+  Later (step 4): a QR code, the PC's own browser with a loopback redirect,
+  and ASWebAuthenticationSession on iPhone, iPad and Vision Pro.
 - **Client ID and secret:** installed-app secrets are not confidential by
   Google's own rules, but they stay out of the public repo (a build setting,
   like the Discord SDK path), so forks use their own Google project.
@@ -163,13 +173,29 @@ value back: each uploads only what differs from what it last synced.
   folder: `id.txt`, `state.txt` = the last sync, `mine.txt` = this device's
   record), the store interface (`gevr_sync_store.h`), the folder store, the
   game's entry points (`port/include/gevr_sync.h`).
+- `port/pc/gevr_sync_drive.cpp`: Google Drive. The store (records found by
+  `appProperties has { key='gevr' and value='record' }`, so the folder they
+  sit in doesn't matter; a write PATCHes the record's file, or makes it in
+  the oldest folder tagged `gevr=root`, made with its README when none is),
+  the device-code sign-in, unlink. HTTP is the PC services' (`pc_http.cpp`:
+  WinHTTP, libcurl, NSURLSession).
+- The OAuth client: CMakeLists.txt reads `build/google/oauth.properties`
+  (`GEVR_GOOGLE_OAUTH`, this checkout's `build/`, or the main checkout's,
+  found through a worktree's git common dir) into the build folder's
+  `port/include/gevr_google_oauth.h`. Without it the build has no Google
+  Drive and the launcher shows nothing. The Mac's checkout needs its own
+  copy of the file for the Apple builds.
 - Hooks: main.c (launch), config.c and vr_settings.cpp (settings written),
   libultra.c (EEPROM written), vr_launcher.cpp (the note under START).
 - Builds: PC flat and VR, Linux, Apple (port/pc globbed), Quest and Frame
   APKs (listed in CMakeLists.txt). Not the Android phone APK (no native
   services there yet) or the server.
-- Test: `python port/tests/test_sync.py` (simulated devices with their own
-  clocks, then the real glue launching save folders as separate processes).
+- Tests: `python port/tests/test_sync.py` (simulated devices with their own
+  clocks, then the real glue launching save folders as separate processes);
+  `python port/tests/test_sync_drive.py` (the Drive store and sign-in against
+  a stand-in for Google on 127.0.0.1: code, polling, the folder made once,
+  renamed and trashed records, two devices, token refresh, a revoked
+  sign-in, unlink).
 - Try it by hand: `GEVR_SYNC_DIR=<a folder>` (or that path in
   `.gevr-sync/folder.txt`) makes a folder the store; two PC run folders
   pointed at one folder sync with each other.
@@ -178,8 +204,14 @@ value back: each uploads only what differs from what it last synced.
 
 1. Done 2026-11-25: the engine, the folder store, the hooks, the shared key
    table (iCloud uses it too), tests.
-2. Google Drive carrier: device code sign-in in the launcher, folder
-   records, settings and saves.
+2. Done 2026-11-25: Google Drive (store, device-code sign-in in the
+   launcher's Play > Sync, unlink, signed-out handling), tests. Tested live
+   against the owner's Drive on 2026-11-25: sign-in, the folder and
+   records made, a second device joining, a pushed change arriving, unlink
+   revoking the token (the other copy of it then signed itself out).
+   Trap: the first sign-in showed "Access blocked: has not completed the
+   Google verification process" though the account was a test user; the
+   same code worked a few minutes later.
 3. ROMs and packs (resumable upload, content hash).
 4. Polish: native browser sign-in on PC and Apple, device names in the
    lobby, the save-conflict offer.
@@ -189,6 +221,8 @@ OAuth client "GoldenEye VR devices" (TVs and Limited Input), consent screen
 External, in Testing with the owner as test user. The client ID and secret
 live only in the main checkout's ignored `build/google/oauth.properties`
 (`gevr.googleClientId`, `gevr.googleClientSecret`); builds read them from
-there, else build without Google Drive. Before release: scope `drive.file`
-on the consent screen's Data access page, Production status, brand
-verification. Later: Desktop and iOS clients for browser sign-in.
+there, else build without Google Drive. Data access: `drive.file` (done).
+Before release: Production status (Testing limits sign-in to the listed test
+users and drops refresh tokens after 7 days), brand verification with the
+privacy policy's Google Drive section. Later: Desktop and iOS clients for
+browser sign-in.

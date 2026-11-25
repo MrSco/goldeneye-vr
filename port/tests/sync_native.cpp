@@ -16,6 +16,8 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 namespace gsync {
 void launchAt(const std::string &root, const std::string &kind);
@@ -312,13 +314,15 @@ static void testRecordText()
     s.t = 9;
     s.progress = true;
     s.data = std::string("\0\1\2\377x", 5);
+    s.based = 5;
     r.saves["eeprom.bin"] = s;
     DeviceRecord p;
     CHECK(recordParse(recordText(r) + "future\tline\n", &p));
     CHECK(p.id == r.id && p.name == r.name && p.kind == "tv" && p.version == "0.5.27" && p.seen == 42);
     CHECK(p.files[FILE_INI]["Name"].value == "Bond\\James\nBond" && p.files[FILE_INI]["Name"].t == 7);
     CHECK(p.files[FILE_CFG]["Input.Player1.Binds.Fire"].value == "A, B");
-    CHECK(p.saves["eeprom.bin"].data == s.data && p.saves["eeprom.bin"].progress && p.saves["eeprom.bin"].t == 9);
+    CHECK(p.saves["eeprom.bin"].data == s.data && p.saves["eeprom.bin"].progress && p.saves["eeprom.bin"].t == 9 &&
+          p.saves["eeprom.bin"].based == 5);
     CHECK(!recordParse("hello\n", &p));
     std::string id;
     CHECK(recordNameId(recordName("abc"), &id) && id == "abc");
@@ -327,11 +331,12 @@ static void testRecordText()
     Baseline b;
     b.joined = true;
     b.clock = 99;
+    b.saveT["eeprom.bin"] = 77;
     b.files[FILE_CFG]["Input.Player1.Binds.Fire"] = "A";
     b.saveHash["eeprom.bin"] = hashText("x");
     Baseline q;
     CHECK(baselineParse(baselineText(b), &q));
-    CHECK(q.joined && q.clock == 99 && q.files[FILE_CFG]["Input.Player1.Binds.Fire"] == "A" &&
+    CHECK(q.joined && q.clock == 99 && q.saveT["eeprom.bin"] == 77 && q.files[FILE_CFG]["Input.Player1.Binds.Fire"] == "A" &&
           q.saveHash["eeprom.bin"] == hashText("x"));
 
     std::string dec;
@@ -365,6 +370,34 @@ int main(int argc, char **argv)
         printf("active=%d\n", gevrSyncActive());
         return 0;
     }
+#ifdef GEVR_SYNC_DRIVE
+    // Google Drive against test_sync.py's stand-in (GEVR_GOOGLE_*_URL)
+    if (argc >= 4 && (!strcmp(argv[1], "drive-link") || !strcmp(argv[1], "drive-unlink"))) {
+        gsync::launchAt(argv[2], argv[3]);
+        GevrSyncDriveInfo d;
+        if (!strcmp(argv[1], "drive-unlink")) {
+            gevrSyncDriveUnlink();
+            gevrSyncDrive(&d);
+            printf("state=%d\n", d.state);
+            return 0;
+        }
+        gevrSyncDriveLink();
+        bool showed = false;
+        const int waitTenths = argc >= 5 ? atoi(argv[4]) * 10 : 300;   // seconds to wait for the sign-in
+        for (int i = 0; i < waitTenths; i++) {
+            gevrSyncDrive(&d);
+            if (d.state == GEVR_SYNC_DRIVE_WAITING && !showed) {
+                printf("code=%s\nurl=%s\n", d.code, d.url);
+                fflush(stdout);   // a person reads it while this waits
+                showed = true;
+            }
+            if (d.state == GEVR_SYNC_DRIVE_LINKED || d.state == GEVR_SYNC_DRIVE_FAILED) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        printf("state=%d\naccount=%s\nnote=%s\nsyncing=%d\n", d.state, d.account, d.note, d.syncing);
+        return 0;
+    }
+#endif
     fprintf(stderr, "usage: sync_test core | launch <folder> <kind> | push <folder> <kind>\n");
     return 2;
 }

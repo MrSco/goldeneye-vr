@@ -289,7 +289,7 @@ bool g_launched = false;
 bool g_active = false;        // a store is linked and the launch sync ran
 std::string g_root;           // the save folder
 std::string g_kind;
-std::unique_ptr<Store> g_store;
+std::shared_ptr<Store> g_store;   // shared: a push holds it while the player unlinks
 DeviceRecord g_mine;
 Baseline g_base;
 std::string g_status, g_message;
@@ -353,7 +353,11 @@ std::unique_ptr<Store> linkedStore()
         dir = trimmed(dir);
     }
     if (!dir.empty()) return folderStore(dir);
+#if !defined(GEVR_SYNC_TEST) || defined(GEVR_SYNC_DRIVE)
+    return driveStore(g_root + "/.gevr-sync");   // null when this device isn't signed in
+#else
     return nullptr;
+#endif
 }
 
 LocalState readLocal()
@@ -517,7 +521,7 @@ void launchSync()
 /* After the game wrote a file: this device's changes into its record. */
 void pushNow()
 {
-    std::unique_ptr<Store> store;
+    std::shared_ptr<Store> store;
     DeviceRecord mine;
     {
         std::lock_guard<std::mutex> hold(g_lock);
@@ -533,9 +537,10 @@ void pushNow()
         g_mine = o.mine;
         keepState(g_base, g_mine);
         mine = g_mine;
+        store = g_store;
     }
-    // outside the lock: the network can take a while; one push runs at a time (the worker)
-    upload(g_store.get(), mine);
+    // outside the lock: the network can take a while; one push runs at a time
+    if (store) upload(store.get(), mine);
 }
 
 }   // namespace
@@ -593,6 +598,77 @@ void fileSaved(const std::string &path)
 /* a test's push without the wait */
 void pushForTest() { pushNow(); }
 
+#if !defined(GEVR_SYNC_TEST) || defined(GEVR_SYNC_DRIVE)
+/* ---- Google Drive's link, for the launcher ---- */
+
+static std::string stateDir() { return g_root + "/.gevr-sync"; }
+
+void driveLink()
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+    if (g_root.empty() || !driveAvailable()) return;
+    driveSignInStart(stateDir());
+}
+
+void driveCancel() { driveSignInCancel(); }
+
+void driveUnlinkNow()
+{
+    std::string dir;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        if (g_root.empty()) return;
+        dir = stateDir();
+        // linked again later (maybe to another account): that is a join, the others' values first
+        g_base.joined = false;
+        writeFileAtomic(statePath("state.txt"), baselineText(g_base));
+        if (g_active && g_store && g_store->label().compare(0, 12, "Google Drive") == 0) {
+            g_active = false;
+            g_store.reset();
+            g_status.clear();
+        }
+    }
+    driveSignInCancel();
+    driveUnlink(dir);   // outside the lock: tells Google too
+    syncLog("Google Drive unlinked");
+}
+
+int driveInfo(GevrSyncDriveInfo *out)
+{
+    memset(out, 0, sizeof(*out));
+    std::string dir;
+    bool active;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        if (g_root.empty() || !driveAvailable()) return out->state = GEVR_SYNC_DRIVE_NONE;
+        dir = stateDir();
+        active = g_active && g_store && g_store->label().compare(0, 12, "Google Drive") == 0;
+        snprintf(out->status, sizeof(out->status), "%s", active ? g_status.c_str() : "");
+    }
+    out->syncing = active ? 1 : 0;
+    const DriveSignIn s = driveSignInState();
+    if (s.state == DriveSignIn::STARTING || s.state == DriveSignIn::WAITING) {
+        snprintf(out->code, sizeof(out->code), "%s", s.code.c_str());
+        snprintf(out->url, sizeof(out->url), "%s", s.url.c_str());
+        return out->state = s.state == DriveSignIn::STARTING ? GEVR_SYNC_DRIVE_STARTING : GEVR_SYNC_DRIVE_WAITING;
+    }
+    if (driveLinked(dir)) {
+        snprintf(out->account, sizeof(out->account), "%s", driveEmail(dir).c_str());
+        return out->state = GEVR_SYNC_DRIVE_LINKED;
+    }
+    if (s.state == DriveSignIn::FAILED) {
+        snprintf(out->note, sizeof(out->note), "%s", s.message.c_str());
+        return out->state = GEVR_SYNC_DRIVE_FAILED;
+    }
+    const std::string out_ = driveSignedOut(dir);
+    if (!out_.empty()) {
+        snprintf(out->note, sizeof(out->note), "%s", out_.c_str());
+        return out->state = GEVR_SYNC_DRIVE_FAILED;
+    }
+    return out->state = GEVR_SYNC_DRIVE_UNLINKED;
+}
+#endif
+
 }   // namespace gsync
 
 #ifndef GEVR_SYNC_TEST
@@ -619,6 +695,13 @@ extern "C" void gevrSyncFileSaved(const char *path)
 {
     if (path) gsync::fileSaved(path);
 }
+#endif
+
+#if !defined(GEVR_SYNC_TEST) || defined(GEVR_SYNC_DRIVE)
+extern "C" int gevrSyncDrive(GevrSyncDriveInfo *out) { return gsync::driveInfo(out); }
+extern "C" void gevrSyncDriveLink(void) { gsync::driveLink(); }
+extern "C" void gevrSyncDriveCancel(void) { gsync::driveCancel(); }
+extern "C" void gevrSyncDriveUnlink(void) { gsync::driveUnlinkNow(); }
 #endif
 
 extern "C" void gevrSyncStatus(char *buf, int size)

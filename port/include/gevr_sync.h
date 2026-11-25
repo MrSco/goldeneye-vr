@@ -14,6 +14,26 @@
 extern "C" {
 #endif
 
+/* Google Drive's link, for the launcher (gevrSyncDrive) */
+enum {
+    GEVR_SYNC_DRIVE_NONE,       /* this build has no Google client: nothing to show */
+    GEVR_SYNC_DRIVE_UNLINKED,
+    GEVR_SYNC_DRIVE_STARTING,   /* asking Google for a code */
+    GEVR_SYNC_DRIVE_WAITING,    /* the code is shown: the player enters it on a phone */
+    GEVR_SYNC_DRIVE_FAILED,     /* note says why */
+    GEVR_SYNC_DRIVE_LINKED
+};
+
+typedef struct GevrSyncDriveInfo {
+    int state;           /* GEVR_SYNC_DRIVE_* */
+    int syncing;         /* this launch synced with Drive (else: from the next start) */
+    char code[32];       /* WAITING: "ABCD-EFGH" */
+    char url[128];       /* WAITING: where to enter it */
+    char account[128];   /* LINKED: the Google account, "" unknown */
+    char note[256];      /* FAILED: why */
+    char status[160];    /* syncing: what this launch's sync did */
+} GevrSyncDriveInfo;
+
 #if (defined(GEVR_PC) || defined(GEVR_NATIVE_SERVICES)) && !defined(GEVR_HEADLESS)
 
 /* main: after the save folder is known (and after gevrCloudLaunch), before
@@ -34,6 +54,13 @@ int gevrSyncTakeMessage(char *buf, int size);
 /* 1 when this launch syncs (a store is linked). */
 int gevrSyncActive(void);
 
+/* Google Drive: the state, and starting, stopping and undoing the sign-in. A
+ * device signed in syncs from its next start (the game has read its files). */
+int gevrSyncDrive(GevrSyncDriveInfo *out);
+void gevrSyncDriveLink(void);
+void gevrSyncDriveCancel(void);
+void gevrSyncDriveUnlink(void);
+
 #else
 
 static inline void gevrSyncLaunch(void) {}
@@ -41,6 +68,10 @@ static inline void gevrSyncFileSaved(const char *path) { (void)path; }
 static inline void gevrSyncStatus(char *buf, int size) { if (buf && size > 0) buf[0] = 0; }
 static inline int gevrSyncTakeMessage(char *buf, int size) { if (buf && size > 0) buf[0] = 0; return 0; }
 static inline int gevrSyncActive(void) { return 0; }
+static inline int gevrSyncDrive(GevrSyncDriveInfo *out) { if (out) { out->state = GEVR_SYNC_DRIVE_NONE; out->syncing = 0; } return GEVR_SYNC_DRIVE_NONE; }
+static inline void gevrSyncDriveLink(void) {}
+static inline void gevrSyncDriveCancel(void) {}
+static inline void gevrSyncDriveUnlink(void) {}
 
 #endif
 
