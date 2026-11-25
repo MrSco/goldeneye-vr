@@ -1387,6 +1387,26 @@ void gunUpdateAndFire(GUNHAND handnum)
 #endif
         }
 
+#ifdef GEVR
+        /* The authored point changes only the launch origin. Keep the
+         * cartridge's own flash matrices and random draws, including models
+         * that have no flash node or matrix at all. */
+        extern s32 gevrStereoWatchItem(s32 item);
+        coord3d packMuzzle;
+        if (!gevrStereoWatchItem(item) && gevrModGunMuzzle(handnum, &packMuzzle)) {
+            extern void gevrStereoNoteMuzzle(s32 hand, f32 x, f32 y, f32 z);
+            extern f32 D_800364CC;
+            mtx4TransformVecInPlace(&gunmtx, &packMuzzle);
+            gevrStereoNoteMuzzle(handnum, packMuzzle.x, packMuzzle.y, packMuzzle.z);
+            if (g_gevrStereo && D_800364CC > 1e-6f) {
+                for (int axis = 0; axis < 3; ++axis) packMuzzle.f[axis] /= D_800364CC;
+            }
+            hand->field_B64 = -packMuzzle.z;
+            mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &packMuzzle);
+            hand->field_B58 = packMuzzle;
+        }
+#endif
+
         node = mdlhdr->Switches[6];
 
         if (node != NULL)

@@ -18230,6 +18230,13 @@ s32 gevrMuzzleFitAvailable(void)
     if (g_CurrentPlayer == NULL) return FALSE;
     item = getCurrentPlayerWeaponId(GUNRIGHT);
     if (item <= ITEM_FIST || item >= GEVR_MAX_WEAPONS) return FALSE;
+    {
+        /* A pack body's authored muzzle replaces the trim this would edit,
+         * and the trim is the player's saved one for the carrier item. */
+        extern s32 gevrModGunMuzzle(s32 hand, coord3d *out);   /* gun.c */
+        coord3d packMuzzle;
+        if (gevrModGunMuzzle(GUNRIGHT, &packMuzzle)) return FALSE;
+    }
     hdr = get_ptr_itemheader_in_hand(GUNRIGHT);
     return (gevrGexHeld(GUNRIGHT) && gevrGexWeaponForHand(GUNRIGHT) != NULL)
         || (hdr != NULL && hdr->Switches != NULL && hdr->numSwitches > 3 && hdr->Switches[3] != NULL);

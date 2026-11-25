@@ -124,7 +124,7 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 }
 
 extern s32 gevrModGunHeld(s32 hand);                                        /* gun.c */
-extern void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4]);
+extern void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4], const float muzzle[3]);
 extern void gevrModGunModelReset(void);
 #include "gevr_modassets.h"
 #include "gevr_modmesh.h"
@@ -135,16 +135,20 @@ int gevrModGameLook(int hand)
     return gevrModGunHeld(hand) ? 3 : gevrFitLook(hand);
 }
 
-int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4])
+extern s32 gevrIsThrowable(s32 item);        /* input.c */
+
+int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3])
 {
     const GevrModMesh *mesh;
+    /* A thrown weapon leaves the hand by the throw, not a muzzle: refused, as a legacy file's fit is */
+    if (muzzle != NULL && gevrIsThrowable(item)) return 0;
     if (name != NULL) {
         int native;
         if (!gevrModAssetHasModel(name)) return 0;
         native = gevrModMeshLoad(name, &mesh);
-        if (native < 0 || (frame != NULL && native != 1)) return 0;
+        if (native < 0 || ((frame != NULL || muzzle != NULL) && native != 1)) return 0;
     }
-    gevrModGunModelSet(hand, item, name, frame);
+    gevrModGunModelSet(hand, item, name, frame, muzzle);
     return 1;
 }
 
@@ -183,7 +187,6 @@ static s32 nativeAutomatic(s32 item)
  * throwGuide; gun.c gevrThrowTrigger, gunfire.c gevrThrowGuideDraw): a speed
  * of 0 and no lift set are the game's own. Put back with the stats */
 #define GAME_THROW_LIFT 5.0f   /* gun.c's throws' own */
-extern s32 gevrIsThrowable(s32 item);        /* input.c */
 extern f32 gevrThrowBaseSpeed(s32 item);     /* gun.c */
 static f32 s_modThrowSpeed[ITEM_IDS_MAX], s_modThrowLift[ITEM_IDS_MAX];
 static s8 s_modThrowLiftSet[ITEM_IDS_MAX], s_modThrowGuide[ITEM_IDS_MAX];

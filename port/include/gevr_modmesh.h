@@ -12,4 +12,8 @@ Gfx *gevrModMeshDraw(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh);
 const GevrModMesh *gevrModGunMesh(s32 hand);
 /* Optional pack body fit for the mesh the hand is actually drawing. */
 const Mtxf *gevrModGunFrame(s32 hand);
+/* A model-local point in its fitted carrier coordinates; NULL fit is identity. */
+void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3]);
+/* Fitted muzzle in carrier coordinates, absent for stock or a pending choice. */
+s32 gevrModGunMuzzle(s32 hand, coord3d *out);
 #endif
