@@ -93,7 +93,7 @@ struct GevrPauseRowsState {
 inline GevrPauseRowsState &gevrPauseRows() { static GevrPauseRowsState state; return state; }
 inline bool gevrPauseFunCopy(const GevrPauseField &f) {
     /* mpmenu.c's fun switches (ids 200 on), but its movement speed: the table's are drawn */
-    static const char *const fun[]={"DK MODE","PAINTBALL","LINE MODE","NO RADAR","HIT IMMUNITY","GUN SIZE"};
+    static const char *const fun[]={"DK MODE","PAINTBALL","LINE MODE","NO RADAR","NO TELEPORT","HIT IMMUNITY","GUN SIZE"};
     if(f.id<200)return false;
     for(const char*name:fun)if(!strcmp(f.label,name))return true;
     return false;
@@ -255,7 +255,15 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             ImGui::SetCursorPos(ImVec2(18,206+7));ImGui::TextColored(gold,model.horde?"HORDE":"CO-OP MISSION");
             if(!model.horde){ImGui::SameLine();ImGui::TextUnformatted(model.session);}
         }
-        if(model.horde) {
+        if(model.horde && model.setup) {
+            /* the run's map, first wave, friendly fire and AI ally, and the character: the game's
+             * Multiplayer Options folder (mpmenu.c), as in the setup break */
+            ImGui::SetCursorPos(ImVec2(140,200));
+            if(ImGui::Button("Multiplayer Options",ImVec2(340,44)))action=GEVR_PAUSE_SETUP;
+            ImGui::SetCursorPos(ImVec2(496,212));
+            ImGui::TextDisabled("%s",!model.host?"Your character; the host's run.":
+                model.hordeSetup?"The run's map and wave, and your character.":"The next run's map and wave: at Retry.");
+        } else if(model.horde) {
             /* the host's map and first wave (mpmenu.c's HORDE MAP, STARTING WAVE): a new wave
              * takes effect at once in the setup break, a new map at START WAVE (a restart) */
             int ids[16];
@@ -286,21 +294,30 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 else if(!strcmp(field->label,"NEXT MAP"))gevrPauseRowAt(rows,ids[i],18,772,604);
                 else if(!strcmp(field->label,"NEXT WEAPONS"))gevrPauseRowAt(rows,ids[i],660,772,602);
             }
-            ImGui::SetCursorPos(ImVec2(18,722));ImGui::TextColored(gold,"NEXT ROUND");
+            if(model.setup) {
+                /* the map, the scenario, the weapons and the rest of the setup: the game's Multiplayer
+                 * Options folder (mpmenu.c), each player's character, health, team and loadout with them */
+                ImGui::SetCursorPos(ImVec2(18,200));
+                if(ImGui::Button("Multiplayer Options",ImVec2(340,44)))action=GEVR_PAUSE_SETUP;
+                ImGui::SetCursorPos(ImVec2(374,212));
+                ImGui::TextDisabled("%s",model.host?"The match's setup and your character. Next round.":
+                    "Your character, health and team; the host's setup.");
+            }
+            if(!model.setup || model.voting) {ImGui::SetCursorPos(ImVec2(18,722));ImGui::TextColored(gold,"NEXT ROUND");}
             if(model.host && model.voting) {
                 ImGui::SetCursorPos(ImVec2(340,712));ImGui::BeginDisabled(model.countdown>0 || !model.canStart);
                 if(ImGui::Button("Request votes",ImVec2(350,48)))action=GEVR_PAUSE_REQUEST_VOTES;
                 ImGui::EndDisabled();
             }
-            if(model.portraits && (model.host || model.voting || model.setup)) {
+            if(model.setup) {
+                /* the vote's photos (GoldenEye's Select Stage, in the game's view); the rest is the folder's */
+                if(model.voting && model.portraits) {
+                    ImGui::SetCursorPos(ImVec2(18,822));
+                    if(ImGui::Button("Vote with photos",ImVec2(260,38)))action=GEVR_PAUSE_STAGEVOTE;
+                }
+            } else if(model.portraits && (model.host || model.voting)) {
                 /* GoldenEye's own Select Stage photos, in the game's view (mpmenu.c): the host's map, everyone's vote */
                 float x=18;
-                if(model.setup) {
-                    /* the game's Multiplayer Options folder (mpmenu.c), where the whole match is set up */
-                    ImGui::SetCursorPos(ImVec2(x,822));
-                    if(ImGui::Button("Multiplayer Options",ImVec2(340,38)))action=GEVR_PAUSE_SETUP;
-                    x+=356;
-                }
                 if(model.host) {
                     ImGui::SetCursorPos(ImVec2(x,822));
                     if(ImGui::Button("Map photos",ImVec2(220,38)))action=GEVR_PAUSE_STAGESEL;
@@ -386,7 +403,13 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         gevrSettingsSection(rows,ui.tab,GEVR_SET_INGAME);
         ImGui::EndChild();
         ImGui::SetCursorPos(ImVec2(18,816));
-        if(ui.tab==GEVR_PAUSE_PLAYER && model.portraits) {
+        if(ui.tab==GEVR_PAUSE_PLAYER && model.setup) {
+            /* the character, health, team and loadout: the game's Multiplayer Options folder (mpmenu.c) */
+            ImGui::SetCursorPos(ImVec2(18,806));
+            if(ImGui::Button("Multiplayer Options",ImVec2(340,48)))action=GEVR_PAUSE_SETUP;
+            ImGui::SetCursorPos(ImVec2(374,816));
+            ImGui::TextDisabled("%s",model.horde?"Your character is there.":"Your character, health, team and loadout are there.");
+        } else if(ui.tab==GEVR_PAUSE_PLAYER && model.portraits) {
             /* GoldenEye's own Select Character screen, in the game's view (mpmenu.c); in a
              * deathmatch its Handicap screen (everyone's health) and, with teams, its Teams screen */
             float x=18;

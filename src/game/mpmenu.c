@@ -133,6 +133,7 @@ typedef struct {
     s32 count;
     s32 cursor;                       /* a row index */
     s32 scroll;                       /* the first row drawn, among the visible */
+    s32 (*shows)(const GevrMenuRow *r);   /* the rows this page draws of its table; NULL: every one */
 } GevrMenuPage;
 #define GEVR_MENU_ROWS_SHOWN 8
 
@@ -592,9 +593,23 @@ static const GevrMenuRow s_funRows[] = {
     { "GUN SIZE", GEVR_ROW_VALUE, 1, NULL, rowGunSizeValue, rowGunSizeStep, "R-STICK:PICK" },
     { "MOVEMENT SPEED", GEVR_ROW_VALUE, 1, NULL, rowMovementSpeedValue, rowMovementSpeedStep, "LIVE:HOST CHOOSES" },
 };
-static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0 };
-static GevrMenuPage s_pausePage = { s_pauseRows, sizeof(s_pauseRows) / sizeof(s_pauseRows[0]), 0, 0 };
-static GevrMenuPage s_lobbyPage = { s_lobbyRows, sizeof(s_lobbyRows) / sizeof(s_lobbyRows[0]), 0, 0 };
+/*
+ * The LOBBY page is the quick page between rounds (in-game match setup, plan
+ * commit 9): the votes, READY, START MATCH, RETURN TO LOBBY, the Multiplayer
+ * Options folder, DROP OUT and FULL MENU. The rest of s_lobbyRows (the match's
+ * setup, the player's character, team, health and guns) is the folder's,
+ * which views the same rows; the pause window keeps the favorites too
+ * (gevrPauseInFolder). Co-op has no folder and no LOBBY page.
+ */
+static s32 gevrLobbyQuickRow(const GevrMenuRow *r)
+{
+    return r->step == rowSetupStep || r->step == rowFullMenuStep || r->step == rowDropOutStep || r->step == rowReadyStep ||
+           r->step == rowStartStep || r->step == rowReturnStep || r->step == rowNextMapStep || r->step == rowNextWeaponsStep ||
+           r->step == rowHordeStartStep;
+}
+static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0, NULL };
+static GevrMenuPage s_pausePage = { s_pauseRows, sizeof(s_pauseRows) / sizeof(s_pauseRows[0]), 0, 0, NULL };
+static GevrMenuPage s_lobbyPage = { s_lobbyRows, sizeof(s_lobbyRows) / sizeof(s_lobbyRows[0]), 0, 0, gevrLobbyQuickRow };
 static s32 s_pageCursor[MAX_PLAYER_COUNT][3];
 static s32 s_pageScroll[MAX_PLAYER_COUNT][3];
 
@@ -623,6 +638,11 @@ static void gevrMenuPageSave(s32 mode, const GevrMenuPage *pg)
     }
 }
 static s32 gevrRowVisible(const GevrMenuRow *r) { return r->visible == NULL || r->visible(); }
+static s32 gevrPageRowVisible(const GevrMenuPage *page, s32 i)
+{
+    const GevrMenuRow *r = &page->rows[i];
+    return gevrRowVisible(r) && (page->shows == NULL || page->shows(r));
+}
 static s32 gevrRowEditable(const GevrMenuRow *r)
 {
     /* YOUR HEALTH: the player's own under the host's rule (the host's seat always) */
@@ -636,7 +656,7 @@ static void gevrPageMoveCursor(GevrMenuPage *page, s32 dir)
     s32 tries = page->count;
     s32 c = page->cursor;
     if (dir != 0) c = gevrCycled(c, dir, page->count);
-    while (tries-- > 0 && !gevrRowVisible(&page->rows[c]))
+    while (tries-- > 0 && !gevrPageRowVisible(page, c))
     {
         c = gevrCycled(c, dir ? dir : 1, page->count);
     }
@@ -2409,7 +2429,7 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     gevrPageMoveCursor(page, 0);
     for (i = 0; i < page->count && nvis < 32; i++)
     {
-        if (gevrRowVisible(&page->rows[i]))
+        if (gevrPageRowVisible(page, i))
         {
             if (i == page->cursor) ci = nvis;
             vis[nvis++] = i;
@@ -2522,11 +2542,25 @@ static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
     if(field>=0) *selected=gevrNetConfigGet(field);
     return count;
 }
+/*
+ * The match's rows the Multiplayer Options folder holds (an online
+ * deathmatch's, a Horde run's): the pause window leaves them to it, opened
+ * from its Match and Player tabs (vr_pause_menu.cpp GEVR_PAUSE_SETUP), and
+ * keeps the votes, READY and the favorites (the LOBBY page's quick rows), its
+ * own rules (host equalization, the fun rules, movement speed) and the audio.
+ * Co-op has no folder: its rows stay.
+ */
+static int gevrPauseInFolder(int id, const GevrMenuRow *r)
+{
+    if (id >= 100 || gevrLobbyQuickRow(r) || r->step == rowFavMapStep || r->step == rowFavSetStep) return 0;
+    return gevrMpOptionsAvailable(netGetLocalSlot());
+}
 int gevrPauseReadField(int tab,int index,GevrPauseField *out)
 {
     int seen=0;
     for(int id=0;id<200+(int)(sizeof(s_funRows)/sizeof(s_funRows[0]));id++) {
         const GevrMenuRow *r=gevrPauseRow(id);if(!r || r->kind==GEVR_ROW_ACTION || gevrPauseGroup(r)!=tab || !gevrRowVisible(r)) continue;
+        if(gevrPauseInFolder(id,r)) continue;
         if(gevrCoopActive() && !gevrPausePveRow(r)) {
             /* Campaign rules come from the mission: no deathmatch ballots, teams or kits. */
             if(tab==GEVR_PAUSE_MATCH || (tab==GEVR_PAUSE_PLAYER && strcmp(r->name,"CHARACTER")) ||
