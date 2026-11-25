@@ -278,7 +278,7 @@ std::string recordText(const DeviceRecord &r)
     }
     for (const auto &kv : r.saves) {
         o += "save\t" + esc(kv.first) + "\t" + std::to_string(kv.second.t) + "\t" + (kv.second.progress ? "1" : "0") +
-             "\t" + base64Encode(kv.second.data) + "\n";
+             "\t" + base64Encode(kv.second.data) + "\t" + std::to_string(kv.second.based) + "\n";
     }
     return o;
 }
@@ -296,11 +296,12 @@ bool recordParse(const std::string &text, DeviceRecord *out)
         else if (f.size() == 2 && tag == "kind") out->kind = unesc(f[1]);
         else if (f.size() == 2 && tag == "version") out->version = unesc(f[1]);
         else if (f.size() == 2 && tag == "seen") out->seen = toLL(f[1]);
-        else if (f.size() == 5 && tag == "save") {
+        else if ((f.size() == 5 || f.size() == 6) && tag == "save") {
             const std::string name = unesc(f[1]);
             SaveRec s;
             s.t = toLL(f[2]);
             s.progress = f[3] == "1";
+            s.based = f.size() == 6 ? toLL(f[5]) : 0;
             if (isSaveName(name) && base64Decode(f[4], &s.data)) out->saves[name] = s;
         } else if (f.size() == 4) {
             for (int fi = 0; fi < FILE_COUNT; fi++) {
@@ -328,6 +329,7 @@ std::string baselineText(const Baseline &b)
         for (const auto &kv : b.files[f]) o += std::string(kFileTags[f]) + "\t" + esc(kv.first) + "\t" + esc(kv.second) + "\n";
     }
     for (const auto &kv : b.saveHash) o += "save\t" + esc(kv.first) + "\t" + kv.second + "\n";
+    for (const auto &kv : b.saveT) o += "savet\t" + esc(kv.first) + "\t" + std::to_string(kv.second) + "\n";
     return o;
 }
 
@@ -340,8 +342,8 @@ bool baselineParse(const std::string &text, Baseline *out)
         const std::vector<std::string> f = splitTabs(lines[i]);
         if (f.size() == 2 && f[0] == "joined") out->joined = f[1] == "1";
         else if (f.size() == 2 && f[0] == "clock") out->clock = toLL(f[1]);
-        else if (f.size() == 2 && f[0] == "pulled") out->pulled = toLL(f[1]);
         else if (f.size() == 3 && f[0] == "save") out->saveHash[unesc(f[1])] = f[2];
+        else if (f.size() == 3 && f[0] == "savet") out->saveT[unesc(f[1])] = toLL(f[2]);
         else if (f.size() == 3) {
             for (int fi = 0; fi < FILE_COUNT; fi++) {
                 if (f[0] == kFileTags[fi]) out->files[fi][unesc(f[1])] = unesc(f[2]);
@@ -536,6 +538,8 @@ Outcome sync(const DeviceRecord &mineIn, const std::vector<DeviceRecord> &others
                 const long long written = tm != local.saveTimes.end() ? tm->second : now;
                 SaveRec s;
                 s.t = std::max(written, base.clock + 1);   // written after what the last sync saw
+                auto was = base.saveT.find(n);
+                s.based = was != base.saveT.end() ? was->second : 0;
                 s.progress = saveHasProgress(l->second);
                 s.data = l->second;
                 mine.saves[n] = s;
@@ -546,6 +550,13 @@ Outcome sync(const DeviceRecord &mineIn, const std::vector<DeviceRecord> &others
 
         std::string finalData = haveLocal ? l->second : std::string();
         bool haveFinal = haveLocal;
+        long long finalT = 0;
+        {
+            auto m = mine.saves.find(n);
+            auto was = base.saveT.find(n);
+            if (editedHere && m != mine.saves.end()) finalT = m->second.t;
+            else if (was != base.saveT.end()) finalT = was->second;
+        }
         if (apply) {
             std::vector<Candidate> cands;
             auto m = mine.saves.find(n);
@@ -568,13 +579,14 @@ Outcome sync(const DeviceRecord &mineIn, const std::vector<DeviceRecord> &others
                     w.fromDevice = deviceLabel(*best.rec);
                     out.saves.push_back(w);
                     finalData = best.save->data;
+                    finalT = best.save->t;
                     haveFinal = true;
-                    // a conflict: this device's own save and the winner were both
-                    // written since this device last read the others' (a new
+                    // a conflict: the winner wasn't built on this device's own save (its
+                    // device hadn't seen it), so this one's progress is set aside (a new
                     // device's first save, or a blank one, is only kept aside)
-                    const bool mineHere = m != mine.saves.end() && m->second.data == l->second;
-                    if (haveLocal && base.joined && best.rec != &mine && mineHere && m->second.t > base.pulled &&
-                        best.save->t > base.pulled && saveHasProgress(l->second)) {
+                    const bool mineHere = haveLocal && m != mine.saves.end() && m->second.data == l->second;
+                    if (base.joined && best.rec != &mine && mineHere && best.save->based < m->second.t &&
+                        saveHasProgress(l->second)) {
                         out.messages.push_back("Your save changed on this device and on " + deviceLabel(*best.rec) +
                                                ". The game kept " + deviceLabel(*best.rec) +
                                                "'s, the newer one; this device's is kept as " + n +
@@ -588,11 +600,13 @@ Outcome sync(const DeviceRecord &mineIn, const std::vector<DeviceRecord> &others
                 }
             }
         }
-        if (haveFinal) out.base.saveHash[n] = hashText(finalData);
+        if (haveFinal) {
+            out.base.saveHash[n] = hashText(finalData);
+            if (finalT) out.base.saveT[n] = finalT;
+        }
     }
 
     out.base.clock = std::max(newest, apply ? seen : base.clock);
-    if (apply) out.base.pulled = out.base.clock;
     if (out.mineChanged || apply) {
         mine.seen = now;
     }

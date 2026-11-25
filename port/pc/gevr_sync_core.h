@@ -57,6 +57,7 @@ using Stamped = std::map<std::string, Entry>;
 
 struct SaveRec {
     long long t = 0;        // when it was written (ms), never older than what its device had seen
+    long long based = 0;    // the t of the save it replaced on its device: what it was built on
     bool progress = false;
     std::string data;
 };
@@ -78,9 +79,9 @@ bool recordParse(const std::string &text, DeviceRecord *out);   // false: not a 
 struct Baseline {
     bool joined = false;
     long long clock = 0;    // the newest stamp seen at the last sync
-    long long pulled = 0;   // the clock at the last launch sync (the others' records read)
     std::map<std::string, std::string> files[FILE_COUNT];   // synced keys as they were then
     std::map<std::string, std::string> saveHash;            // the saves as they were then
+    std::map<std::string, long long> saveT;                 // and which save each was (its t)
 };
 
 std::string baselineText(const Baseline &b);
