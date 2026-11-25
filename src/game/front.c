@@ -7756,6 +7756,255 @@ Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, 
     DL = frontPanelFooter(DL, vx, vy, vw, vh, note, "A:OK  B:BACK");
     return frontPanelEnd(DL, vx, vy, vw, vh);
 }
+
+/*
+ * The Multiplayer Options folder in a match (online, mpmenu.c): GoldenEye's
+ * menu0E (constructor_menu0E_mpoptions above: the Zurich title, the labels in
+ * a column and their values in a second, the selected row on a band, a locked
+ * row dimmed 0x70, START and PREVIOUS on tabs down the right edge) drawn on
+ * the folder's paper inside one player's view, as the Handicap and Teams
+ * screens are. The 3D folder model and the front end's single cursor are the
+ * title stage's (front.c frontSetupMenuBackground, frontChangeMenu), so this
+ * is rectangles and text, and the rows are whatever the caller fills each
+ * frame; it changes nothing. Text keeps its size: a short or narrow view
+ * scrolls the rows, and a quarter view puts each row's label and value on one
+ * line in the small font.
+ */
+#define MPOPT_PITCH_MAX 0x14   /* the original's row pitch */
+
+void frontMpOptionsLayout(s32 vw, s32 vh, s32 count, s32 zline, s32 bline, FrontOptionsLayout *out)
+{
+    s32 line;
+    s32 avail;
+    s32 head = zline + 4;
+
+    out->compact = vw < 220;
+    out->small = out->compact || vh < 150;
+    line = out->small ? bline : zline;
+    out->tabw = bline + 6;
+    out->foot = bline + 4;
+    avail = vh - out->foot - 2;
+    /* the title where at least three rows still fit under it, or all of a short list */
+    out->titled = (avail - head) / (line + 2) >= (count < 3 ? count : 3);
+    if (out->titled) avail -= head;
+    out->top = 2 + (out->titled ? head : 0);
+    out->pitch = count > 0 ? avail / count : line + 2;
+    if (out->pitch > MPOPT_PITCH_MAX) out->pitch = MPOPT_PITCH_MAX;
+    if (out->pitch < line + 2) out->pitch = line + 2;
+    out->shown = avail / out->pitch;
+    if (out->shown > count) out->shown = count;
+    if (out->shown < 1) out->shown = 1;
+    out->line = line;
+}
+
+/* the first row shown, keeping the cursor (a row, or count: the START tab) in view */
+s32 frontMpOptionsScroll(s32 scroll, s32 cursor, s32 count, s32 shown)
+{
+    if (cursor >= count) cursor = count - 1;
+    if (scroll > cursor) scroll = cursor;
+    if (scroll < cursor - shown + 1) scroll = cursor - shown + 1;
+    if (scroll > count - shown) scroll = count - shown;
+    if (scroll < 0) scroll = 0;
+    return scroll;
+}
+
+static s32 s_mpOptScroll[MAX_PLAYER_COUNT];
+
+/* a tab's word down the right edge, BankGothic turned 90 degrees as the front end's tabs */
+static Gfx *frontMpOptionsTab(Gfx *DL, const char *word, s32 x0, s32 y0, s32 x1, s32 y1, s32 lit, s32 dim)
+{
+    char text[32];
+    s32 glyph;
+    s32 len;
+    s32 v;
+    s32 h;
+
+    if (lit) DL = microcode_constructor_related_to_menus(DL, x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0x101010E0);
+    snprintf(text, sizeof(text), "%s", word);
+    setTextSpacingInverted(TRUE);
+    /* sideways: the measured height is the word's length, the width its glyphs' height */
+    textMeasure(&glyph, &len, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    while (len > y1 - y0 - 4 && strlen(text) > 1)
+    {
+        text[strlen(text) - 1] = '\0';
+        textMeasure(&glyph, &len, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    }
+    glyph = STAGESEL_LINE(ptrFontBankGothicChars);
+    setTextOrientation(ROT_90CW);
+    v = (y0 + y1) / 2 - len / 2;
+    h = (x0 + x1) / 2 + glyph / 2;
+    DL = textRender(DL, &v, &h, text, ptrFontBankGothicChars, ptrFontBankGothic,
+                    lit ? (dim ? 0xFFFFFF90 : 0xFFFFFFFF) : (dim ? 0x00000070 : 0x000000FF), viGetY(), viGetX(), 0, 0);
+    setTextOrientation(ROT_NORMAL);
+    setTextSpacingInverted(FALSE);
+    return DL;
+}
+
+/*
+ * The folder over the view at (vx, vy), vw x vh screen pixels: title (the
+ * game's "Multiplayer Options" unless given), rows, the cursor's row on a
+ * band (cursor == count: the START tab), the START tab (start: its word, NULL
+ * for none: a list has PREVIOUS only), and an info line along the bottom
+ * (the match's state, the lobby code). A row that opens a screen reads as
+ * the original's "Character..." (the caller's label).
+ */
+Gfx *frontMpOptionsDraw(Gfx *DL, s32 slot, const char *title, const FrontOptionRow *rows, s32 count, s32 cursor,
+                        const char *start, s32 startdim, const char *info, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    FrontOptionsLayout lay;
+    char text[96];
+    char value[64];
+    s32 zline = STAGESEL_LINE(ptrFontZurichBoldChars);
+    s32 bline = STAGESEL_LINE(ptrFontBankGothicChars);
+    struct fontchar *chars;
+    struct font *font;
+    s32 right;
+    s32 valuex;
+    s32 scroll;
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0) return DL;
+    if (cursor < 0 || cursor > count) cursor = 0;
+    frontMpOptionsLayout(vw, vh, count, zline, bline, &lay);
+    chars = lay.small ? ptrFontBankGothicChars : ptrFontZurichBoldChars;
+    font = lay.small ? ptrFontBankGothic : ptrFontZurichBold;
+    right = vx + vw - lay.tabw;
+    scroll = frontMpOptionsScroll(s_mpOptScroll[slot], cursor, count, lay.shown);
+    s_mpOptScroll[slot] = scroll;
+
+    gDPPipeSync(DL++);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    DL = microcode_constructor(DL);
+    DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+    if (lay.titled)
+    {
+        snprintf(text, sizeof(text), "%s", title != NULL ? title : (char *)langGet(getStringID(LTITLE, TITLE_STR_76_MPOPTIONS)));
+        frontPanelFit(value, sizeof(value), text, right - vx - 8, ptrFontZurichBoldChars, ptrFontZurichBold);
+        x = vx + 6;
+        y = vy + 2;
+        DL = frontPrintText(DL, &x, &y, (s8 *)value, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    }
+
+    /* the value column: past the longest label shown, up to half the sheet */
+    valuex = 0;
+    if (!lay.compact)
+    {
+        for (i = scroll; i < scroll + lay.shown && i < count; i++)
+        {
+            textMeasure(&th, &tw, (char *)rows[i].label, chars, font, 0);
+            if (tw > valuex) valuex = tw;
+        }
+        valuex += 12;
+        if (valuex > (right - vx) / 2) valuex = (right - vx) / 2;
+    }
+
+    for (i = scroll; i < scroll + lay.shown && i < count; i++)
+    {
+        const FrontOptionRow *r = &rows[i];
+        const s32 lit = i == cursor;
+        const u32 colour = lit ? (r->dim ? 0xFFFFFF90 : 0xFFFFFFFF) : (r->dim ? 0x00000070 : 0x000000FF);
+        const s32 left = vx + 6;
+        const s32 ty = vy + lay.top + (i - scroll) * lay.pitch;
+        s32 vw2;
+
+        y = ty + (lay.pitch - lay.line) / 2;
+        if (lit) DL = microcode_constructor_related_to_menus(DL, left - 3, y - 1, right - 3, y + lay.line, 0x101010E0);
+        if (lay.compact)
+        {
+            /* one line: the value against the right, the label cut before it */
+            s32 lw;
+
+            value[0] = '\0';
+            if (r->value != NULL && r->value[0]) frontPanelFit(value, sizeof(value), r->value, (right - left) / 2, chars, font);
+            textMeasure(&th, &vw2, value, chars, font, 0);
+            frontPanelFit(text, sizeof(text), r->label, right - left - 6 - vw2 - (vw2 ? 6 : 0), chars, font);
+            textMeasure(&th, &lw, text, chars, font, 0);
+            x = left;
+            DL = textRender(DL, &x, &y, text, chars, font, colour, viGetX(), viGetY(), 0, 0);
+            if (value[0])
+            {
+                x = right - 6 - vw2;
+                y = ty + (lay.pitch - lay.line) / 2;
+                DL = textRender(DL, &x, &y, value, chars, font, colour, viGetX(), viGetY(), 0, 0);
+            }
+            continue;
+        }
+        frontPanelFit(text, sizeof(text), r->label, valuex - 8, chars, font);
+        x = left;
+        DL = textRender(DL, &x, &y, text, chars, font, colour, viGetX(), viGetY(), 0, 0);
+        if (r->value != NULL && r->value[0])
+        {
+            frontPanelFit(value, sizeof(value), r->value, right - left - valuex - 6, chars, font);
+            x = left + valuex;
+            y = ty + (lay.pitch - lay.line) / 2;
+            DL = textRender(DL, &x, &y, value, chars, font, colour, viGetX(), viGetY(), 0, 0);
+        }
+    }
+    /* rows out of view above or below */
+    if (scroll > 0)
+    {
+        x = right - 10;
+        y = vy + lay.top - bline / 2;
+        DL = textRender(DL, &x, &y, "^", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000C0, viGetX(), viGetY(), 0, 0);
+    }
+    if (scroll + lay.shown < count)
+    {
+        x = right - 10;
+        y = vy + lay.top + lay.shown * lay.pitch - bline / 2;
+        DL = textRender(DL, &x, &y, "v", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000C0, viGetX(), viGetY(), 0, 0);
+    }
+
+    /* the tabs: START above PREVIOUS (a list: PREVIOUS alone) */
+    DL = microcode_constructor_related_to_menus(DL, right, vy, right + 1, vy + vh, 0x00000060);
+    if (start != NULL)
+    {
+        DL = frontMpOptionsTab(DL, start, right, vy, vx + vw, vy + vh / 2, cursor == count, startdim);
+        DL = microcode_constructor_related_to_menus(DL, right, vy + vh / 2, vx + vw, vy + vh / 2 + 1, 0x00000060);
+        DL = frontMpOptionsTab(DL, (char *)langGet(getStringID(LTITLE, TITLE_STR_06_PREVIOUS)), right, vy + vh / 2, vx + vw, vy + vh, 0, 0);
+    }
+    else
+    {
+        DL = frontMpOptionsTab(DL, (char *)langGet(getStringID(LTITLE, TITLE_STR_06_PREVIOUS)), right, vy, vx + vw, vy + vh, 0, 0);
+    }
+
+    /* the info line */
+    if (info != NULL && info[0])
+    {
+        frontPanelFit(text, sizeof(text), info, right - vx - 6, ptrFontBankGothicChars, ptrFontBankGothic);
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = vx + (right - vx - tw) / 2;
+        y = vy + vh - lay.foot + 1;
+        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x202020FF, viGetX(), viGetY(), 0, 0);
+    }
+    return frontPanelEnd(DL, vx, vy, vw, vh);
+}
+
+/*
+ * The Scenario list (menu13, constructor_menu13_mpscenario above: the title
+ * over the scenarios, one the party cannot play dimmed 0x70) on the same
+ * sheet: every online scenario, 3v3 and 4v4 too; the match's own is marked.
+ */
+Gfx *frontScenarioSelectDraw(Gfx *DL, s32 slot, const char *const *names, const u8 *eligible, s32 count, s32 cursor,
+                             s32 current, const char *info, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    FrontOptionRow rows[16];
+    s32 i;
+
+    if (count > 16) count = 16;
+    for (i = 0; i < count; i++)
+    {
+        rows[i].label = names[i];
+        rows[i].value = i == current ? "*" : NULL;
+        rows[i].dim = !eligible[i];
+        rows[i].more = 0;
+    }
+    return frontMpOptionsDraw(DL, slot, (char *)langGet(getStringID(LTITLE, TITLE_STR_87_SCENARIO2)), rows, count,
+                              cursor, NULL, 0, info, vx, vy, vw, vh);
+}
 #endif
 
 

@@ -404,6 +404,31 @@ typedef struct {
 } FrontTeamEntry;
 Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, s32 pick, s32 cap_red, s32 cap_blue,
                          const char *note, s32 vx, s32 vy, s32 vw, s32 vh);
+/* The Multiplayer Options folder for one match slot (online, mpmenu.c): the
+ * rows the caller fills each frame, drawn in menu0E's look in any view. */
+typedef struct {
+    const char *label;   /* the folder's words: "Scenario:", "Character..." */
+    const char *value;   /* NULL or "": none */
+    u8 dim;              /* read-only at this seat: the original's 0x70 locked row */
+    u8 more;             /* opens another screen */
+} FrontOptionRow;
+typedef struct {
+    s32 compact;   /* a narrow (quarter) view: label and value on one line */
+    s32 small;     /* rows in the small font (compact, or a short view) */
+    s32 titled;    /* the title fits above the rows */
+    s32 tabw;      /* the START / PREVIOUS strip down the right edge */
+    s32 foot;      /* the info line along the bottom */
+    s32 top;       /* the first row, from the view's top */
+    s32 pitch;     /* row to row */
+    s32 line;      /* a row's text height */
+    s32 shown;     /* the rows that fit; the rest scroll */
+} FrontOptionsLayout;
+void frontMpOptionsLayout(s32 vw, s32 vh, s32 count, s32 zline, s32 bline, FrontOptionsLayout *out);
+s32 frontMpOptionsScroll(s32 scroll, s32 cursor, s32 count, s32 shown);
+Gfx *frontMpOptionsDraw(Gfx *DL, s32 slot, const char *title, const FrontOptionRow *rows, s32 count, s32 cursor,
+                        const char *start, s32 startdim, const char *info, s32 vx, s32 vy, s32 vw, s32 vh);
+Gfx *frontScenarioSelectDraw(Gfx *DL, s32 slot, const char *const *names, const u8 *eligible, s32 count, s32 cursor,
+                             s32 current, const char *info, s32 vx, s32 vy, s32 vw, s32 vh);
 #endif
 
 #endif
