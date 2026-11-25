@@ -176,6 +176,30 @@ static inline void vr_set_view(ViewUniform *uniform, GLint view)
 // draw as view 0, which is what gl_ViewID_OVR reads outside a multiview
 // framebuffer (a HUD capture parks the right eye's offsets off-screen, so a
 // leftover view 1 there drew the capture empty).
+static int s_passView = -1;     // gevr_mv_emu_view_pass: the one view drawn, -1 both per draw
+static GLuint s_passFirst;      // ...the multiview framebuffer it was started on
+
+extern "C" int gevr_mv_emu_view_pass(int view)
+{
+    if (!gevrMvEmuActive) return 0;
+    if (view < 0) {
+        if (s_passView == 1) glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_passFirst);
+        s_passView = -1;
+        s_passFirst = 0;
+        return 1;
+    }
+    if (s_passView < 0) {
+        const GLuint fb = vr_bound_framebuffer(GL_DRAW_FRAMEBUFFER_BINDING);
+        if (!fb || s_secondView.find(fb) == s_secondView.end()) return 0;
+        s_passFirst = fb;
+    }
+    const auto second = s_secondView.find(s_passFirst);
+    if (second == s_secondView.end()) return 0;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, view == 1 ? second->second : s_passFirst);
+    s_passView = view == 1 ? 1 : 0;
+    return 1;
+}
+
 template <class Draw>
 static inline void vr_each_view(bool usesProgram, Draw draw)
 {
@@ -191,6 +215,15 @@ static inline void vr_each_view(bool usesProgram, Draw draw)
         if (it != s_viewLocation.end()) uniform = &it->second;
     }
     const GLuint first = s_secondView.empty() ? 0 : vr_bound_framebuffer(GL_DRAW_FRAMEBUFFER_BINDING);
+    // a view pass: one draw, as that view, into the view's framebuffer
+    if (s_passView >= 0 && first) {
+        const auto passSecond = s_secondView.find(s_passFirst);
+        if (first == (s_passView == 1 && passSecond != s_secondView.end() ? passSecond->second : s_passFirst)) {
+            vr_set_view(uniform, s_passView);
+            draw();
+            return;
+        }
+    }
     const auto second = first ? s_secondView.find(first) : s_secondView.end();
     vr_set_view(uniform, 0);
     draw();

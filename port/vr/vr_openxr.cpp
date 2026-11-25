@@ -1714,8 +1714,14 @@ extern "C" int vr_spacewarp_setting_on(void)
      * slots, its composite moves the held ones on by these motion vectors
      * (vos_xr.mm vos_proj_fs); at a full 90 Hz they would cost a pass for
      * nothing. The held 45 fps doubled every edge while walking or turning
-     * (tester, 2026-11-19). */
-    return vosHoldsFrames();
+     * (tester, 2026-11-19).
+     * Off by default since 2026-11-25 (report 09265b33): the motion pass is a
+     * second run of the frame's draws, and under the emulated multiview it
+     * switched eyes per draw too; the frame that turned it on at 45 fps went
+     * from 20 to 47 ms, so the hold grew to 3 and 4 slots (22.5 fps). The
+     * eye pass now draws each eye whole (gevr_mv_emu_view_pass); SpaceWarp
+     * comes back once a device log shows the room for it. */
+    return 0 && vosHoldsFrames();
 #else
     return gevrBeanIsEnabled() != 0 && vr_spacewarp_display_hz() > 115.0f;
 #endif

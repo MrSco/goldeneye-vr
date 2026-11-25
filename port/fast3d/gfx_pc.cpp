@@ -212,6 +212,8 @@ extern "C" int gevrVrFrameDeferred(void);         // gevr_engine_shim.c: the ear
 extern "C" int gevrVrBeginDeferredFrame(void);    // ... begin it now; 1 if it did
 extern "C" void vr_relocate_on_begin(void);       // vr_openxr.cpp: the replay corrects the early poses
 extern "C" int vr_eye_multisampled(void);         // vr_openxr.cpp: the eye images are multisampled
+extern "C" int gevrMvEmuActive;                   // gevr_mv_emu.cpp: multiview emulated (Vision Pro)
+extern "C" int gevr_mv_emu_view_pass(int view);   // ... one eye at a time
 static int gevr_vr_replay_frame(bool fresh);
 #ifdef GEVR_FLAT
 // a flat game's frames between game frames, on a screen faster than the game (#274)
@@ -6543,9 +6545,13 @@ extern "C" void gfx_run(Gfx* commands) {
         const bool eyeInvertY = gfx_rapi->get_clip_parameters().invert_y;
         const bool eyeDeferred = gevrVrFrameDeferred() != 0;
         const bool eyeMultisampled = vr_eye_multisampled() != 0;
-        if (!screenRendered && (eyeDeferred || eyeMultisampled) && !(VrPauseHub && VrIsPaused) &&
+        // Emulated multiview (Vision Pro): kept and replayed one eye at a time
+        // (gevr_vr_replay_frame), not drawn straight in with each draw going
+        // to both eyes in turn (a Metal render pass per draw and eye).
+        const bool eyeEmulated = gevrMvEmuActive != 0;
+        if (!screenRendered && (eyeDeferred || eyeMultisampled || eyeEmulated) && !(VrPauseHub && VrIsPaused) &&
 #if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
-            (!gevrNativePauseOpen() || eyeMultisampled) &&
+            (!gevrNativePauseOpen() || eyeMultisampled || eyeEmulated) &&
 #endif
             gfx_vr_eye_record_possible(eyeProj, eyeInvertY)) {
             gfx_vr_eye_record_only(true);
@@ -6837,8 +6843,15 @@ static int gevr_vr_replay_frame(bool fresh) {
     const bool have0 = recorded && gevrVrRedrawHandDelta(0, hand[0]) != 0;
     const bool have1 = recorded && gevrVrRedrawHandDelta(1, hand[1]) != 0;
     const bool haveBody = recorded && gevrVrRedrawBodyDelta(body) != 0;
-    gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr, haveBody ? body : nullptr);
-    gfx_opengl_draw_vignette(s_gevrLastVignette, gevrTeleportBlink());
+    // Emulated multiview: each eye whole, left then right, in one render pass
+    // each (see gevr_mv_emu_view_pass); otherwise both views at once.
+    const int views = gevrMvEmuActive && gevr_mv_emu_view_pass(0) ? 2 : 1;
+    for (int view = 0; view < views; view++) {
+        if (view == 1) gevr_mv_emu_view_pass(1);
+        gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr, haveBody ? body : nullptr);
+        gfx_opengl_draw_vignette(s_gevrLastVignette, gevrTeleportBlink());
+    }
+    if (views == 2) gevr_mv_emu_view_pass(-1);
     gfx_vr_gpu_end();
     vr_end_eye_render();
     // SpaceWarp: this game frame's motion vectors and depth, from the same moves
