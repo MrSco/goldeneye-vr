@@ -1166,7 +1166,7 @@ void gevrHandicapOpen(s32 slot)
     struct player *pl;
     s32 i;
 
-    if (g_gevrStereo || slot < 0 || slot >= MAX_PLAYER_COUNT || !lobbyDeathmatch() || !gevrNetSlotIsLocalHuman(slot)) return;
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !lobbyDeathmatch() || !gevrNetSlotIsLocalHuman(slot)) return;
     pl = g_playerPointers[slot];
     if (pl == NULL) return;
     for (i = 0; i < MAX_PLAYER_COUNT; i++) s_hcapPick[slot][i] = -1;
@@ -1335,7 +1335,7 @@ void gevrTeamSelOpen(s32 slot)
 {
     struct player *pl;
 
-    if (g_gevrStereo || slot < 0 || slot >= MAX_PLAYER_COUNT || !lobbyDeathmatch() || !lobbyTeams() || !gevrNetSlotIsLocalHuman(slot)) return;
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !lobbyDeathmatch() || !lobbyTeams() || !gevrNetSlotIsLocalHuman(slot)) return;
     pl = g_playerPointers[slot];
     if (pl == NULL) return;
     s_teamSelPick[slot] = netGetSlotTeam(slot);
@@ -1437,7 +1437,7 @@ static s32 gevrMenuPageAction(void)
         mpwatchPlayBeep();
         return 1;
     }
-    if ((r->step == rowMyHealthStep || r->step == rowTeamStep) && gevrRowVisible(r) && !g_gevrStereo)
+    if ((r->step == rowMyHealthStep || r->step == rowTeamStep) && gevrRowVisible(r))
     {
         /* A on YOUR HEALTH or YOUR TEAM: the game's Handicap or Teams screen (the stick still steps the row) */
         if (r->step == rowMyHealthStep) gevrHandicapOpen(menuActingSlot());

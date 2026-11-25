@@ -28,8 +28,8 @@ struct GevrPauseView {
     bool clockEnding=false;   /* the last minute of a timed match */
     GevrSettingsApi settings;   /* the Settings tab: the settings table (gevr_settings.c), or a test's rows */
     bool portraits=false;   /* the Player tab offers the game's Select Character screen, Match its Select Stage grid (in stereo on the HUD) */
-    bool handicap=false;    /* a flat deathmatch: the Player tab offers the game's Handicap screen */
-    bool teams=false;       /* and with teams its Teams screen (flat) */
+    bool handicap=false;    /* a deathmatch: the Player tab offers the game's Handicap screen */
+    bool teams=false;       /* and with teams its Teams screen (in stereo on the HUD) */
 };
 struct GevrPauseUi {
     int tab=0;

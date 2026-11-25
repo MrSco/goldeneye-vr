@@ -41,8 +41,8 @@ extern "C" int inputIsBindingCapture(void);
 #endif
 extern "C" void gevrCharSelOpen(int slot, int dropin);   // mpmenu.c: the Select Character panel in the view (stereo: the HUD)
 extern "C" void gevrStageSelOpen(int slot, int vote);     // mpmenu.c: the Select Stage photo grid in the view (stereo: the HUD)
-extern "C" void gevrHandicapOpen(int slot);               // mpmenu.c: the Handicap screen (everyone's health) in the view (flat)
-extern "C" void gevrTeamSelOpen(int slot);                // mpmenu.c: the Teams screen in the view (flat)
+extern "C" void gevrHandicapOpen(int slot);               // mpmenu.c: the Handicap screen (everyone's health) in the view (stereo: the HUD)
+extern "C" void gevrTeamSelOpen(int slot);                // mpmenu.c: the Teams screen in the view (stereo: the HUD)
 // vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
 void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
 namespace {
