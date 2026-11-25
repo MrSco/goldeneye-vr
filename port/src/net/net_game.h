@@ -72,6 +72,7 @@ void netHostRequestVotes(void);
 int netHostStartRequested(void);
 int netWarmupSecondsLeft(void);
 void netRoundNoticeText(char *text, unsigned size);
+void netRoundNoticeTextFit(char *text, unsigned size, int narrow);   /* narrow: quarter views */
 int netHostKickPlayer(int slot);
 int netHostCanKickPlayer(int slot);
 int netLobbySlotConnected(int slot);

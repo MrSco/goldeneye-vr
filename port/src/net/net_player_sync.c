@@ -600,7 +600,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
             static char last_notice[128];
             static u64 next_notice_us;
             char notice[128];u64 now=sysGetMicroseconds();
-            netRoundNoticeText(notice,sizeof(notice));
+            netRoundNoticeTextFit(notice,sizeof(notice),gevrLocalViewCount()>=3);
             if(notice[0] && (strcmp(notice,last_notice) || now>=next_notice_us)) {
                 extern void gevrHudTopReplace(const char *mess, const char *prefix);
                 gevrHudTopReplace(notice,last_notice[0]?last_notice:notice);

@@ -2294,7 +2294,12 @@ void netHostRequestVotes(void) {
     netBroadcastRoundNotice();
 }
 
-void netRoundNoticeText(char *text, unsigned size) {
+void netRoundNoticeText(char *text, unsigned size) { netRoundNoticeTextFit(text, size, 0); }
+
+/* narrow: a quarter split-screen view (3 or 4 local players), where the full
+ * wording took three lines beside the radar (owner, 2026-11-24): the same
+ * notices in a few words each. */
+void netRoundNoticeTextFit(char *text, unsigned size, int narrow) {
     if (!text || !size) return;
     text[0] = 0;
     if (s_state != NET_STATE_INGAME || netModePve(s_round.config.mode) ||
@@ -2305,15 +2310,16 @@ void netRoundNoticeText(char *text, unsigned size) {
         s_lobby_state.slots[s_local_slot].team == NET_TEAM_NONE;
     bool need_vote = s_vote_requested && s_lobby_state.config.next_round == NET_NEXT_VOTE &&
         (netGetVote(NET_BALLOT_STAGE, s_local_slot) < 0 || netGetVote(NET_BALLOT_WEAPONS, s_local_slot) < 0);
-    if (need_team) snprintf(text,size,"HOST REQUESTS READY - OPEN MENU: CHOOSE TEAM / READY UP");
-    else if (need_ready && need_vote) snprintf(text,size,"HOST REQUESTS READY / VOTES - OPEN MENU TO JOIN IN");
-    else if (need_ready) snprintf(text,size,"HOST REQUESTS READY - OPEN MENU: READY UP");
-    else if (need_vote) snprintf(text,size,"HOST REQUESTS VOTES - OPEN MENU: NEXT MAP / WEAPONS");
-    else if (s_start_requested) snprintf(text,size,"WAITING FOR PLAYERS TO READY UP / LOAD");
+    if (need_team) snprintf(text,size,"%s",narrow ? "MENU: TEAM, READY" : "HOST REQUESTS READY - OPEN MENU: CHOOSE TEAM / READY UP");
+    else if (need_ready && need_vote) snprintf(text,size,"%s",narrow ? "MENU: READY, VOTE" : "HOST REQUESTS READY / VOTES - OPEN MENU TO JOIN IN");
+    else if (need_ready) snprintf(text,size,"%s",narrow ? "MENU: READY UP" : "HOST REQUESTS READY - OPEN MENU: READY UP");
+    else if (need_vote) snprintf(text,size,"%s",narrow ? "MENU: VOTE" : "HOST REQUESTS VOTES - OPEN MENU: NEXT MAP / WEAPONS");
+    else if (s_start_requested) snprintf(text,size,"%s",narrow ? "WAITING FOR READY" : "WAITING FOR PLAYERS TO READY UP / LOAD");
     else if (s_phase == NET_PHASE_WARMUP) {
         int seconds = netWarmupSecondsLeft();
-        if (seconds > 0) snprintf(text,size,"WARMUP %d:%02d - HOST CAN START EARLY",seconds/60,seconds%60);
-        else snprintf(text,size,"WARMUP - WAITING FOR HOST / PLAYERS");
+        if (seconds > 0 && narrow) snprintf(text,size,"WARMUP %d:%02d",seconds/60,seconds%60);
+        else if (seconds > 0) snprintf(text,size,"WARMUP %d:%02d - HOST CAN START EARLY",seconds/60,seconds%60);
+        else snprintf(text,size,"%s",narrow ? "WARMUP" : "WARMUP - WAITING FOR HOST / PLAYERS");
     }
 }
 

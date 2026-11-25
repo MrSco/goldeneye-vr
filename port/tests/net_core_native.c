@@ -844,6 +844,8 @@ EXPORT int test_core_round_prompts(void) {
     s_vote_requested=true;s_lobby_state.config.next_round=NET_NEXT_VOTE;netClearVotes(-1);
     netRoundNoticeText(message,sizeof(message));CHECK(strstr(message,"VOTES"));
     s_vote[0][3]=0;s_vote[1][3]=4;netRoundNoticeText(message,sizeof(message));CHECK(!strstr(message,"VOTES"));
+    s_vote[0][3]=-1;netRoundNoticeTextFit(message,sizeof(message),1);CHECK(strstr(message,"VOTE") && strlen(message)<=18);
+    s_vote[0][3]=0;
     s_countdown_end_us=clock_us+10000000;netRoundNoticeText(message,sizeof(message));CHECK(!message[0]);
     s_countdown_end_us=0;s_server_peer=&hit_peers[0];s_start_requested=s_vote_requested=false;
     roundNoticePacket(&hit_peers[1],7,10000,5);CHECK(!s_start_requested && !s_warmup_end_us);
