@@ -27,7 +27,7 @@ struct GevrPauseView {
     char clock[32]="";   /* time left or played, while a round runs; empty otherwise */
     bool clockEnding=false;   /* the last minute of a timed match */
     GevrSettingsApi settings;   /* the Settings tab: the settings table (gevr_settings.c), or a test's rows */
-    bool portraits=false;   /* a flat screen: the Player tab offers the game's Select Character screen, Match its Select Stage grid */
+    bool portraits=false;   /* the Player tab offers the game's Select Character screen, Match its Select Stage grid (in stereo on the HUD) */
 };
 struct GevrPauseUi {
     int tab=0;

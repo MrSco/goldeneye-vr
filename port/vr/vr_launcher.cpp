@@ -4783,16 +4783,23 @@ extern "C" void gevrLauncherRun(void)
 // The same ownership rules and ray coordinates as the boot launcher, with
 // no launch/ROM-picker test hooks in a running match.
 extern "C" void gevrFeedPauseInput(int opening) {
-    static bool waitRelease=false;
+    static bool waitRelease=false,waitBack=false,waitSelect=false;
     const bool trigger=get_button_state(1,"trigger") || get_button_state(0,"trigger");
     const bool grabbing=get_button_state(1,"grip") && get_button_state(0,"grip");
-    if(opening)waitRelease=trigger;
+    const bool backHeld=get_button_state(1,"b") || get_button_state(0,"y");
+    const bool selectHeld=get_button_state(1,"a") || get_button_state(0,"x");
+    /* A or B still held from what was in front (the game's Select Character or
+     * Select Stage, mpmenu.c, which hands back here): not this window's press;
+     * the B that left the screen closed the window, the A reopened the screen */
+    if(opening){waitRelease=trigger;waitBack=backHeld;waitSelect=selectHeld;}
     if(!trigger)waitRelease=false;
+    if(!backHeld)waitBack=false;
+    if(!selectHeld)waitSelect=false;
     ImGuiIO&io=ImGui::GetIO();XrVector2f l={0,0},r={0,0};
     get_2d_input(0,"thumbstick",&l);get_2d_input(1,"thumbstick",&r);
     XrVector2f stick=l.x*l.x+l.y*l.y>r.x*r.x+r.y*r.y?l:r;
-    const bool back=get_button_state(1,"b") || get_button_state(0,"y");
-    const bool select=get_button_state(1,"a") || get_button_state(0,"x");
+    const bool back=backHeld && !waitBack;
+    const bool select=selectHeld && !waitSelect;
     const bool nav=fabsf(stick.x)>.5f || fabsf(stick.y)>.5f || back || select;
     if(grabbing){stick={0,0};}
     const bool pointing=feedPointer(io,nav,waitRelease || grabbing);

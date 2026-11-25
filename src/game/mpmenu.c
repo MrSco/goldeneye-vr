@@ -664,10 +664,66 @@ static void gevrMenuPagesTick(s32 player_num)
 }
 
 /*
- * Select Character in a match, online on a flat screen: GoldenEye's own
+ * The game's own screens in a match (Select Character, Select Stage below; a
+ * page of the watch menu each, its mpmenumode in s_gevrMenuPanels): where one
+ * is drawn, whether one is up (input.c), and leaving one. A new screen adopts
+ * them by listing its mode there and drawing into gevrMenuPanelRect.
+ *
+ * On a flat screen the panel fills the player's view. In stereo the watch
+ * menu goes on the head-locked HUD quad (lv.c: VR_HUD_CAPTURE_BEGIN_H at full
+ * size; a 44 degree panel 1.4 m out, vr_openxr.cpp). Its capture is the eye
+ * buffer's size and the game's screen covers it at one scale (gfx_pc.cpp
+ * gfx_adjust_viewport_or_scissor: the texture rectangles, the portraits'
+ * viewport and the scissor alike), so a 4:3 screen loses its sides on a
+ * squarer eye; and the HUD's draws come out a ninth larger round the centre
+ * (the vertex shader's w = 0.9). The panel takes the part that shows, less a
+ * margin. sw x sh is the game's screen, fbw x fbh the eye buffer.
+ */
+#define GEVR_PANEL_HUD_SHOWN 0.85f   /* 0.9 of the covered screen shows; a margin inside that */
+
+void gevrMenuPanelFit(s32 sw, s32 sh, s32 fbw, s32 fbh, s32 *x, s32 *y, s32 *w, s32 *h)
+{
+    f32 visw = (f32)sw;
+    f32 vish = (f32)sh;
+
+    if (sw > 0 && sh > 0 && fbw > 0 && fbh > 0)
+    {
+        f32 rx = (f32)fbw / (f32)sw;
+        f32 ry = (f32)fbh / (f32)sh;
+        f32 cover = rx > ry ? rx : ry;
+
+        visw = (f32)fbw / cover;
+        vish = (f32)fbh / cover;
+    }
+    *w = (s32)(visw * GEVR_PANEL_HUD_SHOWN);
+    *h = (s32)(vish * GEVR_PANEL_HUD_SHOWN);
+    *x = (sw - *w) / 2;
+    *y = (sh - *h) / 2;
+}
+
+/* Where the current player's panel goes, in screen pixels */
+void gevrMenuPanelRect(s32 *x, s32 *y, s32 *w, s32 *h)
+{
+    extern int vr_get_internal_render_width(void);
+    extern int vr_get_internal_render_height(void);
+
+    if (g_gevrStereo)
+    {
+        gevrMenuPanelFit(viGetX(), viGetY(), vr_get_internal_render_width(), vr_get_internal_render_height(), x, y, w, h);
+        return;
+    }
+    *x = viGetViewLeft();
+    *y = viGetViewTop();
+    *w = viGetViewWidth();
+    *h = viGetViewHeight();
+}
+
+/*
+ * Select Character in a match, online: GoldenEye's own
  * multiplayer screen (front.c, the scrolling portraits and the name under
- * them) for one player, inside their own view and driven by their own pad,
- * while the others play on. A player who drops in (input.c) gets it first;
+ * them) for one player, inside their own view (in VR on the head-locked HUD,
+ * gevrMenuPanelRect) and driven by their own pad, while the others play on.
+ * A player who drops in (input.c) gets it first;
  * the others open it with A on the LOBBY page's CHARACTER row (the solo
  * player from the pause window's Player tab). It is a page of the watch menu
  * (MENU_CHARSEL), so the player stands still as in any page of it. The choice
@@ -707,7 +763,7 @@ void gevrCharSelOpen(s32 slot, s32 dropin)
 {
     struct player *pl;
 
-    if (!netIsActive() || g_gevrStereo || slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(slot)) return;
+    if (!netIsActive() || slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(slot)) return;
     pl = g_playerPointers[slot];
     if (pl == NULL) return;
     frontCharSelectBegin(slot, gevrNetSlotChr(slot), netCharacterCount());
@@ -773,7 +829,7 @@ static s32 gevrCharSelTick(s32 player_num)
 }
 
 /*
- * Select Stage in a match, online on a flat screen: GoldenEye's multiplayer
+ * Select Stage in a match, online: GoldenEye's multiplayer
  * stage select (front.c: the rows of photos on their dark bands, the
  * highlighted one lit) for one player, in their own view and driven by their
  * pad, while the others play on, as Select Character above. A on the LOBBY
@@ -859,7 +915,7 @@ void gevrStageSelOpen(s32 slot, s32 vote)
     s32 cursor = 0;
     s32 i;
 
-    if (g_gevrStereo || slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrStageSelAllowed(slot, vote)) return;
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrStageSelAllowed(slot, vote)) return;
     pl = g_playerPointers[slot];
     if (pl == NULL) return;
     n = gevrStageSelTiles(slot, vote, tiles);
@@ -940,9 +996,41 @@ static Gfx *gevrStageSelDraw(Gfx *gdl, s32 slot)
     FrontStageTile tiles[GEVR_STAGESEL_TILES];
     s32 vote = s_stageSelVote[slot];
     s32 n = gevrStageSelTiles(slot, vote, tiles);
+    s32 x;
+    s32 y;
+    s32 w;
+    s32 h;
 
+    gevrMenuPanelRect(&x, &y, &w, &h);
     return frontStageSelectDraw(gdl, slot, tiles, n, vote ? "Vote for the Next Map" : "Select Map", vote ? "VOTE" : "PICK",
-                                viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
+                                x, y, w, h);
+}
+
+/* The watch pages that are the game's own screens (gevrMenuPanelRect above) */
+static const s32 s_gevrMenuPanels[] = { MENU_CHARSEL, MENU_STAGESEL };
+
+s32 gevrMenuPanelIsOpen(s32 slot)
+{
+    struct player *pl;
+    u32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    if (pl == NULL || !pl->mpmenuon) return 0;
+    for (i = 0; i < sizeof(s_gevrMenuPanels) / sizeof(s_gevrMenuPanels[0]); i++)
+    {
+        if (pl->mpmenumode == s_gevrMenuPanels[i]) return 1;
+    }
+    return 0;
+}
+
+/* slot's panel left unchanged, as B leaves it (the headset's Menu button, input.c); whether one was up */
+s32 gevrMenuPanelCancel(s32 slot)
+{
+    if (!gevrMenuPanelIsOpen(slot)) return 0;
+    if (g_playerPointers[slot]->mpmenumode == MENU_CHARSEL) gevrCharSelClose(slot);
+    else g_playerPointers[slot]->mpmenumode = MENU_LOBBY;   /* back to the page it came from */
+    return 1;
 }
 
 /* A on the LOBBY page: the selected action row */
@@ -954,14 +1042,14 @@ static s32 gevrMenuPageAction(void)
     gevrPageMoveCursor(page, 0);
     gevrMenuPageSave(g_CurrentPlayer->mpmenumode, page);
     r = &page->rows[page->cursor];
-    if (r->step == rowCharacterStep && gevrRowVisible(r) && !g_gevrStereo)
+    if (r->step == rowCharacterStep && gevrRowVisible(r))
     {
         /* A on CHARACTER: the portraits (the stick still steps the name) */
         gevrCharSelOpen(menuActingSlot(), 0);
         mpwatchPlayBeep();
         return 1;
     }
-    if ((r->step == rowMapStep || r->step == rowNextMapStep) && gevrRowVisible(r) && gevrRowEditable(r) && !g_gevrStereo)
+    if ((r->step == rowMapStep || r->step == rowNextMapStep) && gevrRowVisible(r) && gevrRowEditable(r))
     {
         /* A on MAP (the host) or NEXT MAP (the vote): the photos (the stick still steps the row) */
         gevrStageSelOpen(menuActingSlot(), r->step == rowNextMapStep);
@@ -2466,8 +2554,13 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
 #ifdef GEVR
     if (gevrCharSelIsOpen(curplayernum))
     {
-        return frontCharSelectDraw(gdl, curplayernum, netCharacterCount(),
-                                   viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
+        s32 px;
+        s32 py;
+        s32 pw;
+        s32 ph;
+
+        gevrMenuPanelRect(&px, &py, &pw, &ph);
+        return frontCharSelectDraw(gdl, curplayernum, netCharacterCount(), px, py, pw, ph);
     }
     if (gevrStageSelIsOpen(curplayernum))
     {

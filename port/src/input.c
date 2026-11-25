@@ -69,6 +69,7 @@ extern int flatTouchTakeLookDeg(float *yaw, float *pitch);
  * stick clicks recentre (GEVR PC's GETV_XR_RECENTER_CHORD).
  */
 extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
+extern s32 gevrMenuPanelCancel(s32 slot);   /* mpmenu.c: leaves a game screen in a match (Select Character...) */
 extern s32 gevrScopeZoomStick(void);  /* bondview2.c: aiming the sniper, this stick zooms */
 extern s32 gevrTeleportTakesStick(void);   /* gevr_teleport.c: the move stick aims a jump */
 extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator, the watch gadgets (#31) */
@@ -3707,7 +3708,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         XrVector2f look = right;
         if (menu && left.x * left.x + left.y * left.y >= right.x * right.x + right.y * right.y)
             look = left;
-        if (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon) {
+        /* The game's own screens (Select Character, Select Stage: mpmenu.c, on the
+         * head-locked HUD in stereo) take either stick, both ways, as the menus do:
+         * the stage grid's rows go up and down. */
+        extern s32 gevrMenuPanelIsOpen(s32 slot);
+        if (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon && !gevrMenuPanelIsOpen(localSlot)) {
             /* Keep page navigation on the left stick and volume on the right.
              * A diagonal adjustment must not also change pages. The left
              * stick's up and down move the LOBBY page's cursor (mpmenu.c), so
@@ -3772,7 +3777,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if(netIsActive() && !inMenus && idx==localSlot) {
             const int start=(npad->button & START_BUTTON)!=0;
             if(start && !startHeld && g_playerPointers[localSlot]) {
-                g_playerPointers[localSlot]->mpmenuon=!g_playerPointers[localSlot]->mpmenuon;
+                /* a game screen up (mpmenu.c): Menu leaves it unchanged and closes the menu */
+                if(gevrMenuPanelCancel(localSlot))g_playerPointers[localSlot]->mpmenuon=0;
+                else g_playerPointers[localSlot]->mpmenuon=!g_playerPointers[localSlot]->mpmenuon;
                 g_gevrWatchGesturePending=0;
             }
             startHeld=start;
@@ -5597,11 +5604,10 @@ int gevrNativePauseOpen(void) {
         if (netLocalSlotCount() > 1) return 0;
     }
     int slot=netIsActive()?netGetLocalSlot():-1;
-    /* the Select Character panel or the Select Stage grid is in the view, the game's (mpmenu.c) */
-    extern s32 gevrCharSelIsOpen(s32 slot);
-    extern s32 gevrStageSelIsOpen(s32 slot);
+    /* the game's own screen is up instead, Select Character or Select Stage (mpmenu.c) */
+    extern s32 gevrMenuPanelIsOpen(s32 slot);
     return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon
-        && !gevrCharSelIsOpen(slot) && !gevrStageSelIsOpen(slot);
+        && !gevrMenuPanelIsOpen(slot);
 }
 void gevrNativePauseOpenPanel(void) {
     s_gevrPanel = 1;
