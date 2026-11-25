@@ -64,8 +64,12 @@ int gevrMpOptionsRowSet(const GevrSetupState *s, unsigned char *ids, unsigned ch
     if (s->host && !s->playing) n = add(ids, hostonly, n, GEVR_SETUP_BOTS, 1);
     n = add(ids, hostonly, n, GEVR_SETUP_NEXT_ROUND, 1);
     if (s->teams) n = add(ids, hostonly, n, GEVR_SETUP_FRIENDLY_FIRE, 1);
+    n = add(ids, hostonly, n, GEVR_SETUP_LOBBY, 1);
+    if (s->lobby_rule) n = add(ids, hostonly, n, GEVR_SETUP_WARMUP, 1);
+    /* in the lobby, RETURN is the countdown's cancel */
     if (s->host && s->can_return) n = add(ids, hostonly, n, GEVR_SETUP_RETURN, 1);
     if (s->split && s->guest) n = add(ids, hostonly, n, GEVR_SETUP_DROP_OUT, 0);
-    if (!s->guest) n = add(ids, hostonly, n, GEVR_SETUP_FULL_MENU, 0);
+    /* the lobby has no pause window: leaving is a row of its own */
+    if (!s->guest) n = add(ids, hostonly, n, s->lobby ? GEVR_SETUP_LEAVE : GEVR_SETUP_FULL_MENU, 0);
     return n;
 }

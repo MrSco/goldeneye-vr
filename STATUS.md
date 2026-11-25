@@ -23,6 +23,11 @@ user on a Quest 3. PR #311, PR #322.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting
 (protocol 28), bolts that move on the meshes, the iCloud dev profiles remade
 (INVALID since Push).
+**In progress (PR #343's batch, protocol 29):** the pre-match lobby
+([docs/match-lobby.md](docs/match-lobby.md)): a deathmatch party gathers on
+the title stage, folders up, READY, the host's START loads the map (optional
+Warmup rule), back after each match; dedicated servers too. Two PC copies
+played host/join/READY/START; the headset not yet.
 **Before it:** v0.5.26 (versionCode 139, protocol 27), tag on e8ca03bd
 ([notes](docs/releases/v0.5.26.md)), PR #295 (hand reload default, Graphics tab
 with per-headset Auto defaults, reload mode in multiplayer, Add friend, doors/truck

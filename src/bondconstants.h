@@ -1839,6 +1839,9 @@ typedef enum MENU
     MENU_SWITCH_SCREENS,
     MENU_DISPLAY_CAST,
     MENU_SPECTRUM_EMU,
+#ifdef GEVR
+    MENU_MP_LOBBY,   /* online: the pre-match lobby (front.c, mpmenu.c gevrLobbyStage*, docs/match-lobby.md) */
+#endif
     MENU_MAX
 } MENU;
 

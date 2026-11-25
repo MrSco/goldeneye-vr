@@ -1,0 +1,97 @@
+# The pre-match lobby
+
+An online deathmatch party gathers in a quiet lobby before each match: no
+map loaded, no character models or guns, the file select's music quietly
+under it, every player's Multiplayer Options folder up. Everyone sets their
+character, health, team and loadout and readies up; the host sets the match
+and presses START; then the map loads for everyone at once. After the match
+everyone comes back to it for the next map's vote. It is GoldenEye's own
+multiplayer setup in the front end, played online.
+
+Owner decisions (2026-11-25):
+
+1. The lobby is the default; the host can turn it off (the old drop-in
+   warmup).
+2. In the lobby nothing is drawn but the menus: no map, music, character
+   models or guns. The map and everyone's choices load when the match starts.
+3. An optional warmup (practice on the map) after the lobby's START: Off by
+   default, the host picks 30 s, 60 s or 2 min.
+4. Music: the file select's music, quietly.
+5. A split screen gets each local player their own folder in their part of
+   the screen, as in a match.
+6. Dedicated servers run the lobby too.
+
+## The host's rules
+
+Two rows of the folder (the host's; dimmed elsewhere), saved in
+`goldeneye-vr.ini` and in the match config (`NetMatchConfig.lobby` and
+`.warmup`, protocol 29, which is unreleased, so no bump):
+
+| Row | Values | What |
+| --- | --- | --- |
+| Lobby: | On (default) / Off | `MpLobby`. Off: hosting and RETURN TO LOBBY go to the live warmup on the map, as before |
+| Warmup: | Off (default) / 30 s / 60 s / 2 min | `MpWarmup`. Shown with the lobby on: the practice between the lobby's START and the match |
+
+The launcher's Host page has the same Lobby switch ("Lobby before each
+match") for hosting with it off.
+
+## How it runs
+
+`port/src/net/net_core.c`. The lobby is a round whose stage is the title
+stage: `NetRoundSettings.lobby` (one byte at the end of the round settings,
+in every message that carries them), so `netRoundLoadStage` loads
+`LEVELID_TITLE`, as co-op's menus do. The phase stays `NET_PHASE_WARMUP`,
+so READY, the votes, START MATCH, the countdown and joining are the
+warmup's.
+
+- **Hosting** (`netLobbyHostLaunchMatch`): with the rule on, the first round
+  is the lobby. Joiners land in it.
+- **The clock**: none in the lobby (`netWarmupClockSeconds`); the host
+  starts it. A dedicated server starts once every player is READY, or 60 s
+  after the first one is (`port/server/server_host.c`). A headless test
+  client READYs by itself.
+- **START** (`netTryHostStartRequest`): everyone READY, a 5 s countdown in the
+  lobby (`NET_LOBBY_COUNTDOWN_SECONDS`); then the map loads with the latched
+  choices (`netHostRoundTick`), straight into the match, or into the Warmup
+  rule's practice, after which the match starts as a warmup's does. Alone in
+  the lobby, START practices on the map.
+- **After a match** (`netHostContinue`, at the end of the results): everyone
+  back to the lobby (`netHostEnterLobby`). Shuffle and Playlist turn then, so
+  the lobby shows the next map; a vote goes on in the lobby until START.
+- **RETURN TO LOBBY** during a round or the practice: the lobby. During the
+  lobby's countdown the row is Cancel Start.
+- **A dedicated server left empty**: back to the lobby (`netHostIdleReset`).
+- The silence and idle clocks don't run in the lobby (nothing sends poses).
+
+Joining mid-match still drops straight into the match.
+
+## The screen
+
+`src/game/front.c` `MENU_MP_LOBBY` on the title stage (`menu_init` sends the
+title stage there whenever the round is the lobby); `src/game/mpmenu.c`
+`gevrLobbyStage*`:
+
+- One player: the folder on the left, and **Players** beside it: everyone in
+  the lobby, the character they chose, and HOST, READY or WAITING
+  (`front.c frontLobbyRosterDraw`), with "n OF m READY" under it.
+- Two players: halves; three or four: quarters, each its player's folder,
+  driven by their own pad. The info line adds "n/m" READY.
+- The folder stays up: B on it does nothing, a screen it opens (Select
+  Character, the stage photos, Handicap, Teams, the sheets) comes back to it.
+  **Leave Match** (A twice) leaves; a split screen's guest has Drop Out.
+- The first lobby shows the host's Level and Weapons; after a match with
+  Next Round on Vote, Next Map and Next Weapons are the vote.
+
+The folder and its screens kept their state on the player struct
+(`mpmenuon`/`mpmenumode`); the title stage has no players, so `mpmenu.c`
+reads and writes that state through `gevrSeatMenu`, which in the lobby is a
+per-slot copy. `menuActingSlot` is the seat being ticked or drawn. Pads: in
+the lobby `input.c` routes each local seat's pad by its slot, as in a match
+(the front end's menus otherwise read only this machine's first player), and
+a new pad's START joins a split screen there too.
+
+## Not yet
+
+- The internet game list says "warmup" for a game in the lobby.
+- The headset: checked on PC flat only so far (two copies, host and joiner,
+  hosting, joining, READY, START, the map loading on both).

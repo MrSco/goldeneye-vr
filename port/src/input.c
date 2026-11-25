@@ -72,6 +72,7 @@ extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
 extern s32 gevrMenuPanelCancel(s32 slot);   /* mpmenu.c: leaves a game screen in a match (Select Character...) */
 extern s32 gevrMpOptionsStartPressed(s32 slot);   /* mpmenu.c: a deathmatch warmup's START opens the Multiplayer Options folder */
 extern s32 gevrMpOptionsIsOpen(s32 slot);
+extern s32 gevrInMatchLobby(void);   /* mpmenu.c: the pre-match lobby on the title stage (docs/match-lobby.md) */
 extern void gevrMpOptionsQueueStart(s32 slot);   /* mpmenu.c: the folder's START tab, for a START taken here */
 
 #ifdef GEVR_FLAT   /* a PC window, a phone: the pads' START (the headset's Menu: below) */
@@ -1584,7 +1585,8 @@ static void inputOnlineTickDropIn(void)
     const s32 count = netLocalSlotCount();
     const s32 ownUsed = s_ownPresses != s_onlineOwnBase;
     s32 joined = 0;
-    if (stage == LEVELID_TITLE || gevrNativePauseOpen()) {
+    /* the pre-match lobby takes a new pad's START as a match does: its seat gets a folder */
+    if ((stage == LEVELID_TITLE && !gevrInMatchLobby()) || gevrNativePauseOpen()) {
         for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_onlinePadHeld[k] = 0;
     } else {
         for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
@@ -2376,7 +2378,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         return -1;
     }
 
-    const int inMenus = bossGetStageNum() == 90; /* LEVELID_TITLE */
+    /* the front end's menus read this machine's player as the first; the pre-match
+     * lobby's folders (mpmenu.c) read each local seat's pad by its slot, as a match does */
+    const int inMenus = bossGetStageNum() == 90 /* LEVELID_TITLE */ && !gevrInMatchLobby();
     const int localSlot = netIsActive() && !inMenus ? netGetLocalSlot() : 0;
     const s32 localSeat = netIsActive() && !inMenus ? netLocalSeatOfSlot(idx) : -1;
     const bool isLocalOnline = netIsActive() && !inMenus && localSeat >= 0;
@@ -4127,7 +4131,7 @@ s32 inputControllerConnected(s32 idx)
     if (netIsActive()) {
         extern int gevrNetSlotIsLocalHuman(int slot);
         /* co-op (#94): the party's menus read this headset's controller as the first */
-        if (bossGetStageNum() == 90 /* LEVELID_TITLE */) return idx == 0;
+        if (bossGetStageNum() == 90 /* LEVELID_TITLE */ && !gevrInMatchLobby()) return idx == 0;
         return (gevrNetSlotIsLocalHuman(idx) || netIsRemotePlayerActive(idx)) ? 1 : 0;
     }
 #ifdef GEVR_FLAT
@@ -5004,7 +5008,7 @@ s32 inputControllerMask(void)
     if (netIsActive()) {
         extern int gevrNetSlotIsLocalHuman(int slot);
         s32 mask = 0;
-        if (bossGetStageNum() == 90 /* LEVELID_TITLE: the party's menus */) return 1;
+        if (bossGetStageNum() == 90 /* LEVELID_TITLE: the party's menus */ && !gevrInMatchLobby()) return 1;
         for (int i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
             if (gevrNetSlotIsLocalHuman(i) || netIsRemotePlayerActive(i)) {
                 mask |= (1 << i);

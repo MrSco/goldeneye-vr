@@ -80,6 +80,12 @@ void netHostContinue(void);
 void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
 void netHostRestartWarmup(void);   /* host: this map again, in warmup (a dedicated server left empty) */
+/* The pre-match lobby (docs/match-lobby.md): the party on the title stage until the host's START */
+int netInMatchLobby(void);          /* this round is the lobby (every machine) */
+int netLobbyRuleOn(void);           /* the host's Lobby rule, pending */
+int netHostCanEnterLobby(void);     /* host: RETURN TO LOBBY would take everyone to it now */
+void netHostIdleReset(void);        /* host: a dedicated server left empty: the lobby (its rule on) or the warmup */
+int netLobbyReadyCount(int *humans); /* the humans in it who are READY (a dedicated server's seat aside); *humans all of them */
 int netCountdownSecondsLeft(void);
 void netHostRequestVotes(void);
 int netHostStartRequested(void);

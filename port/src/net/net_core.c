@@ -59,6 +59,7 @@ static bool s_warmup_started = false, s_start_requested = false, s_vote_requeste
 static unsigned s_sessions, s_stage_loads, s_lobby_returns;   /* netSessionCount, netStageLoadCount, netLobbyReturnCount */
 static uint64_t s_warmup_end_us = 0;
 #define NET_WARMUP_SECONDS 120
+#define NET_LOBBY_COUNTDOWN_SECONDS 5
 /* NET_NOTICE_LOBBY (protocol 29): this notice follows the host's RETURN TO LOBBY (netLobbyReturnCount) */
 enum { NET_NOTICE_READY = 1, NET_NOTICE_VOTE = 2, NET_NOTICE_WARMUP = 4, NET_NOTICE_LOBBY = 8, NET_NOTICE_MASK = 15 };
 static bool s_notice_lobby;   /* the next round notice carries NET_NOTICE_LOBBY */
@@ -290,12 +291,14 @@ typedef struct {
     uint8_t team[GEVR_MAX_PLAYERS];
     uint8_t handicap[GEVR_MAX_PLAYERS]; /* protocol 29: the front.c MP_handicap_table index each plays with */
     int32_t departed_score[2];
+    uint8_t lobby; /* protocol 29: this "round" is the pre-match lobby, on the title stage (docs/match-lobby.md) */
 } NetRoundSettings;
 static NetRoundSettings s_round;
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpScenario, VrMpLength, VrMpHealth;
 extern int VrMpDual, VrMpLoadouts, VrMpNextRound, VrMpCustom[4], VrMpLoadout[4];
 extern int VrMpMovementSpeed;
 extern int VrMpHandicaps;
+extern int VrMpLobby, VrMpWarmup;
 extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers;
 extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty;
 extern int VrCoopFastReinforcements;
@@ -528,7 +531,23 @@ static void netLatchRoundSettings(void) {
     }
     s_max_players = netConfigSlots(&s_round.config);
     s_lobby_max_players = (uint8_t)s_max_players;
+    s_round.lobby = 0;   /* a stage's round; netHostEnterLobby makes the lobby's */
 }
+
+/*
+ * The pre-match lobby (docs/match-lobby.md): with the host's Lobby rule on, a
+ * deathmatch party gathers on the title stage, no map loaded, the Multiplayer
+ * Options folder up (front.c, mpmenu.c), until the host's START; then the map
+ * loads (with the Warmup rule's practice first, when it asks for one), and
+ * after the match everyone comes back to it. It is a warmup in all but the
+ * stage, so READY, the votes and START MATCH are the warmup's.
+ */
+static bool netLobbyRule(const NetMatchConfig *c) { return c->mode == NET_MODE_DEATHMATCH && c->lobby; }
+int netInMatchLobby(void) {
+    return (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) && s_round.lobby &&
+           s_round.config.mode == NET_MODE_DEATHMATCH;
+}
+int netLobbyRuleOn(void) { return netLobbyRule(&s_lobby_state.config); }
 
 static void netWriteRoundSettings(struct netbuf *buf) {
     netWriteCombatIdentity(buf);
@@ -541,6 +560,7 @@ static void netWriteRoundSettings(struct netbuf *buf) {
         netbufWriteU8(buf, s_round.character[i]);
         for (int k = 0; k < 4; k++) netbufWriteU8(buf, s_round.loadout[i][k]);
     }
+    netbufWriteU8(buf, s_round.lobby);
 }
 
 static bool netReadRoundSettings(struct netbuf *buf, NetRoundSettings *r) {
@@ -560,6 +580,8 @@ static bool netReadRoundSettings(struct netbuf *buf, NetRoundSettings *r) {
             if (r->loadout[i][k] && netItemIndexOf(r->loadout[i][k]) < 0) return false;
         }
     }
+    r->lobby = netbufReadU8(buf);
+    if (r->lobby > 1 || (r->lobby && r->config.mode != NET_MODE_DEATHMATCH)) return false;
     return !buf->error && netValidConfig(&r->config);
 }
 
@@ -1312,6 +1334,7 @@ bool netSlotOccupied(int slot) {
 /* The stage a round reset loads: the config's, the party's menus being the title stage (co-op, #94) */
 int netRoundLoadStage(void) {
     if (s_round.config.mode == NET_MODE_COOP && s_round.config.stage == NET_COOP_FRONT_STAGE) return LEVELID_TITLE;
+    if (s_round.lobby) return LEVELID_TITLE;   /* the pre-match lobby */
     if (s_round.config.mode == NET_MODE_DEATHMATCH) return (int)netStageLevelId(s_round.config.stage);
     return s_round.config.stage;
 }
@@ -1897,7 +1920,7 @@ static void netBroadcastLobbyState(void) {
 static void netTakeSpecialItem(int slot, int item);
 
 static void netSendMatchSnapshot(ENetPeer *peer) {
-    u8 raw[1024];   /* 83 + 50N + 4N^2 bytes: 739 at eight players */
+    u8 raw[1024];   /* 88 + 50N + 4N^2 bytes: 744 at eight players */
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -2477,8 +2500,14 @@ void netHostRoundEnded(void) {
     netBroadcastRoundNotice();
 }
 
+static void netHostEnterLobby(bool after_match);
 void netHostContinue(void) {
     if (!netIsHost() || s_state != NET_STATE_INGAME || !s_match_ended || s_next_round_at_us || s_round_reset_loading) return;
+    if (netLobbyRule(&s_lobby_state.config)) {
+        /* back to the lobby for the next map's votes and READY */
+        netHostEnterLobby(true);
+        return;
+    }
     s_results_deadline_us = 0;
     s_start_requested = true;
     s_vote_requested = s_lobby_state.config.next_round == NET_NEXT_VOTE;
@@ -2497,6 +2526,10 @@ void netHostReturnToLobby(void) {
         netBroadcastRoundNotice();
         return;
     }
+    if (netLobbyRule(&s_lobby_state.config) && !s_round.lobby) {
+        netHostEnterLobby(false);
+        return;
+    }
     NET_LOG("host: lobby");
     s_lobby_returns++;
     /* Keep the active stage and kits. Pending choices wait for START MATCH.
@@ -2504,6 +2537,41 @@ void netHostReturnToLobby(void) {
     s_notice_lobby = true;
     netBeginRoundReset(false);
     s_notice_lobby = false;
+}
+
+/*
+ * Everyone to the pre-match lobby (the title stage): RETURN TO LOBBY, and the
+ * end of a match's results with the Lobby rule on. After a match, Shuffle and
+ * Playlist turn now, so the lobby shows the map that comes next, and a vote
+ * goes on in the lobby until the host's START. The round's kits stay latched;
+ * START latches the lobby's.
+ */
+static void netHostEnterLobby(bool after_match) {
+    bool vote = after_match && s_lobby_state.config.next_round == NET_NEXT_VOTE;
+    NET_LOG("host: to the pre-match lobby%s", after_match ? " after the match" : "");
+    if (after_match && !vote) {
+        s_rotate_next = true;
+        netResolveVotes();
+    }
+    s_results_deadline_us = 0;
+    s_lobby_returns++;
+    s_round.lobby = 1;
+    s_notice_lobby = true;
+    netBeginRoundReset(false);
+    s_notice_lobby = false;
+    if (vote) {
+        s_vote_requested = true;
+        netBroadcastRoundNotice();
+    }
+}
+int netHostCanEnterLobby(void) {
+    return netIsHost() && s_state == NET_STATE_INGAME && !s_round.lobby && !s_round_reset_loading &&
+           netLobbyRule(&s_lobby_state.config);
+}
+/* A dedicated server whose players all left a round (port/server): back to the lobby, or to the warmup */
+void netHostIdleReset(void) {
+    if (netHostCanEnterLobby()) netHostEnterLobby(false);
+    else netHostRestartWarmup();
 }
 
 /* Reload this map into a warmup with the host's pending choices: no second
@@ -2542,7 +2610,7 @@ static bool netWarmupSettingsChanged(void);
 /* the host's pending settings differ from the warmup's: START loads them into a new warmup first */
 int netWarmupSettingsPending(void) {
     return netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_WARMUP && !s_round_reset_loading &&
-           !netModePve(s_lobby_state.config.mode) && netWarmupSettingsChanged();
+           !s_round.lobby && !netModePve(s_lobby_state.config.mode) && netWarmupSettingsChanged();
 }
 static bool netWarmupSettingsChanged(void) {
     NetMatchConfig active = s_round.config, pending = s_lobby_state.config;
@@ -2566,7 +2634,13 @@ static void netTryHostStartRequest(void) {
         !netRoundRosterReady() || !netAllLoaded() || !netCombatClocksReady()) return;
     s_rotate_next = s_match_ended;
     netResolveVotes();
-    if (s_match_ended || s_phase != NET_PHASE_WARMUP || netWarmupSettingsChanged()) {
+    if (s_round.lobby) {
+        /* the lobby: a short countdown there, then the map loads (netHostRoundTick) */
+        s_start_requested = s_vote_requested = false;
+        s_warmup_end_us = 0;
+        netScheduleRound(NET_LOBBY_COUNTDOWN_SECONDS);
+        netBroadcastRoundNotice();
+    } else if (s_match_ended || s_phase != NET_PHASE_WARMUP || netWarmupSettingsChanged()) {
         /* Load the chosen next map into warmup before starting its countdown. */
         netLatchRoundSettings();
         netBeginRoundReset(false);
@@ -2602,6 +2676,18 @@ static bool netPveLoadGraceOver(void) {
     return true;
 }
 
+/*
+ * How long a warmup runs before the match starts by itself: the Lobby rule's
+ * lobby has no clock (the host's START; a dedicated server starts on READY,
+ * port/server), the practice after it is the Warmup rule's (none: the host's
+ * START, as alone), the warmup without a lobby NET_WARMUP_SECONDS.
+ */
+static int netWarmupClockSeconds(void) {
+    if (s_round.lobby) return 0;
+    if (netLobbyRule(&s_round.config)) return netWarmupRuleSeconds(s_round.config.warmup);
+    return NET_WARMUP_SECONDS;
+}
+
 static void netReadyProgress(void) {
     bool grace_over = netPveLoadGraceOver();
     if (!netIsHost() || !netAllLoaded() || (!netCombatClocksReady() && !grace_over)) return;
@@ -2626,8 +2712,9 @@ static void netReadyProgress(void) {
         netBroadcastLobbyState();
     }
     if (s_phase == NET_PHASE_WARMUP && !s_warmup_started && !s_next_round_at_us) {
+        int secs = netWarmupClockSeconds();
         s_warmup_started = true;
-        s_warmup_end_us = sysGetMicroseconds() + NET_WARMUP_SECONDS * 1000000ull;
+        s_warmup_end_us = secs ? sysGetMicroseconds() + (uint64_t)secs * 1000000ull : 0;
         s_lobby_open = true;
         netBroadcastRoundNotice();
     }
@@ -2808,6 +2895,8 @@ NetMatchConfig netMatchConfigFromSettings(void) {
     c.game_length = (uint8_t)netClampChoice(VrMpLength, 7, 2);
     c.health = (uint8_t)netClampChoice(VrMpHealth, netHealthCount(), 5);
     c.handicaps = VrMpHandicaps ? 1 : 0;
+    c.lobby = VrMpLobby ? 1 : 0;
+    c.warmup = (uint8_t)netClampChoice(VrMpWarmup, NET_WARMUP_RULE_COUNT, NET_WARMUP_RULE_OFF);
     c.dual_wield = (uint8_t)netClampChoice(VrMpDual, 3, 0);
     c.loadouts = VrMpLoadouts ? 1 : 0;
     c.next_round = (uint8_t)netClampChoice(VrMpNextRound, 3, 0);
@@ -2829,6 +2918,7 @@ NetMatchConfig netMatchConfigFromSettings(void) {
         c.friendly_fire=VrHordeFriendlyFire!=0;
         c.max_players=NET_COOP_MAX_PLAYERS;c.bot_mode=NET_BOT_OFF;
         c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;c.handicaps=0;
+        c.lobby=0;c.warmup=0;
         return c;
     }
     if (VrMpMode == NET_MODE_COOP) {
@@ -3136,6 +3226,14 @@ void netApplyMatchConfig(void) {
         netApplyCoopConfig(c);
         return;
     }
+    if (s_round.lobby) {
+        /* the pre-match lobby: the title stage, its own screen (front.c); the match's globals wait for START */
+        extern void gevrMatchLobbyArrive(void);
+        g_StageNum = LEVELID_TITLE;
+        gevrMatchLobbyArrive();
+        NET_LOG("config applied: the pre-match lobby");
+        return;
+    }
     int cap = netConfigSlots(c);
 
     gamemode = GAMEMODE_MULTI;
@@ -3363,6 +3461,8 @@ int gevrNetConfigGet(int field) {
     case CFG_BOT_DIFFICULTY: return c->bot_difficulty;
     case CFG_MOVEMENT_SPEED: return c->movement_speed;
     case CFG_HANDICAPS: return c->handicaps;
+    case CFG_LOBBY: return c->mode == NET_MODE_DEATHMATCH && c->lobby;
+    case CFG_WARMUP: return c->mode == NET_MODE_DEATHMATCH ? c->warmup : 0;
     case CFG_HORDE_STAGE: return c->mode == NET_MODE_HORDE ? c->stage : 0;
     case CFG_HORDE_START_WAVE: return c->mode == NET_MODE_HORDE ? c->horde_start_wave : 0;
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
@@ -3415,6 +3515,8 @@ void gevrNetConfigSet(int field, int value) {
     case CFG_BOT_DIFFICULTY: if (!gevrNetBotRowsEditable()) return; c.bot_difficulty = value; break;
     case CFG_MOVEMENT_SPEED: c.movement_speed = value; break;
     case CFG_HANDICAPS: if (c.mode != NET_MODE_DEATHMATCH) return; c.handicaps = value; break;
+    case CFG_LOBBY: if (c.mode != NET_MODE_DEATHMATCH || value > 1) return; c.lobby = (uint8_t)value; break;
+    case CFG_WARMUP: if (c.mode != NET_MODE_DEATHMATCH || value >= NET_WARMUP_RULE_COUNT) return; c.warmup = (uint8_t)value; break;
     /* Horde's map (the setter takes its list position, as CFG_STAGE) and first wave:
      * the next run's; a new wave in the setup break applies at once (below) */
     case CFG_HORDE_STAGE: if (c.mode != NET_MODE_HORDE || value >= netHordeStageCount()) return; c.stage = netStage(value)->level_id; break;
@@ -3433,7 +3535,7 @@ void gevrNetConfigSet(int field, int value) {
         VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpMaxPlayers=c.max_players;
         VrMpBotMode=c.bot_mode; VrMpBotCount=c.bot_count; VrMpBotDifficulty=c.bot_difficulty;
     }
-    if (c.mode == NET_MODE_DEATHMATCH) VrMpHandicaps=c.handicaps;
+    if (c.mode == NET_MODE_DEATHMATCH) { VrMpHandicaps=c.handicaps; VrMpLobby=c.lobby; VrMpWarmup=c.warmup; }
     VrMpVoiceMode=c.voice_mode;
     if(c.mode==NET_MODE_HORDE) VrHordeFriendlyFire=c.friendly_fire; else VrMpFriendlyFire=c.friendly_fire;
     if (c.mode == NET_MODE_HORDE) {
@@ -3505,6 +3607,18 @@ int netLobbyCanLaunch(void) {
     }
     return connected > 0;
 }
+int netLobbyReadyCount(int *humans) {
+    int ready = 0, count = 0;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        const NetLobbySlot *s = &s_lobby_state.slots[i];
+        if (!s->connected || s->is_bot || netDedicatedSeat(i)) continue;
+        count++;
+        /* the host's START is its READY */
+        if (s->ready || (i == s_host_slot && !s_dedicated)) ready++;
+    }
+    if (humans) *humans = count;
+    return ready;
+}
 int netActiveFunFlags(void) { return s_round.config.fun_flags; }
 int netActiveLineMode(void) { return netIsActive() && (s_round.config.fun_flags & NET_FUN_LINE) != 0; }
 int netActiveGunSize(void) { return s_round.config.gun_size; }
@@ -3521,6 +3635,8 @@ bool netLobbyHostLaunchMatch(void) {
     randomSetSeed(s_rng_seed);
     
     netLatchRoundSettings();
+    /* the Lobby rule: the party gathers on the title stage first (docs/match-lobby.md) */
+    s_round.lobby = netLobbyRule(&s_round.config);
     /*
      * No votes yet. The ballots are zero from the start, and zero is a vote
      * for the first stage and set: the warmup join's countdown tallied
@@ -3536,7 +3652,8 @@ bool netLobbyHostLaunchMatch(void) {
     s_state = NET_STATE_INGAME;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
         if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].loaded = 0;
-    NET_LOG("Match launched! Stage: %d, Players: %d, Seed: 0x%08X", s_lobby_state.config.stage, netGetConnectedPlayerCount(), s_rng_seed);
+    NET_LOG("Match launched! Stage: %d, Players: %d, Seed: 0x%08X%s", s_lobby_state.config.stage, netGetConnectedPlayerCount(), s_rng_seed,
+            s_round.lobby ? " (the pre-match lobby first)" : "");
     return true;
 }
 
@@ -5727,9 +5844,13 @@ static void netHostRoundTick(uint64_t now) {
     if (s_next_round_at_us && now >= s_next_round_at_us &&
         netGetConnectedPlayerCount() >= 2 && netRoundRosterReady() && netAllLoaded()) {
         /* Reload once at the countdown boundary to clear practice scores,
-         * deaths, pickups and clocks before the actual match. */
+         * deaths, pickups and clocks before the actual match. From the lobby:
+         * the map, into the Warmup rule's practice when it asks for one. */
+        bool practice = s_round.lobby && netWarmupRuleSeconds(s_lobby_state.config.warmup) > 0;
+        if (s_round.lobby) NET_LOG("host: the lobby's START: loading %s%s", netStageName(netStageIndexOf(s_lobby_state.config.stage)),
+                                   practice ? " into the warmup" : "");
         netLatchRoundSettings();
-        netBeginRoundReset(true);
+        netBeginRoundReset(!practice);
     }
     if (s_round_reset_loading) netReadyProgress();
 }
@@ -5742,6 +5863,7 @@ static int netSilenceClockRuns(void) {
     if (s_phase != NET_PHASE_WARMUP && s_phase != NET_PHASE_IN_PROGRESS) return 0;
     if (s_round_reset_loading) return 0;
     if (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) return 0;
+    if (netInMatchLobby()) return 0;   /* the pre-match lobby sends no poses */
     return 1;
 }
 
@@ -5781,7 +5903,7 @@ static void netRoundTick(void) {
         /* co-op (#94): the party's menus are no place to idle out (a teammate follows the host's, input-less);
          * nor a dedicated server, whose seat nobody holds; nor a late joiner watching
          * the round out (kicked after 5 min of spectating, 2026-10-29) */
-        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) || s_dedicated
+        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) || netInMatchLobby() || s_dedicated
             || netLocalIsSpectator())
             s_last_local_activity_us = now;
         uint64_t idle_us = now - s_last_local_activity_us;

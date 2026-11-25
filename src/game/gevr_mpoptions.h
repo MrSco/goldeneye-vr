@@ -31,6 +31,10 @@ enum {
     GEVR_SETUP_HORDE_MAP,      /* the run's map: opens the stage photos filtered to Horde's maps */
     GEVR_SETUP_STARTING_WAVE,  /* the run's first wave, 1..50 */
     GEVR_SETUP_AI_ALLY,        /* the host's AI ally (GoldenEye's campaign only) */
+    /* the pre-match lobby (docs/match-lobby.md) */
+    GEVR_SETUP_LOBBY,          /* the host's Lobby rule: the lobby before each match */
+    GEVR_SETUP_WARMUP,         /* the host's Warmup rule: the practice after the lobby's START */
+    GEVR_SETUP_LEAVE,          /* in the lobby: this machine leaves the match (a split screen's guest: Drop Out) */
     GEVR_SETUP_ROW_COUNT
 };
 enum { GEVR_SETUP_MODE_DEATHMATCH, GEVR_SETUP_MODE_COOP, GEVR_SETUP_MODE_HORDE };
@@ -49,6 +53,8 @@ typedef struct {
     unsigned char split;       /* more than one player at this machine */
     unsigned char guest;       /* this seat is a split screen's guest (not the machine's first) */
     unsigned char ally;        /* Horde: the AI ally is on offer (GoldenEye's campaign) */
+    unsigned char lobby;       /* the pre-match lobby, on the title stage (no pause window there) */
+    unsigned char lobby_rule;  /* the host's Lobby rule is on */
 } GevrSetupState;
 
 /* The rows for s, top to bottom, into ids (room for GEVR_SETUP_ROW_COUNT);

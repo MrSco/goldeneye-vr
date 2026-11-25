@@ -2110,9 +2110,25 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             ImGui::TextWrapped("Host takes the party to the mission select. Each player picks a folder; "
                                "the host picks the mission and the difficulty. The rules are in the pause menu.");
         } else {
-            ImGui::TextWrapped("Host goes straight into the warmup, where Multiplayer Options sets the match: "
-                               "the map, scenario, players, weapons, length, health and bots, and each player's "
-                               "own character, team and loadout.");
+            if (VrMpLobby)
+                ImGui::TextWrapped("Host opens the pre-match lobby, where Multiplayer Options sets the match: "
+                                   "the map, scenario, players, weapons, length, health and bots, and each player's "
+                                   "own character, team and loadout. Everyone readies up there; the host's START "
+                                   "loads the map.");
+            else
+                ImGui::TextWrapped("Host goes straight into the warmup, where Multiplayer Options sets the match: "
+                                   "the map, scenario, players, weapons, length, health and bots, and each player's "
+                                   "own character, team and loadout.");
+            // the Lobby rule (docs/match-lobby.md): also a row of the game's folder
+            bool lobby = VrMpLobby != 0;
+            if (ImGui::Checkbox("Lobby before each match", &lobby)) {
+                VrMpLobby = lobby ? 1 : 0;
+                if (netIsActive() && netIsHost()) gevrNetConfigSet(CFG_LOBBY, VrMpLobby);
+                else vrSettingsSave();
+            }
+            if (ImGui::IsItemHovered())
+                gevrTooltip("On: everyone gathers in a quiet lobby, no map loaded, and readies up before the "
+                            "match; after it, back to the lobby. Off: straight into a live warmup.");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Last match: %s, %s%s%s", stageNameById(VrMpStage), netScenarioName(VrMpScenario),
                                VrMpScenario != SCENARIO_MWTGG ? ", " : "", VrMpScenario != SCENARIO_MWTGG ? netWeaponSetName(VrMpWeaponSet) : "");
@@ -2986,7 +3002,9 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                            ? (!romReady ? "Choose a GoldenEye ROM before hosting or joining a match."
                                         : (netIsHost() ? "Hosting: Launch goes into the match."
                                                        : sub == GEVR_LSUB_JOIN ? "Choose a game or connection method."
-                                                       : "Host goes straight into the match; it is set up there."))
+                                                       : VrMpMode == NET_MODE_DEATHMATCH && VrMpLobby
+                                                           ? "Host opens the lobby; the match is set up there."
+                                                           : "Host goes straight into the match; it is set up there."))
                            : onlineMessage.c_str());
     float h = ImGui::GetFrameHeight() * 1.5f;
     if (netIsHost()) {

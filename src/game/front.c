@@ -7726,6 +7726,76 @@ Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count
  */
 static char s_teamNames[MAX_PLAYER_COUNT][PANEL_NAME_LEN];   /* frontTeamSelectDraw's names, cut alike */
 
+/*
+ * The pre-match lobby's player list (docs/match-lobby.md), beside the folder
+ * on a screen with one player: everyone in the lobby, their character and
+ * whether they are READY, on the folder's paper; the players at this screen
+ * on the dark band, as the Teams screen marks them. The host's line says
+ * HOST (its START is its READY), a bot's BOT.
+ */
+static char s_rosterNames[MAX_PLAYER_COUNT][PANEL_NAME_LEN];
+Gfx *frontLobbyRosterDraw(Gfx *DL, const FrontRosterEntry *e, s32 count, const char *title, const char *note,
+                          s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    const char *list[MAX_PLAYER_COUNT];
+    char text[64];
+    s32 bank = STAGESEL_LINE(ptrFontBankGothicChars);
+    s32 zline = STAGESEL_LINE(ptrFontZurichBoldChars);
+    s32 pitch = bank * 2 + 3;
+    s32 statew;
+    s32 top;
+    s32 bottom;
+    s32 n = count < MAX_PLAYER_COUNT ? count : MAX_PLAYER_COUNT;
+    s32 i;
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+
+    if (vw <= 0 || vh <= 0) return DL;
+    bottom = vy + vh - (note != NULL && note[0] ? STAGESEL_LINE(ptrFontBankGothicChars) + 3 : 0);
+    snprintf(text, sizeof(text), "%s", title != NULL ? title : "");
+    DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, n * pitch) ? text : NULL, &top);
+    textMeasure(&th, &statew, "WAITING", ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    for (i = 0; i < n; i++) list[i] = e[i].name;
+    frontPanelFitNames(s_rosterNames, list, n, vw - 12 - statew, ptrFontBankGothicChars, ptrFontBankGothic);
+    for (i = 0; i < n && top + (i + 1) * pitch <= bottom; i++)
+    {
+        const char *state = e[i].bot ? "BOT" : e[i].host ? "HOST" : e[i].ready ? "READY" : "WAITING";
+        u32 ink = e[i].me ? 0xFFFFFFFF : 0x000000FF;
+        s32 rowy = top + i * pitch;
+
+        if (e[i].me) DL = microcode_constructor_related_to_menus(DL, vx + 2, rowy, vx + vw - 2, rowy + pitch - 1, 0x101010E0);
+        x = vx + 4;
+        y = rowy + 1;
+        DL = textRender(DL, &x, &y, s_rosterNames[i], ptrFontBankGothicChars, ptrFontBankGothic, ink, viGetX(), viGetY(), 0, 0);
+        /* READY in green, waiting dimmed: the line to read at a glance */
+        textMeasure(&th, &tw, (char *)state, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = vx + vw - 4 - tw;
+        y = rowy + 1;
+        DL = textRender(DL, &x, &y, (char *)state, ptrFontBankGothicChars, ptrFontBankGothic,
+                        e[i].ready || e[i].host ? 0x00A000FF : e[i].me ? 0xC0C0C0FF : 0x00000090, viGetX(), viGetY(), 0, 0);
+        if (e[i].character != NULL && e[i].character[0])
+        {
+            frontPanelFit(text, sizeof(text), e[i].character, vw - 16, ptrFontBankGothicChars, ptrFontBankGothic);
+            x = vx + 10;
+            y = rowy + bank + 2;
+            DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, e[i].me ? 0xC0C0C0FF : 0x00000090,
+                            viGetX(), viGetY(), 0, 0);
+        }
+    }
+    if (note != NULL && note[0])
+    {
+        frontPanelFit(text, sizeof(text), note, vw - 6, ptrFontBankGothicChars, ptrFontBankGothic);
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = vx + (vw - tw) / 2;
+        y = vy + vh - STAGESEL_LINE(ptrFontBankGothicChars) - 2;
+        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
+    }
+    (void)zline;
+    return frontPanelEnd(DL, vx, vy, vw, vh);
+}
+
 Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, s32 pick, s32 cap_red, s32 cap_blue,
                          const char *note, s32 vx, s32 vy, s32 vw, s32 vh)
 {
@@ -10705,6 +10775,52 @@ Gfx * constructor_menu19_spectrum(Gfx * DL)
 #endif
 
 
+#ifdef GEVR
+/*
+ * The pre-match lobby (docs/match-lobby.md): an online deathmatch party
+ * gathers on the title stage, no map loaded, each local player's Multiplayer
+ * Options folder up in their part of the screen (mpmenu.c gevrLobbyStage*),
+ * the file select's music quietly under it, until the host's START loads the
+ * map. Like the original's multiplayer setup, in the front end.
+ */
+extern s32 gevrInMatchLobby(void);
+extern void gevrLobbyStageReset(void);
+extern void gevrLobbyStageTick(void);
+extern Gfx *gevrLobbyStageDraw(Gfx *DL);
+#define GEVR_LOBBY_MUSIC_VOL ((u16)((u32)GEVR_MENU_MUSIC_VOL * 2 / 5))   /* the file select's music, quietly */
+
+/* net_core.c netApplyMatchConfig, before the lobby's title stage loads */
+void gevrMatchLobbyArrive(void)
+{
+    menu_update = MENU_MP_LOBBY;
+}
+
+static void init_menu_mplobby(void)
+{
+    fileValidateSaves();   /* the folder's music and effects volumes, as the legal screen reads them */
+    screen_size = SCREEN_SIZE_440x330;
+    gevrLobbyStageReset();
+    sndApplyVolumeAllSfxSlot(GEVR_MENU_SFX_VOL);
+    musicTrack1ApplySeqpVol(GEVR_LOBBY_MUSIC_VOL);
+    g_musicXTrack1Fade = MUSIC_FADESTATE_UNSET;
+    musicTrack1Play(M_FOLDERS);
+    maybe_is_in_menu = FALSE;
+    g_MenuTimer = 0;
+}
+
+static void interface_menu_mplobby(void)
+{
+    g_MenuTimer++;
+    gevrLobbyStageTick();
+}
+
+static Gfx *constructor_menu_mplobby(Gfx *DL)
+{
+    DL = clear_framebuffer_black(DL);
+    return gevrLobbyStageDraw(DL);
+}
+#endif
+
 void frontChangeMenu(MENU menu, s32 reload)
 {
     if ((menu == MENU_RUN_STAGE) || (menu == MENU_SPECTRUM_EMU))
@@ -10789,6 +10905,12 @@ void menu_init(void)
 #ifdef GEVR
     gevrLevelJumpProbe();
     gevrCoopMenuTick();   /* co-op (#94): the host's screen out, the others' in */
+    /* the pre-match lobby: its screen, whatever the title stage started on (the legal screen at boot) */
+    if (gevrInMatchLobby() && current_menu != MENU_MP_LOBBY && menu_update != MENU_MP_LOBBY &&
+        maybe_prev_menu != MENU_MP_LOBBY)
+    {
+        menu_update = MENU_MP_LOBBY;
+    }
 #endif
     if (
         ((menu_update > MENU_INVALID) || (maybe_prev_menu > MENU_INVALID))
@@ -10859,6 +10981,9 @@ void menu_init(void)
             case MENU_NO_CONTROLLERS:         init_menu16_nocontroller();           break;
             case MENU_DISPLAY_CAST:           init_menu18_displaycast();            break;
             case MENU_SPECTRUM_EMU:           init_menu19_spectrum();               break;
+#ifdef GEVR
+            case MENU_MP_LOBBY:               init_menu_mplobby();                  break;
+#endif
         }
     }
 
@@ -10888,6 +11013,9 @@ void menu_init(void)
         case MENU_NO_CONTROLLERS:         interface_menu16_nocontrollers();         break;
         case MENU_DISPLAY_CAST:           interface_menu18_displaycast();           break;
         case MENU_SPECTRUM_EMU:           interface_menu19_spectrum();              break;
+#ifdef GEVR
+        case MENU_MP_LOBBY:               interface_menu_mplobby();                 break;
+#endif
         case MENU_RUN_STAGE:
             if (interface_menu0B_runstage())
             {
@@ -11000,6 +11128,11 @@ Gfx * menu_jump_constructor_handler(Gfx *DL)
             break;
         case MENU_SPECTRUM_EMU:
             DL = constructor_menu19_spectrum(DL);
+#ifdef GEVR
+            break;
+        case MENU_MP_LOBBY:
+            DL = constructor_menu_mplobby(DL);
+#endif
     }
 
 #ifdef GEVR

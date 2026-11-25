@@ -429,6 +429,17 @@ Gfx *frontMpOptionsDraw(Gfx *DL, s32 slot, const char *title, const FrontOptionR
                         const char *start, s32 startdim, const char *info, s32 vx, s32 vy, s32 vw, s32 vh);
 Gfx *frontScenarioSelectDraw(Gfx *DL, s32 slot, const char *const *names, const u8 *eligible, s32 count, s32 cursor,
                              s32 current, const char *info, s32 vx, s32 vy, s32 vw, s32 vh);
+/* The pre-match lobby's player list (mpmenu.c gevrLobbyStageDraw, docs/match-lobby.md) */
+typedef struct {
+    const char *name;
+    const char *character;   /* the character they chose */
+    u8 ready;                /* READY (the host: its START is its READY) */
+    u8 host;
+    u8 bot;
+    u8 me;                   /* a player at this screen */
+} FrontRosterEntry;
+Gfx *frontLobbyRosterDraw(Gfx *DL, const FrontRosterEntry *e, s32 count, const char *title, const char *note,
+                          s32 vx, s32 vy, s32 vw, s32 vh);
 #endif
 
 #endif

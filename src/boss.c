@@ -64,6 +64,7 @@ extern void netStageLoaded(void);
 extern void netCoopStageLoaded(void);   /* co-op (#94): a new mission's guards (net_coop.c) */
 extern int netCoopActive(void);
 extern int netCoopSession(void);
+extern int netInMatchLobby(void);   /* the pre-match lobby: the session lasts through its title stage */
 extern void netCoopMissionEnded(int result);
 extern int netGetLocalSlot(void);
 static bool s_net_slot_enabled[MAX_PLAYER_COUNT];
@@ -605,10 +606,11 @@ void bossMainloop(void)
             gevrStageFrontLoad();
         }
         /* a co-op party's menus are the title stage: the session goes on (#94) */
-        if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession())
+        /* and so is the pre-match lobby (docs/match-lobby.md) */
+        if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession() && !netInMatchLobby())
             gevrLobbySessionStopped();
         for (int slot = 0; slot < MAX_PLAYER_COUNT; slot++) s_net_slot_enabled[slot] = TRUE;
-        s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession());
+        s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession() || netInMatchLobby());
         netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
         {
             extern void gevrBotStageLoaded(void);

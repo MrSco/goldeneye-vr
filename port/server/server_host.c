@@ -290,12 +290,18 @@ void gevrLauncherRun(void)
  */
 void gevrLobbyGameTick(void)
 {
-	static long long lastNs, warmupNs, emptyNs;
+	static long long lastNs, warmupNs, emptyNs, lobbyReadyNs;
 	static bool idleSeen;
 	static double lastCpu;
 	static u32 lastFrames;
 	const long long now = serverNowNs();
 	const bool botsOnly = sysArgCheck("--bots-only");
+
+	/* a headless client (--connect) READYs in the pre-match lobby, as a player there would */
+	if (!netIsDedicated() && netInMatchLobby() && !netLocalReady()) {
+		extern void gevrNetSetReady(int ready);
+		gevrNetSetReady(1);
+	}
 
 	/*
 	 * Nobody presses Start Round on a server, so it does, as the host's row
@@ -303,7 +309,26 @@ void gevrLobbyGameTick(void)
 	 * a player in it (or --bots-only), players playing meanwhile. The host's
 	 * own checks then wait for everyone to load and the teams to be whole.
 	 */
-	if (netIsDedicated() && netGetPhase() == NET_PHASE_WARMUP && netHostCanStartRound() && !netHostStartRequested()
+	/*
+	 * The pre-match lobby (the Lobby rule, docs/match-lobby.md): the players
+	 * ready up there, so the server starts once all of them are READY, or
+	 * 60 s after the first one is (nobody waits on a player who walked away).
+	 */
+	if (netIsDedicated() && netInMatchLobby() && netHostCanStartRound() && !netHostStartRequested() && !botsOnly) {
+		int humans = 0;
+		const int ready = netLobbyReadyCount(&humans);
+
+		warmupNs = 0;
+		if (humans == 0 || ready == 0) {
+			lobbyReadyNs = 0;
+		} else if (ready == humans || (lobbyReadyNs && now - lobbyReadyNs >= 60000000000ll)) {
+			sysLogPrintf(LOG_NOTE, "server: the lobby's START (%d of %d ready)", ready, humans);
+			netHostStartRoundNow();
+			lobbyReadyNs = 0;
+		} else if (lobbyReadyNs == 0) {
+			lobbyReadyNs = now;
+		}
+	} else if (netIsDedicated() && netGetPhase() == NET_PHASE_WARMUP && netHostCanStartRound() && !netHostStartRequested()
 	    && (netGetHumanPlayerCount() > 0 || botsOnly)) {
 		if (warmupNs == 0) {
 			warmupNs = now;
@@ -327,8 +352,8 @@ void gevrLobbyGameTick(void)
 		if (emptyNs == 0) {
 			emptyNs = now;
 		} else if (now - emptyNs >= 3000000000ll) {
-			sysLogPrintf(LOG_NOTE, "server: nobody left in the round: back to warmup");
-			netHostRestartWarmup();
+			sysLogPrintf(LOG_NOTE, "server: nobody left in the round: back to the %s", netLobbyRuleOn() ? "lobby" : "warmup");
+			netHostIdleReset();
 			emptyNs = 0;
 		}
 	} else {

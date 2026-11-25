@@ -28,6 +28,7 @@ int VrGuestChr[3];
 int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
 int VrMpMovementSpeed;
 int VrMpHandicaps;
+int VrMpLobby, VrMpWarmup;
 /* front.c's MP_handicap_table damage modifiers, filled from front.c by test_multiplayer.py */
 static const float s_mp_damage[11] = { /* MP_HANDICAP_TABLE */ };
 s32 player_handicap[MAX_PLAYER_COUNT];
@@ -1010,6 +1011,80 @@ static void roundNoticePacket(ENetPeer*peer,unsigned flags,uint32_t ms,int lengt
     netbufStartWrite(&b);netbufWriteU8(&b,flags);netbufWriteU32(&b,ms);netbufWriteU8(&b,0);
     netbufStartReadData(&b,raw,length);netReceiveRoundNotice(peer,&b,8+length);
 }
+/* The pre-match lobby (docs/match-lobby.md): launch into it, START to the map, back after the match */
+EXPORT int test_core_match_lobby(void) {
+    fixture(0);s_lobby_state.config.lobby=1;s_lobby_state.config.warmup=NET_WARMUP_RULE_OFF;
+    CHECK(netLobbyHostLaunchMatch());
+    CHECK(s_round.lobby && netInMatchLobby() && netRoundLoadStage()==LEVELID_TITLE && s_phase==NET_PHASE_WARMUP);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(s_warmup_started && !s_warmup_end_us && s_lobby_open);   /* no clock: the host's START */
+    /* a change waits for START (there is no warmup to load it into) */
+    gevrNetConfigSet(CFG_GAME_LENGTH,(gevrNetConfigGet(CFG_GAME_LENGTH)+1)%4);CHECK(!netWarmupSettingsPending());
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].ready=1;
+    int humans=0;s_lobby_state.slots[2].ready=0;
+    CHECK(netLobbyReadyCount(&humans)==3 && humans==4);   /* the host's START is its READY */
+    s_lobby_state.slots[2].ready=1;
+    /* START: the lobby's short countdown, then the map, the match under way once loaded */
+    netHostStartRoundNow();
+    CHECK(s_next_round_at_us==clock_us+NET_LOBBY_COUNTDOWN_SECONDS*1000000ull && s_round.lobby);
+    clock_us=s_next_round_at_us;netHostRoundTick(clock_us);
+    CHECK(!s_round.lobby && !netInMatchLobby() && s_round_reset_loading && s_start_after_load);
+    CHECK(netRoundLoadStage()==(int)netStageLevelId(34) && s_round.config.game_length==s_lobby_state.config.game_length);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(!s_round_reset_loading);
+    /* the match's end, its results, then everyone back to the lobby, the vote going on there */
+    s_phase=NET_PHASE_IN_PROGRESS;s_lobby_state.config.next_round=NET_NEXT_VOTE;
+    netHostRoundEnded();CHECK(s_match_ended);
+    unsigned returns=netLobbyReturnCount();
+    netHostContinue();
+    CHECK(s_round.lobby && s_round_reset_loading && !s_match_ended && s_vote_requested && netLobbyReturnCount()==returns+1);
+    CHECK(netRoundLoadStage()==LEVELID_TITLE);
+    /* Shuffle turns as the lobby is entered, so the lobby shows the next map */
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    s_round_reset_loading=false;s_phase=NET_PHASE_IN_PROGRESS;s_round.lobby=0;s_match_ended=false;
+    s_lobby_state.config.next_round=NET_NEXT_SHUFFLE;VrMpFavStages=0;
+    netHostRoundEnded();netHostContinue();
+    CHECK(s_round.lobby && !s_vote_requested);
+    /* the Warmup rule: START from the lobby loads the map into its practice, on its clock */
+    for(int i=0;i<4;i++){s_lobby_state.slots[i].loaded=1;s_lobby_state.slots[i].ready=1;}
+    s_round_reset_loading=false;s_lobby_state.config.warmup=NET_WARMUP_RULE_30;
+    netHostStartRoundNow();CHECK(s_next_round_at_us);
+    clock_us=s_next_round_at_us;netHostRoundTick(clock_us);
+    CHECK(!s_round.lobby && s_round_reset_loading && !s_start_after_load);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(!s_round_reset_loading && netWarmupSecondsLeft()==30);
+    /* RETURN TO LOBBY from the practice */
+    CHECK(netHostCanEnterLobby());
+    netHostReturnToLobby();CHECK(s_round.lobby && s_round_reset_loading);
+    /* alone in the lobby, START practices on the map */
+    s_round_reset_loading=false;
+    for(int i=1;i<4;i++)s_lobby_state.slots[i].connected=0;
+    netHostStartRoundNow();CHECK(!s_round.lobby && s_round_reset_loading && !s_start_after_load);
+    for(int i=1;i<4;i++)s_lobby_state.slots[i].connected=1;
+    /* the rule off: RETURN TO LOBBY is the old warmup, and a dedicated server left empty restarts it */
+    s_round_reset_loading=false;s_lobby_state.config.lobby=0;s_phase=NET_PHASE_IN_PROGRESS;
+    CHECK(!netHostCanEnterLobby());
+    netHostReturnToLobby();CHECK(!s_round.lobby && s_round_reset_loading);
+    s_round_reset_loading=false;s_lobby_state.config.lobby=1;s_phase=NET_PHASE_IN_PROGRESS;
+    netHostIdleReset();CHECK(s_round.lobby);
+    /* the round settings carry the lobby byte; one past 1, or a lobby outside deathmatch, is refused */
+    {
+        u8 raw[256];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings r;
+        netbufStartWrite(&b);netWriteRoundSettings(&b);size_t n=b.wp;
+        netbufStartReadData(&b,raw,n);CHECK(netReadRoundSettings(&b,&r) && r.lobby==1);
+        raw[n-1]=2;netbufStartReadData(&b,raw,n);CHECK(!netReadRoundSettings(&b,&r));
+        raw[n-1]=0;netbufStartReadData(&b,raw,n);CHECK(netReadRoundSettings(&b,&r) && r.lobby==0);
+    }
+    /* the rules ride the config: bad values refused, the setter takes the good ones */
+    {
+        NetMatchConfig c=s_lobby_state.config;c.warmup=NET_WARMUP_RULE_COUNT;CHECK(!netValidConfig(&c));
+        c.warmup=0;c.lobby=2;CHECK(!netValidConfig(&c));
+        gevrNetConfigSet(CFG_WARMUP,NET_WARMUP_RULE_120);CHECK(gevrNetConfigGet(CFG_WARMUP)==NET_WARMUP_RULE_120 && VrMpWarmup==3);
+        gevrNetConfigSet(CFG_LOBBY,0);CHECK(!gevrNetConfigGet(CFG_LOBBY) && !VrMpLobby && !netLobbyRuleOn());
+        gevrNetConfigSet(CFG_WARMUP,NET_WARMUP_RULE_COUNT);CHECK(gevrNetConfigGet(CFG_WARMUP)==NET_WARMUP_RULE_120);
+    }
+    return 0;
+}
 EXPORT int test_core_round_prompts(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
     s_lobby_state.slots[3].ready=0;netHostStartRoundNow();
@@ -1367,11 +1442,11 @@ EXPORT int test_core_eight_slots(void) {
     g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
     CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
 
-    /* the late-join snapshot: 83 + 50N + 4N^2 bytes (two match configs with co-op's mode and difficulty, the bots, Horde's start wave and the Handicaps rule; each player's handicap), past the old 512 */
+    /* the late-join snapshot: 88 + 50N + 4N^2 bytes (two match configs with co-op's mode and difficulty, the bots, Horde's start wave, the Handicaps rule and the lobby's two rules; each player's handicap; the round's lobby byte), past the old 512 */
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==83+50*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==88+50*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);

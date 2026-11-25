@@ -500,6 +500,9 @@ extern "C" void vrSettingsSave(void)
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
     iniPrintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
     iniPrintf(f, "; 1 = the host's Handicaps rule: each player picks their own health.\nMpHandicaps=%d\n", VrMpHandicaps ? 1 : 0);
+    iniPrintf(f, "; The host's Lobby rule: 1 gathers everyone in the pre-match lobby before each match, 0 drops them into the warmup.\n"
+            "; MpWarmup: the practice after the lobby's START, 0 off, 1 30 s, 2 60 s, 3 2 min.\nMpLobby=%d\nMpWarmup=%d\n",
+            VrMpLobby ? 1 : 0, VrMpWarmup);
     iniPrintf(f, "FriendsShowDetail=%d\nFriendsAppearOffline=%d\nFriendsRestoreNoted=%d\n",
             VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted);
     iniPrintf(f, "FriendsSidebar=%d\nFriendsSearchable=%d\n", VrFriendsSidebar, VrFriendsSearchable);
@@ -1156,6 +1159,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpDual") == 0) VrMpDual = ival;
             else if (strcmp(key, "MpLoadouts") == 0) VrMpLoadouts = ival != 0;
             else if (strcmp(key, "MpHandicaps") == 0) VrMpHandicaps = ival != 0;
+            else if (strcmp(key, "MpLobby") == 0) VrMpLobby = ival != 0;
+            else if (strcmp(key, "MpWarmup") == 0) VrMpWarmup = ival >= 0 && ival <= 3 ? ival : 0;
             else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
             else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = strtoull(eq + 1, NULL, 10); /* past 32 bits */
             else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;

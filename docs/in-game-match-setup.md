@@ -124,6 +124,12 @@ the folder and the tab is reached with the stick and A, `START TAB: ...`.
 
 ## Where it opens
 
+With the host's Lobby rule on (the default since 2026-11-25), a deathmatch
+party first gathers in the pre-match lobby on the title stage, the folder up
+for every player until the host's START, and comes back to it after each
+match: [the pre-match lobby](match-lobby.md). The openings below are the
+match's (the lobby rule off, or the Warmup rule's practice).
+
 - **On arriving**: each local player's folder opens on the first warmup this
   machine loads after hosting or joining (a joiner mid-round: the next
   warmup).
