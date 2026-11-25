@@ -105,6 +105,8 @@ void subdraw(ModelRenderData *arg0, struct Model *);
 #ifdef GEVR
 s32 modelGunHandList(const struct ModelFileHeader *header, struct ModelNode *node, const char *file);
 void modelDrawGunHand(ModelRenderData *mrData, struct Model *mdl, const char *file);
+s32 modelGunFlashList(const struct ModelFileHeader *header, struct ModelNode *node);
+void modelDrawGunFlash(ModelRenderData *mrData, struct Model *mdl);
 #endif
 #ifdef GEVR
 void gevrModelTraceNextDraw(void);
