@@ -154,6 +154,11 @@ carries it: one more byte, `HordeState.setup`, at the end of
 `NET_MSG_HORDE_STATE`. A snapshot holding the break outside the preparation, or
 with a value other than 0 or 1, is refused.
 
+The host's co-op and Horde rules from the launcher are in the pause window's
+Rules tab too: **Friendly fire** (live) and **AI ally** (the host's `VrAlly`,
+GoldenEye's campaign only; from the next mission or retry). Fast reinforcements
+was already the Settings tab's Game rules row.
+
 ## Implementation
 
 `src/game/gevr_arena.c` and `gevr_horde.c` derive the arena from the player's ROM.

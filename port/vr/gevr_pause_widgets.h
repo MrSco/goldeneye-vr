@@ -139,6 +139,7 @@ inline int gevrPauseRowsInfo(int id,GevrSettingInfo *out) {
     char *label=s.labels[id];
     snprintf(label,64,"%s",f->label);
     for(int i=1;label[i];i++)if(label[i]>='A'&&label[i]<='Z')label[i]=(char)(label[i]-'A'+'a');
+    if(!strncmp(label,"Ai ",3))label[1]='I';   /* AI ALLY as "AI ally" */
     out->label=label;out->tooltip=nullptr;
     out->kind=f->kind==GEVR_PAUSE_TOGGLE?GEVR_SET_TOGGLE:f->kind==GEVR_PAUSE_CHOICE?GEVR_SET_CHOICE:GEVR_SET_RANGE;
     out->section=out->launcherSection=0;out->where=GEVR_SET_INGAME;

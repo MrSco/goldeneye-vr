@@ -42,6 +42,8 @@ extern void netLobbySetReadySlot(int slot, bool ready);
 extern bool netRequestRemoveLocalGuest(int slot);
 extern void gevrNativePauseOpenPanel(void);
 extern int netSlotReady(int slot);
+extern int VrAlly;
+extern int VrCampaign;
 extern int gevrNativePauseOpen(void);
 extern int netHordeActive(void);
 static s32 menuActingSlot(void)
@@ -497,14 +499,23 @@ static void rowHordeWaveStep(s32 dir)
 }
 static void rowHordeStartValue(char *b, s32 n) { snprintf(b, n, "%s", netHordeRestartPending() ? "- RESTART ON NEW MAP" : ""); }
 static void rowHordeStartStep(s32 dir) { (void)dir; netHordeHostStart(); }
+/* Co-op and Horde: the host's AI ally (gevr_settings.c's VrAlly, GoldenEye's
+ * campaign only); a local setting the next mission or retry takes */
+static s32 lobbyPve(void) { return gevrNetConfigPve(); }
+static s32 lobbyAlly(void) { return gevrNetConfigPve() && VrCampaign == 0; }
+static void rowAllyValue(char *b, s32 n) { snprintf(b, n, "%s", VrAlly ? "ON" : "OFF"); }
+static void rowAllyStep(s32 dir) { (void)dir; VrAlly = !VrAlly; vrSettingsSave(); }
+/* friendly fire: a team round's rule, and always co-op's and Horde's */
+static s32 lobbyFriendlyFire(void) { return friendlyFireTeams() || lobbyPve(); }
 static const GevrMenuRow s_lobbyRows[] = {
     { "FULL MENU / SETTINGS", GEVR_ROW_ACTION, 0, lobbySplitPrimary, rowFullMenuValue, rowFullMenuStep, "A:OPEN" },
     { "DROP OUT",        GEVR_ROW_ACTION, 0, lobbySplitGuest,   rowDropOutValue,    rowDropOutStep,     "A:LEAVE MATCH" },
     { "NEXT ROUND READY", GEVR_ROW_VALUE, 0, lobbyClient, rowReadyValue, rowReadyStep, "R-STICK:ON/OFF" },
-    { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, friendlyFireTeams, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
+    { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, lobbyFriendlyFire, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
     { "START WAVE",      GEVR_ROW_ACTION, 1, lobbyHordeCanStart, rowHordeStartValue, rowHordeStartStep, "A:START" },
     { "HORDE MAP",       GEVR_ROW_VALUE,  1, lobbyHorde,        rowHordeMapValue,   rowHordeMapStep,    "A/R-STICK:PICK" },
     { "STARTING WAVE",   GEVR_ROW_VALUE,  1, lobbyHorde,        rowHordeWaveValue,  rowHordeWaveStep,   "R-STICK:PICK" },
+    { "AI ALLY",         GEVR_ROW_VALUE,  1, lobbyAlly,         rowAllyValue,       rowAllyStep,        "R-STICK:ON/OFF" },
     { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     rowStartValue,      rowStartStep,       "A:START" },
     { "RETURN TO LOBBY", GEVR_ROW_ACTION, 1, lobbyCanReturn,    rowReturnValue,     rowReturnStep,      "A:RETURN" },
     { "NEXT ROUND",      GEVR_ROW_VALUE,  1, NULL,              rowNextRoundValue,  rowNextRoundStep,   "R-STICK:PICK" },
@@ -1604,10 +1615,12 @@ static int gevrPauseGroup(const GevrMenuRow *r)
     if (!strcmp(n,"MUSIC") || !strcmp(n,"SFX") || !strcmp(n,"VOICE") || !strcmp(n,"VOICE MODE") || !strcmp(n,"MIC")) return GEVR_PAUSE_AUDIO;
     return GEVR_PAUSE_RULES;
 }
-/* Horde's own rows (the host's): its map and first wave on Match */
+/* Co-op's and Horde's own rows (the host's): Horde's map and first wave on
+ * Match, friendly fire and the AI ally on Rules (the launcher's PvE options) */
 static int gevrPausePveRow(const GevrMenuRow *r)
 {
-    return r->step == rowHordeMapStep || r->step == rowHordeWaveStep;
+    return r->step == rowHordeMapStep || r->step == rowHordeWaveStep || r->step == rowAllyStep ||
+           (r->step == rowFriendlyFireStep && r->visible == lobbyFriendlyFire);
 }
 /* field, choice count, and current index for the game's own named choices */
 static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
