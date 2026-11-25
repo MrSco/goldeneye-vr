@@ -1583,6 +1583,7 @@ static const char *gevrVisibilityName(int visibility)
 static const char *s_hostVisibility = nullptr;
 extern "C" const char *gevrHostedLobbyVisibility(void)
 {
+    if (netCouchCoopActive()) return "local";   // couch co-op: on this machine only, never joinable
     return !netIsHost() ? "" : s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility);
 }
 
@@ -3099,7 +3100,9 @@ extern "C" void gevrLobbyGameTick(void)
         }
     }
 
-    if (netIsHost()) {
+    if (netCouchCoopActive()) {
+        // couch co-op: a party on this machine only, in no list and with no host to find again
+    } else if (netIsHost()) {
         for (int i = 0; i < 32; ++i) {
             const std::string event = gevrJavaString("lobbyEvent");
             if (event.empty()) break;

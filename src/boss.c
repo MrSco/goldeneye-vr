@@ -73,6 +73,13 @@ extern void netCoopMissionEnded(int result);
 extern int netGetLocalSlot(void);
 static bool s_net_slot_enabled[MAX_PLAYER_COUNT];
 static bool s_net_session_started;
+
+/* couch co-op left from its menus (front.c gevrCouchCoopLeave): the title stage
+ * goes on, not reloaded as for a session that dropped */
+void bossNetSessionForget(void)
+{
+    s_net_session_started = FALSE;
+}
 static bool s_net_config_on_load;   /* a round reset's settings wait for its stage's load */
 #endif
 

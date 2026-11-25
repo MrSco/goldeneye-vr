@@ -288,6 +288,9 @@ ROM, as on the Quest.
   keyboard and mouse count as one player, each pad as another; the Siri Remote doesn't join.
   A pad that didn't join can **drop in mid-match** with Start: the screen splits again and they
   play at once, and stay for the next match.
+- **Couch co-op** (flat builds): the campaign together on one screen. Choose **Co-op** on the
+  mode select; one player is enough to start, and more drop in during a mission with Start.
+  Player 1 picks the missions. It runs on your machine only and isn't listed online.
 
 ## Mirrored missions (optional)
 

@@ -820,13 +820,14 @@ void netShutdown(void) {
 static bool s_dedicated;
 static bool netDedicatedSeat(int slot) { return s_dedicated && slot == s_local_slot && slot >= 0; }
 
-bool netHostStart(uint16_t port) {
+/* The host listening at ip:port (port 0: any the system picks, a couch party's) */
+static bool netHostStartOn(const char *ip, uint16_t port) {
     if (!s_initialized && !netInit()) return false;
     netDisconnect();
     
     ENetAddress address;
-    enet_address_set_ip(&address, "0.0.0.0");
-    address.port = port ? port : GEVR_DEFAULT_PORT;
+    enet_address_set_ip(&address, ip);
+    address.port = port;
     
     s_host = enet_host_create(&address, NET_HOST_PEERS, NET_CHAN_MAX, 0, 0, 0);
     if (!s_host) {
@@ -883,6 +884,51 @@ bool netHostStart(uint16_t port) {
     }
     
     NET_LOG("Multiplayer server hosted on port %d", address.port);
+    return true;
+}
+
+bool netHostStart(uint16_t port) {
+    return netHostStartOn("0.0.0.0", port ? port : GEVR_DEFAULT_PORT);
+}
+
+/*
+ * Couch co-op (2026-11-25): the solo campaign for the players at one screen,
+ * as an online co-op party (docs/issue-94-coop.md) hosted on this machine
+ * only. The host listens on the loopback, and nothing lists it: no LAN
+ * beacon, lobby service, ICE or joinable presence. Its players are this
+ * machine's seats (input.c), and a pad's START drops in during a mission as
+ * an online party's local guest does. Leaving the party's menus ends it.
+ */
+static bool s_couch_coop;
+
+int netCouchCoopActive(void) { return s_couch_coop && netIsActive(); }
+
+bool netCouchCoopStart(int seats) {
+    if (netIsActive()) return false;
+    if (seats < 1) seats = 1;
+    if (seats > NET_COOP_MAX_PLAYERS) seats = NET_COOP_MAX_PLAYERS;
+    netSetLocalDesiredCount(seats);   /* netHostStartOn seats the guests */
+    const bool hosted = netHostStartOn("127.0.0.1", 0);
+    netSetLocalDesiredCount(1);       /* an online host later seats its own */
+    if (!hosted) return false;
+    s_couch_coop = true;
+    NetMatchConfig c = netMatchConfigFromSettings();
+    c.mode = NET_MODE_COOP;
+    c.stage = NET_COOP_FRONT_STAGE;
+    c.difficulty = 0;
+    c.max_players = NET_COOP_MAX_PLAYERS;
+    c.fun_flags = (uint8_t)(c.fun_flags & ~NET_COOP_FAST_REINFORCEMENTS);
+    if (VrCoopFastReinforcements) c.fun_flags |= NET_COOP_FAST_REINFORCEMENTS;
+    netLobbySetConfig(&c);
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+        if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].ready = 1;
+    if (netGetMatchConfig()->mode != NET_MODE_COOP || !netLobbyHostLaunchMatch()) {
+        NET_ERR("couch co-op: the party could not start");
+        netDisconnect();
+        return false;
+    }
+    netApplyMatchConfig();
+    NET_LOG("couch co-op: %d player(s) on this screen", s_local_count);
     return true;
 }
 
@@ -944,6 +990,7 @@ bool netResolveHost(const char *name, char *ip, size_t cap) {
 }
 
 void netDisconnect(void) {
+    s_couch_coop = false;
     netClearHostHits();s_combat_epoch=0;memset(s_clock_sync,0,sizeof(s_clock_sync));
     netVoiceReset();
     s_waiting_for_match_snapshot = false;

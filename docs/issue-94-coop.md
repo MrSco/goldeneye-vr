@@ -86,6 +86,24 @@ unless co-op asks for solo's layout.
   host applies it and runs the guards from where they stand. Returning
   players get a slot remap, then the roster.
 
+## Couch co-op (flat builds, 2026-11-25)
+
+The campaign for the players at one screen. The title's mode select has a
+**Co-op** row on flat builds (front.c, below Multiplayer; Cheat Options moves
+a row down). It opens the join page headed CO-OP, where one player is
+enough: START plays. That starts this party on this machine only
+(net_core.c `netCouchCoopStart`): the ENet host listens on the loopback at a
+port the system picks, and nothing lists it (no LAN beacon, lobby service,
+ICE; friends presence says "local", never joinable; vr_launcher.cpp skips the
+lobby keepalive). The joined players become its local seats with the devices
+they joined with (input.c `inputCouchCoopAdopt`), and the party's menus open
+at mission select with player 1 driving. Everything after is online co-op's
+with local players: split screen by seat, the solo watch per view, revives,
+and a pad's START drops in during a mission (Select Character in its view
+first). Back to the folders or the mode select ends the party
+(front.c `gevrCouchCoopLeave`; the title stage is not reloaded). Not
+tested by script yet: a mission's end back to the party's menus.
+
 ## Headset test plan
 
 0. One headset, the host alone: Launch shows the folders; pick one, then

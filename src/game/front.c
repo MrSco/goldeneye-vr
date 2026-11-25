@@ -1104,10 +1104,33 @@ extern s32 inputJoinCount(void);
 extern const char *inputJoinName(s32 player);
 extern void inputSeatsClear(void);
 extern s32 inputSeated(void);
+extern void inputJoinSetMinimum(s32 players);
+extern s32 inputJoinMinimum(void);
+extern void inputCouchCoopAdopt(void);
+extern bool netCouchCoopStart(int seats);
+extern int netCouchCoopActive(void);
+extern void netDisconnect(void);
 static s32 gevrJoinOpen = FALSE;
+/* couch co-op (2026-11-25): the mode select's Co-op, then the join page for it, then the party's menus */
+static s32 gevrJoinCoop = FALSE;
+
+/* Out of a couch co-op party's menus (to the folders or the mode select): the party ends here */
+static void gevrCouchCoopLeave(void)
+{
+    extern void bossNetSessionForget(void);
+
+    if (netCouchCoopActive())
+    {
+        bossNetSessionForget();   /* the menus go on: no title reload for a session that dropped */
+        netDisconnect();
+        inputSeatsClear();
+    }
+}
 #define GEVR_MP_PADS() (inputSeated() ? inputSeated() : joyGetControllerCount())
 #define GEVR_MP_SELECTABLE() (netIsActive() ? (joyGetControllerCount() >= 2) : (inputJoinDeviceCount() >= 2))
+#define GEVR_COOP_ROW() (!netIsActive() && inputJoinDeviceCount() >= 1)
 #else
+#define GEVR_COOP_ROW() 0
 #define GEVR_MP_PADS() joyGetControllerCount()
 #define GEVR_MP_SELECTABLE() (joyGetControllerCount() >= 2)
 #endif
@@ -2452,6 +2475,10 @@ void init_menu05_fileselect(void)
     prev_keypresses = FALSE;
 
 #ifdef GEVR
+#ifdef GEVR_FLAT
+    /* back to the folders from a couch co-op party's mission select: the party ends */
+    gevrCouchCoopLeave();
+#endif
     /* co-op (#94): the party arrives here past the legal screen, which reads the saves */
     if (gevrCoopSession())
     {
@@ -3097,6 +3124,9 @@ void init_menu06_modeselect(void)
 #ifdef GEVR_FLAT
     /* out of Multiplayer: every device is player 1's again (a join's seats) */
     gevrJoinOpen = FALSE;
+    gevrJoinCoop = FALSE;
+    /* out of a couch co-op party's menus: the party ends (net_core.c netCouchCoopStart) */
+    gevrCouchCoopLeave();
     inputSeatsClear();
 #endif
     gamemode = GAMEMODE_INTRO;
@@ -3153,7 +3183,7 @@ void interface_menu06_modesel(void)
             sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, 0);
         }
     }
-    else if ((is_cheat_menu_available) && (275.0f <= cursor_v_pos))
+    else if ((is_cheat_menu_available) && ((GEVR_COOP_ROW() ? 307.0f : 275.0f) <= cursor_v_pos))
     {
         mission_difficulty_highlighted = DIFFICULTY_00;
         if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
@@ -3162,12 +3192,28 @@ void interface_menu06_modesel(void)
             sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, 0);
         }
     }
+#ifdef GEVR_FLAT
+    else if (GEVR_COOP_ROW() && (275.0f <= cursor_v_pos))
+    {
+        /* couch co-op: the campaign for the players at this screen (its join page next) */
+        mission_difficulty_highlighted = DIFFICULTY_007;
+        if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
+        {
+            gamemode = GAMEMODE_MULTI;
+            gevrJoinCoop = TRUE;
+            sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, 0);
+        }
+    }
+#endif
     else if ((243.0f <= cursor_v_pos) && GEVR_MP_SELECTABLE())
     {
         mission_difficulty_highlighted = DIFFICULTY_SECRET;
         if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
         {
             gamemode = GAMEMODE_MULTI;
+#ifdef GEVR_FLAT
+            gevrJoinCoop = FALSE;
+#endif
             sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, 0);
         }
     }
@@ -3199,6 +3245,7 @@ void interface_menu06_modesel(void)
         if (!netIsActive())
         {
             gevrJoinOpen = TRUE;
+            inputJoinSetMinimum(gevrJoinCoop ? 1 : 2);   /* a co-op party may start alone: others drop in */
             inputJoinBegin();
         }
 #endif
@@ -3394,20 +3441,40 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
     }
     DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, text_color, viGetX(), viGetY(), 0, 0);
 
-    if (is_cheat_menu_available != 0)
+#ifdef GEVR_FLAT
+    if (GEVR_COOP_ROW())
     {
+        /* couch co-op: below Multiplayer, Cheat Options a row further down */
         x = 0x96;
         y = 0x11C;
         DL = frontPrintText(DL, &x, &y, "3.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+        textstring = "CO-OP";
+        textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        x = 0xAA;
+        y = 0x11C;
+        if (mission_difficulty_highlighted == DIFFICULTY_007)
+        {
+            DL = microcode_constructor_related_to_menus(DL, 0x94, 0x11A, y2 + 0xAF, 0x12A, 0x32);
+        }
+        DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    }
+#endif
+    if (is_cheat_menu_available != 0)
+    {
+        s32 row = GEVR_COOP_ROW() ? 0x20 : 0;   /* below a couch co-op row */
+
+        x = 0x96;
+        y = 0x11C + row;
+        DL = frontPrintText(DL, &x, &y, GEVR_COOP_ROW() ? "4.\n" : "3.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
         textstring = langGet(getStringID(LTITLE, TITLE_STR_31_CHEATOPTIONS));
 
         textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
         x = 0xAA;
-        y = 0x11C;
+        y = 0x11C + row;
         if (mission_difficulty_highlighted == 2)
         {
-            DL = microcode_constructor_related_to_menus(DL, 0x94, 0x11A, y2 + 0xAF, 0x12A, 0x32);
+            DL = microcode_constructor_related_to_menus(DL, 0x94, 0x11A + row, y2 + 0xAF, 0x12A + row, 0x32);
         }
         DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
     }
@@ -4821,6 +4888,24 @@ void interface_menu0E_mpoptions(void)
             frontChangeMenu(MENU_MODE_SELECT, 0);
             setCursorPOSforMode(gamemode);
         }
+        else if (r == 1 && gevrJoinCoop)
+        {
+            /* seated for couch co-op: the party, on this machine only, then its mission select */
+            gevrJoinOpen = FALSE;
+            gevrJoinCoop = FALSE;
+            if (netCouchCoopStart(inputSeated()))
+            {
+                inputCouchCoopAdopt();
+                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, NULL);
+                frontChangeMenu(MENU_MISSION_SELECT, FALSE);
+                set_cursor_to_stage_solo(0);
+            }
+            else
+            {
+                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+                frontChangeMenu(MENU_MODE_SELECT, 0);
+            }
+        }
         else if (r == 1)
         {
             /* seated: the options, with as many players as joined */
@@ -5080,7 +5165,7 @@ static Gfx *gevrJoinPageDraw(Gfx *DL)
 
     x = 0x37;
     y = 0x5f;
-    DL = frontPrintText(DL, &x, &y, (s8 *)"MULTIPLAYER:", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+    DL = frontPrintText(DL, &x, &y, (s8 *)(gevrJoinCoop ? "CO-OP:" : "MULTIPLAYER:"), ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
     x = 0x39;
     y = 0x79;
     DL = frontPrintText(DL, &x, &y, (s8 *)"Press A on a controller to join", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
@@ -5112,7 +5197,7 @@ static Gfx *gevrJoinPageDraw(Gfx *DL)
 
     x = 0x39;
     y = 0xf9;
-    if (joined >= 2)
+    if (joined >= inputJoinMinimum())
     {
 #ifdef GEVR_TVOS
         DL = frontPrintText(DL, &x, &y, (s8 *)"START to play, B to leave.", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
@@ -5125,7 +5210,7 @@ static Gfx *gevrJoinPageDraw(Gfx *DL)
     }
     else
     {
-        DL = frontPrintText(DL, &x, &y, (s8 *)"Two players are needed.", ptrFontZurichBoldChars, ptrFontZurichBold, 0x70, viGetX(), viGetY(), 0, 0);
+        DL = frontPrintText(DL, &x, &y, (s8 *)(inputJoinMinimum() > 1 ? "Two players are needed." : "More can drop in later."), ptrFontZurichBoldChars, ptrFontZurichBold, 0x70, viGetX(), viGetY(), 0, 0);
     }
     DL = frontAddPreviousTabText(DL);
     DL = frontAddStartTabText(DL);

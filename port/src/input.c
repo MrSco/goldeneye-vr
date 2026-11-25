@@ -1123,6 +1123,19 @@ static u32 inputJoinPadHeld(SDL_GameController *pad)
     return b;
 }
 
+/* The players the join page needs before START plays: two for Multiplayer, one for couch co-op (front.c) */
+static s32 s_joinMinimum = 2;
+
+void inputJoinSetMinimum(s32 players)
+{
+    s_joinMinimum = players < 1 ? 1 : players;
+}
+
+s32 inputJoinMinimum(void)
+{
+    return s_joinMinimum;
+}
+
 static s32 inputJoinFind(s32 dev)
 {
     for (s32 i = 0; i < s_joinCount; ++i) {
@@ -1421,7 +1434,7 @@ s32 inputJoinFrame(s32 onPrevTab, s32 onStartTab)
         }
     }
 
-    if (go && s_joinCount >= 2) {
+    if (go && s_joinCount >= s_joinMinimum) {
         inputSeatsCommit();
         return 1;
     }
@@ -1676,6 +1689,27 @@ static void inputCouchTickDropIn(void)
         for (s32 j = 0; j < INPUT_MAX_CONTROLLERS; ++j) s_couchPadHeld[j] = 1;   /* the pads moved slots */
         return;
     }
+}
+#endif
+
+#ifdef GEVR_FLAT
+/*
+ * Couch co-op began (front.c, net_core.c netCouchCoopStart): the join page's
+ * players become the party's local seats, each with the device it joined
+ * with, as an online party's local guests are (inputOnlineSeatsSync).
+ */
+void inputCouchCoopAdopt(void)
+{
+    extern int netSlotOfLocalSeat(int seat);
+
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) s_onlineSlotDev[i] = JOIN_NONE;
+    for (s32 p = 0; p < s_joinCount; ++p) {
+        const s32 slot = netSlotOfLocalSeat(p);
+        if (slot >= 0 && slot < MAX_PLAYER_COUNT) s_onlineSlotDev[slot] = s_joinDev[p];
+    }
+    s_onlineP1Dev = s_joinCount > 0 ? s_joinDev[0] : JOIN_NONE;
+    s_onlineSeats = 0;   /* the next sync commits them */
+    sysLogPrintf(LOG_NOTE, "input: couch co-op: %d seat(s) from the join page", s_joinCount);
 }
 #endif
 
