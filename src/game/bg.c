@@ -158,7 +158,17 @@ s32 levelentry_index = 1;
  * SubtractFromHeight = -1; //always -1 (related to getvideosettings)
  * Address 0x80041404.
  */
+#ifdef GEVR
+/*
+ * On the N64, {1, 1, -1, -1} inset the room scissor 1 pixel inside 320x240
+ * (hidden in CRT overscan). Scaled to a modern flat screen with GL_SCISSOR_TEST
+ * enabled, that 1 N64 pixel becomes a 4-6 px vertical strip down each side
+ * where no room draws and the sky fill shows through (#238, #337).
+ */
+s32 bgViewRelated[] = { 0, 0, 0, 0 };
+#else
 s32 bgViewRelated[] = { 1, 1, -1, -1 };
+#endif
 
 
 /**
