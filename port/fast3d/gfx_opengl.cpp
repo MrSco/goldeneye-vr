@@ -1511,10 +1511,6 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform float uTanHalfFovRight;");
         append_line(vs_buf, &vs_len, "uniform int uVrFlat;");
         append_line(vs_buf, &vs_len, "uniform vec2 uDecalBias;");
-        // GoldenEye (issue #40): the sniper scope's pass (gfx_vr_scope_render)
-        append_line(vs_buf, &vs_len, "uniform int uScope;");
-        append_line(vs_buf, &vs_len, "uniform mat4 uScopeVP;");
-        append_line(vs_buf, &vs_len, "uniform vec2 uHeadP;");
         // GoldenEye (issue #53): the in-between frame's redraw (gfx_vr_eye_replay)
         append_line(vs_buf, &vs_len, "uniform int uReproj;");
         append_line(vs_buf, &vs_len, "uniform mat4 uReprojVP;");
@@ -1531,9 +1527,12 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // two-view shader's uReproj
         append_line(vs_buf, &vs_len, "uniform int uReproj;");
         append_line(vs_buf, &vs_len, "uniform mat4 uReprojVP;");
-        append_line(vs_buf, &vs_len, "uniform vec2 uHeadP;");
     }
 
+    // The scope pass uses the recorded camera's projection in flat and stereo.
+    append_line(vs_buf, &vs_len, "uniform int uScope;");
+    append_line(vs_buf, &vs_len, "uniform mat4 uScopeVP;");
+    append_line(vs_buf, &vs_len, "uniform vec2 uHeadP;");
 
     if (gl_es) {
         append_line(vs_buf, &vs_len, "precision highp float;");
@@ -1725,6 +1724,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
                     " vec4 c = vec4(aVtxPos.x / uHeadP.x, aVtxPos.y / uHeadP.y, -aVtxPos.w, 1.0);"
                     " gl_Position = (gl_ViewID_OVR == 0u) ? uScopeVP * c : vec4(0.0, 0.0, 2.0, 1.0);"
                     " }");
+    } else {
+        append_line(vs_buf, &vs_len,
+                    "if (uScope == 1) gl_Position = uScopeVP * vec4(aVtxPos.x / uHeadP.x, aVtxPos.y / uHeadP.y, -aVtxPos.w, 1.0);");
     }
     append_line(vs_buf, &vs_len, "}");
 
@@ -2165,24 +2167,22 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     // VR...
     prg->vrFlatLocation = -1;
-    prg->scopeLocation = prg->scopeVPLocation = prg->scopeHeadPLocation = -1;
     prg->reprojLocation = prg->reprojVPLocation = -1;
     // The VR-only uniforms: none (-1) without the two-view shaders that declare
     // them. Left at the pool's zeroed 0 they all pointed at the uniform in
     // location 0, and every draw of a single-view game (the flat game, the
     // phone APK) failed on GL_INVALID_OPERATION and drew nothing.
     prg->zTintLocation = prg->reprojLocation = prg->reprojVPLocation = -1;
-    prg->scopeLocation = prg->scopeVPLocation = prg->scopeHeadPLocation = -1;
     prg->eyeOffsetLeftLocation = prg->eyeOffsetRightLocation = prg->isMenuLocation = -1;
     prg->worldScaleLocation = prg->IsTitleLegal = prg->TanHalfFovRight = prg->TanHalfFovLeft = -1;
     prg->vrFlatLocation = prg->decalBiasLocation = -1;
+    prg->scopeLocation = glGetUniformLocation(shader_program, "uScope");
+    prg->scopeVPLocation = glGetUniformLocation(shader_program, "uScopeVP");
+    prg->scopeHeadPLocation = glGetUniformLocation(shader_program, "uHeadP");
     if (use_multiview) {
         prg->zTintLocation = glGetUniformLocation(shader_program, "uZTint");
         prg->reprojLocation = glGetUniformLocation(shader_program, "uReproj");
         prg->reprojVPLocation = glGetUniformLocation(shader_program, "uReprojVP");
-        prg->scopeLocation = glGetUniformLocation(shader_program, "uScope");
-        prg->scopeVPLocation = glGetUniformLocation(shader_program, "uScopeVP");
-        prg->scopeHeadPLocation = glGetUniformLocation(shader_program, "uHeadP");
         prg->eyeOffsetLeftLocation = glGetUniformLocation(shader_program, "uEyeOffsetLeft");
         prg->eyeOffsetRightLocation = glGetUniformLocation(shader_program, "uEyeOffsetRight");
         prg->isMenuLocation = glGetUniformLocation(shader_program, "uIsMenu");
@@ -2198,7 +2198,6 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // a flat game's redraw (gfx_flat_redraw_frame)
         prg->reprojLocation = glGetUniformLocation(shader_program, "uReproj");
         prg->reprojVPLocation = glGetUniformLocation(shader_program, "uReprojVP");
-        prg->scopeHeadPLocation = glGetUniformLocation(shader_program, "uHeadP");
     }
 
     gfx_opengl_load_shader(prg);

@@ -21,8 +21,9 @@ def optic_profile():
         for x in range(width)
         for component in (255, 0, 255, 255 if x in (7, 8) or y in (7, 8) else 0)
     )
-    # Right, up and forward in the mesh frame. The lens is 6 mm by 6 mm.
-    lens = (0, .085, .105, 1, 0, 0, 0, 0, 1, 0, 1, 0, .003, .003, .5, .5, 1)
+    # Right, up and forward in the mesh frame. A wide lens leaves room to
+    # compare the scene away from the reticle.
+    lens = (0, .085, .105, 1, 0, 0, 0, 0, 1, 0, 1, 0, .010, .010, .5, .5, 1)
     outline = (-1, -1, 1, -1, 1, 1, -1, 1)
     return b"GEVROPT4" + struct.pack("<I", 2) + b"".join(
         struct.pack("<4I19f8f", flags, 4, width, height, *lens, low, high, *outline) + mark
@@ -30,21 +31,38 @@ def optic_profile():
     )
 
 
-def reticle_pixels(path):
-    """Count the fixture's unique magenta in the middle third of the frame."""
+def sample_pixels(path, region):
     data = path.read_bytes()
     offset, = struct.unpack_from("<I", data, 10)
     w, h, _, bpp, compression = struct.unpack_from("<iiHHI", data, 18)
     assert bpp in (24, 32) and compression == 0
     stride = ((w * bpp + 31) // 32) * 4
-    count = 0
-    for y in range(abs(h) // 3, 2 * abs(h) // 3):
+    xs, ys = region(w, abs(h))
+    for y in ys:
         row = offset + y * stride
-        for x in range(w // 3, 2 * w // 3):
+        for x in xs:
             at = row + x * (bpp // 8)
-            b, g, r = data[at:at + 3]
-            count += r > 160 and g < 100 and b > 160
-    return count
+            yield data[at:at + 3]
+
+
+def reticle_pixels(path):
+    """Count the fixture's unique magenta in the middle third of the frame."""
+    def region(w, h):
+        return range(w // 3, 2 * w // 3), range(h // 3, 2 * h // 3)
+
+    return sum(r > 160 and g < 100 and b > 160 for b, g, r in sample_pixels(path, region))
+
+
+def scope_corner(path):
+    """Sample the upper left of the lens, clear of the magenta reticle."""
+    def region(w, h):
+        return (range(w // 2 - h // 24, w // 2 - h // 72),
+                range(h // 2 + h // 72, h // 2 + h // 24))
+
+    pixels = list(sample_pixels(path, region))
+    blue_sky = sum(b >= 40 and b > r + 22 and b > g + 9 for b, g, r in pixels)
+    lit = sum(max(pixel) >= 12 for pixel in pixels)
+    return blue_sky, lit, len(pixels)
 
 
 def main():
@@ -92,12 +110,15 @@ mod.on("tick", function(dt)
     print("optic-test scope", mod.attach.opticMode(id, 1, 3))
   elseif time > 11 and phase == 1 then
     phase = 2
-    print("optic-test folded", mod.attach.opticMode(id, 2))
-  elseif time > 13 and phase == 2 then
+    print("optic-test zoom", mod.attach.opticMode(id, 1, 4))
+  elseif time > 14 and phase == 2 then
     phase = 3
-    assert(mod.inventory.give(mod.items.sniperrifle))
-  elseif time > 14 and phase == 3 and item ~= original then
+    print("optic-test folded", mod.attach.opticMode(id, 2))
+  elseif time > 16 and phase == 3 then
     phase = 4
+    assert(mod.inventory.give(mod.items.sniperrifle))
+  elseif time > 17 and phase == 4 and item ~= original then
+    phase = 5
     print("optic-test swapped", mod.attach.opticMode(id))
     assert(mod.attach.remove(id))
     print("optic-test removed", mod.attach.opticMode(id))
@@ -112,8 +133,8 @@ end)
         shutil.copyfile(rom, root / "ge.z64")
         (root / "input.txt").write_text(
             "1000 key Return 200\n2000 click 200\n3500 key Return 200\n"
-            "7400 shot before\n10000 shot live\n12500 shot folded\n13900 key Q 100\n"
-            "15900 shot removed\n16800 quit\n", encoding="ascii")
+            "7400 shot before\n10000 shot live\n12800 shot zoom\n15500 shot folded\n16900 key Q 100\n"
+            "18900 shot removed\n19800 quit\n", encoding="ascii")
         result = subprocess.run(
             [str(runner), "--no-launcher", "--boot-stage", "33", "--input-script", "input.txt", "--mod-optic-preview"],
             cwd=root, timeout=70, capture_output=True, text=True, errors="replace")
@@ -129,16 +150,22 @@ end)
         assert result.returncode == 0, (result.returncode, result.stderr[-3000:], log[-5000:])
         for pattern in (
             r"optic fixture\.opt: 2 modes", r"optic bad\.opt refused", r"optic-test scope 1 3(?:\.0)? 2 scope false",
+            r"optic-test zoom 1 4(?:\.0)? 2 scope false",
             r"optic-test folded 2 1(?:\.0)? 2 collimator true", r"optic-test swapped nil", r"optic-test removed nil",
             r"scope: [1-9]\d* of the world's draws through the lens .*?(?:right|left) [1-9]\d*",
         ):
             assert re.search(pattern, log), (pattern, "\n".join(
                 line for line in log.splitlines() if re.search(r"mods?:|optic-test|scope:|input script:", line)))
         assert "optic lens shader:" not in log and "optic lens program:" not in log
-        pixels = [reticle_pixels(root / "shots" / f"{name}.bmp")
-                  for name in ("before", "live", "folded", "removed")]
-        assert pixels[0] == pixels[3] == 0 and min(pixels[1:3]) > 20, pixels
-    print("PASS: desktop Lua pack optics, malformed rejection, world pass, visible reticle in both modes, swap and detach")
+        shots = root / "shots"
+        pixels = [reticle_pixels(shots / f"{name}.bmp") for name in ("before", "live", "zoom", "folded", "removed")]
+        assert pixels[0] == pixels[-1] == 0 and min(pixels[1:-1]) > 20, pixels
+        # Dam's opening view has blue sky above and left of the rock wall.
+        # The magnified view contains just the wall in this part of the glass.
+        for name in ("live", "zoom"):
+            sky, lit, total = scope_corner(shots / f"{name}.bmp")
+            assert sky < total // 20 and lit > total // 2, (name, sky, lit, total)
+    print("PASS: desktop Lua pack optics, malformed rejection, magnified view, reticles, swap and detach")
 
 
 if __name__ == "__main__":
