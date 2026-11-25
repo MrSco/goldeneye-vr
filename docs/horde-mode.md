@@ -6,11 +6,13 @@ The wave structure is the Zombies reference; enemy behavior stays GoldenEye's.
 
 ## Playing
 
-Choose **Multiplayer → Host → Lobby → Mode: Horde**, then **Start Hosting** and
-**Launch**. You can launch alone, or with up to four humans. LAN/direct-IP
-hosting uses the existing transport; an internet lobby is optional for LAN play.
-The host picks any of the 26 original GoldenEye campaign maps and multiplayer
-arenas, including Statue, and the starting wave (1-50) in the Horde rules column; Agent difficulty. A later start brings the points the skipped
+Choose **Online → Host → Game → Mode: Horde**, then **Host**: it goes straight
+into the run's setup break. You can play alone, or with up to four humans, who
+join the running game. LAN/direct-IP hosting uses the existing transport; an
+internet lobby is optional for LAN play. The host picks any of the 26 original
+GoldenEye campaign maps and multiplayer arenas, including Statue, and the
+starting wave (1-50) in the game, on Multiplayer Options (see
+[The setup break](#the-setup-break)); Agent difficulty. A later start brings the points the skipped
 waves would have paid (500 + 400 per skipped wave). The launcher disables
 multiplayer for other campaigns.
 
@@ -132,14 +134,27 @@ break**: the preparation with its clock held.
   once, its points with it (the skipped waves' 400 each, up or down, on top of
   whatever the players spent or earned since); a new map applies at START
   WAVE. During a run both wait for Retry Horde.
-- **Where.** The online pause window's Match tab (headset, PC VR, a PC window
-  and a phone): Horde map, Starting wave, Map photos and **Start wave n**
-  beside Resume (greyed for joiners: the host's choice). On a PC window, START
-  in Horde opens this window, as the headset's Menu does, instead of the
-  campaign watch; with a split screen the first player's START opens it over
-  every view until the Multiplayer Options folder draws in the player's own.
-  The rows are `mpmenu.c`'s `s_lobbyRows` entries HORDE MAP, STARTING WAVE and
-  START WAVE (host only), which the folder reuses.
+- **Where: the Multiplayer Options folder** (`docs/in-game-match-setup.md`),
+  GoldenEye's own, in each player's view (on the headset, the HUD panel). It
+  opens by itself in every setup break (arriving, Retry Horde, a restart on a
+  new map), for every local player, once per load. Its rows: **Level** (A
+  opens the photos filtered to Horde's maps), **Starting Wave**, **Friendly
+  Fire** and **AI Ally**, the host's and dimmed for everyone else, then the
+  player's **Characters** (Select Character), then Drop Out (a split screen's
+  guest) or Full Menu (the pause window). No handicaps: PvE. Its START tab is
+  **START WAVE n** for the host (**RESTART ON NEW MAP** with another map
+  chosen) and WAITING FOR HOST, dimmed, for the others; START WAVE closes the
+  folders for the countdown. Outside the setup break there is no tab, and the
+  host's changes wait for Retry Horde.
+- **START.** In the setup break a pad's START (the headset's Menu) opens the
+  folder, and in it START is the START tab. With a split screen every seat's
+  START is its own folder at any time (`input.c` `inputHordeStart`; a new seat
+  in the setup break gets it on Select Character). One player's START in a
+  run is the online pause window, as before: its Match tab has a
+  **Multiplayer Options** button, and **Start wave n** and **Retry Horde**
+  beside Resume. Not the campaign watch, which has nothing for a Horde run.
+  The rows are `mpmenu.c`'s `s_lobbyRows` entries HORDE MAP, STARTING WAVE,
+  FRIENDLY FIRE, AI ALLY and START WAVE, which the folder views.
 - **Late joiners** arrive in the setup break and play at once, as in any
   break; the snapshot tells them it is held.
 - **Host migration.** The new host inherits the held break from the last
@@ -154,10 +169,11 @@ carries it: one more byte, `HordeState.setup`, at the end of
 `NET_MSG_HORDE_STATE`. A snapshot holding the break outside the preparation, or
 with a value other than 0 or 1, is refused.
 
-The host's co-op and Horde rules from the launcher are in the pause window's
-Rules tab too: **Friendly fire** (live) and **AI ally** (the host's `VrAlly`,
-GoldenEye's campaign only; from the next mission or retry). Fast reinforcements
-was already the Settings tab's Game rules row.
+Co-op's host rules are in the pause window's Rules tab: **Friendly fire**
+(live) and **AI ally** (the host's `VrAlly`, GoldenEye's campaign only; from
+the next mission or retry). Fast reinforcements was already the Settings tab's
+Game rules row. Horde's are the folder's (above). The launcher no longer has
+either: its Host page goes straight into the match.
 
 ## Implementation
 

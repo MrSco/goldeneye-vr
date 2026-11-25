@@ -280,6 +280,13 @@ time even with nobody connected"): the bots stand still (`gevr_bot.c`) and
 the game runs 5 frames a second (`server_headset.c`), which still answers
 joins and the lobby; the first player to take a seat wakes it.
 
+**In-game setup (2026-11-24).** A player on a server is never the host: the
+Multiplayer Options folder (`docs/in-game-match-setup.md`) shows the
+server's match dimmed, and its START tab is READY, which the server does not
+wait for. The server's match comes from its ini and command line
+(`netMatchConfigFromSettings`), as before; the launcher's Host page, which
+now goes straight into a match, has nothing to do with it.
+
 **Headset tests** (Quest 3 against the server in WSL, through
 `tools/gevr_udp_relay.py`, which forwards the game port and the LAN beacons
 from Windows):
