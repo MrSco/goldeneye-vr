@@ -604,8 +604,32 @@ static int authoredFrame(lua_State *L, int t, const char *call, float out[4][4])
     return 1;
 }
 
+static int authoredMuzzle(lua_State *L, int t, float out[3])
+{
+    if (lua_getfield(L, t, "muzzle") == LUA_TNIL) {
+        lua_pop(L, 1);
+        return 0;
+    }
+    if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 3) {
+        return luaL_error(L, "mod.weapon.model: muzzle needs three numbers");
+    }
+    for (int axis = 0; axis < 3; ++axis) {
+        if (lua_rawgeti(L, -1, axis + 1) != LUA_TNUMBER) {
+            return luaL_error(L, "mod.weapon.model: muzzle needs three numbers");
+        }
+        const double value = lua_tonumber(L, -1);
+        if (!(value >= -GEVR_MODAPI_ATTACH_RANGE && value <= GEVR_MODAPI_ATTACH_RANGE)) {
+            return luaL_error(L, "mod.weapon.model: muzzle components are limited to +/-4000 model units");
+        }
+        out[axis] = (float)value;
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    return 1;
+}
+
 /*
- * model(hand, item, file | nil [, { frame }]): when the hand draws item, the mod's
+ * model(hand, item, file | nil [, { frame, muzzle }]): when the hand draws item, the mod's
  * assets/models/<file> in place of the item's cartridge model, built over
  * that model's header (its switch and texture counts, its skeleton); nil, the
  * item's own. A hand holding item now loads it at once. True when set; false
@@ -629,17 +653,18 @@ static int l_gunModel(lua_State *L)
     if (!gevrModGameSwappable(item)) {
         return luaL_argerror(L, 2, "a gun or thrown weapon with a model in this cartridge");
     }
-    float frame[4][4];
+    float frame[4][4], muzzle[3];
     const float (*fit)[4] = NULL;
+    const float *point = NULL;
     if (!lua_isnoneornil(L, 4)) {
         luaL_checktype(L, 4, LUA_TTABLE);
-        if (name == NULL || !authoredFrame(L, 4, "mod.weapon.model", frame)) {
-            return luaL_argerror(L, 4, "{ frame = ... } with a pack mesh file");
-        }
-        fit = frame;
+        if (name == NULL) return luaL_argerror(L, 4, "only with a pack mesh file");
+        if (authoredFrame(L, 4, "mod.weapon.model", frame)) fit = frame;
+        if (authoredMuzzle(L, 4, muzzle)) point = muzzle;
+        if (fit == NULL && point == NULL) return luaL_argerror(L, 4, "a frame or muzzle for a pack mesh");
     }
     needPlayer(L, "mod.weapon.model");
-    lua_pushboolean(L, gevrModGameGunModel(hand, item, name, fit));
+    lua_pushboolean(L, gevrModGameGunModel(hand, item, name, fit, point));
     return 1;
 }
 

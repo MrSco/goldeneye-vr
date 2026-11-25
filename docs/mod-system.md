@@ -558,10 +558,14 @@ in-game screen). We maintain the adapters, not the mods.
     `mod.attach`. Use the converted game model basis below. To place a
     part from a pack body mount, compose the body's fit and that mount
     when supplying its frame. Changing only the fit for a loaded file
-    takes effect on the next draw. A legacy file refuses the frame.
-    Replacing the gun body
-    hides the stock muzzle flash. This format alone does not add action
-    geometry, an authored muzzle or grip, optics, or remote weapon looks.
+    takes effect on the next draw. The options may also include
+    `muzzle = { x, y, z }` in the converted pack model's own units
+    (each component from -4000 to 4000). It follows the body's fit and
+    the hand's model matrix, and replaces the carrier's launch point and
+    trim while this replacement is loaded. A legacy file refuses these
+    options. Replacing the gun body still hides the stock muzzle flash.
+    This format alone does not add action geometry, a grip, optics, or
+    remote weapon looks.
 
     **Pack mesh byte layout.** Integers and IEEE 754 floats are little
     endian; there is no implicit padding. The same file can be a held

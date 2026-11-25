@@ -291,6 +291,14 @@ Gfx *gevrModMeshDraw(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh)
     return gdl;
 }
 
+void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3])
+{
+    for (int axis = 0; axis < 3; ++axis) {
+        out[axis] = fit == NULL ? point[axis] : fit->m[3][axis]
+            + fit->m[0][axis] * point[0] + fit->m[1][axis] * point[1] + fit->m[2][axis] * point[2];
+    }
+}
+
 void gevrPackMeshCollect(void)
 {
     while (s_retired != NULL) {

@@ -88,6 +88,14 @@ int main(void)
 {
     Gfx draw[4];
     Mtxf pose = {0};
+    /* The body mirrors X, swaps Y/Z, scales the model and shifts its root. */
+    const Mtxf fit = {.m = {{-2,0,0,0}, {0,0,2,0}, {0,2,0,0}, {12,13,14,1}}};
+    const float muzzle[3] = {3,5,7};
+    float point[3];
+    gevrModMeshPoint(NULL, muzzle, point);
+    assert(point[0] == 3 && point[1] == 5 && point[2] == 7);
+    gevrModMeshPoint(&fit, muzzle, point);
+    assert(point[0] == 6 && point[1] == 27 && point[2] == 24);
     const GevrModMesh *mesh = NULL, *other = NULL;
     assert(gevrModMeshLoad("valid.bin", &mesh) == 1 && mesh != NULL);
     assert(gevrModMeshLoad("valid.bin", &other) == 1 && other == mesh);
