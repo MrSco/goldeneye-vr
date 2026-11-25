@@ -97,10 +97,11 @@ un-readies everyone), READY - WAITING FOR THE HOST and so on.
 - **On arriving**: each local player's folder opens on the first warmup this
   machine loads after hosting or joining (a joiner mid-round: the next
   warmup).
-- **After RETURN TO LOBBY**, at every machine. Nothing new goes on the wire:
-  a client tells the return from the other reloads into a warmup by the
-  round reset itself: the lobby state says no round follows the load, and no
-  start was asked for (`net_core.c netLobbyReturnCount`).
+- **After RETURN TO LOBBY**, at every machine. The host's round notice
+  after the return's round reset carries a lobby flag (`NET_NOTICE_LOBBY`,
+  flag 8 of `NET_MSG_ROUND_NOTICE`, protocol 29), and each client counts
+  those (`net_core.c netLobbyReturnCount`). A notice with any other unknown
+  flag is still refused.
 - **Votes**: when the host asks for them, on NEXT MAP for each local player
   who hasn't voted. At a match's end the results stay up; right (or START,
   but the host's START continues) leaves them for the folder.

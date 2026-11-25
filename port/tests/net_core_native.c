@@ -974,6 +974,7 @@ EXPORT int test_core_warmup_join_and_votes(void) {
  * host's RETURN TO LOBBY: cancelling a start is not one, the reload is; the
  * vote it opens on, and START's word for changes the warmup has yet to load.
  */
+static void roundNoticePacket(ENetPeer*peer,unsigned flags,uint32_t ms,int length);
 EXPORT int test_core_lobby_returns(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
     for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
@@ -985,7 +986,19 @@ EXPORT int test_core_lobby_returns(void) {
     for(int i=0;i<4;i++)s_lobby_state.slots[i].ready=1;   /* the change un-readied them */
     netHostStartRoundNow();CHECK(s_next_round_at_us);
     netHostReturnToLobby();CHECK(!s_next_round_at_us && netLobbyReturnCount()==before);   /* a start cancelled */
+    s_host=(ENetHost*)1;s_client_peers[1]=&hit_peers[1];sent_size=0;
     netHostReturnToLobby();CHECK(netLobbyReturnCount()==before+1 && s_round_reset_loading && !s_start_after_load);
+    /* the reset's round notice (its last packet) says it is a return (NET_NOTICE_LOBBY), the next one does not */
+    CHECK(sent_size==13 && sent_data[6]==NET_MSG_ROUND_NOTICE && (sent_data[8]&NET_NOTICE_LOBBY));
+    sent_size=0;netBroadcastRoundNotice();CHECK(sent_size==13 && !(sent_data[8]&NET_NOTICE_LOBBY) && !s_notice_lobby);
+    s_host=NULL;s_client_peers[1]=NULL;
+    /* a client counts the notices that say so, and nothing else */
+    s_server_peer=&hit_peers[0];s_local_slot=3;before=netLobbyReturnCount();
+    roundNoticePacket(s_server_peer,NET_NOTICE_WARMUP,10000,5);CHECK(netLobbyReturnCount()==before);
+    roundNoticePacket(s_server_peer,NET_NOTICE_LOBBY,0,5);CHECK(netLobbyReturnCount()==before+1);
+    roundNoticePacket(s_server_peer,NET_NOTICE_LOBBY|16,0,5);CHECK(netLobbyReturnCount()==before+1);
+    roundNoticePacket(&hit_peers[1],NET_NOTICE_LOBBY,0,5);CHECK(netLobbyReturnCount()==before+1);
+    s_local_slot=0;s_server_peer=NULL;
     CHECK(!netWarmupSettingsPending());   /* loading */
     s_lobby_state.config.next_round=NET_NEXT_SHUFFLE;s_vote_requested=true;CHECK(!netVoteRequested());
     s_lobby_state.config.next_round=NET_NEXT_VOTE;CHECK(netVoteRequested());
@@ -1015,6 +1028,7 @@ EXPORT int test_core_round_prompts(void) {
     s_countdown_end_us=0;s_server_peer=&hit_peers[0];s_start_requested=s_vote_requested=false;
     roundNoticePacket(&hit_peers[1],7,10000,5);CHECK(!s_start_requested && !s_warmup_end_us);
     for(int length=0;length<5;length++){roundNoticePacket(s_server_peer,7,10000,length);CHECK(!s_start_requested);}
+    roundNoticePacket(s_server_peer,16|7,10000,5);CHECK(!s_start_requested);
     roundNoticePacket(s_server_peer,8,10000,5);CHECK(!s_start_requested);
     roundNoticePacket(s_server_peer,7,120001,5);CHECK(!s_start_requested);
     roundNoticePacket(s_server_peer,3,10000,5);CHECK(!s_start_requested);

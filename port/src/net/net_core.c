@@ -59,7 +59,9 @@ static bool s_warmup_started = false, s_start_requested = false, s_vote_requeste
 static unsigned s_sessions, s_stage_loads, s_lobby_returns;   /* netSessionCount, netStageLoadCount, netLobbyReturnCount */
 static uint64_t s_warmup_end_us = 0;
 #define NET_WARMUP_SECONDS 120
-enum { NET_NOTICE_READY = 1, NET_NOTICE_VOTE = 2, NET_NOTICE_WARMUP = 4 };
+/* NET_NOTICE_LOBBY (protocol 29): this notice follows the host's RETURN TO LOBBY (netLobbyReturnCount) */
+enum { NET_NOTICE_READY = 1, NET_NOTICE_VOTE = 2, NET_NOTICE_WARMUP = 4, NET_NOTICE_LOBBY = 8, NET_NOTICE_MASK = 15 };
+static bool s_notice_lobby;   /* the next round notice carries NET_NOTICE_LOBBY */
 static bool s_match_ended = false;
 static uint64_t s_results_deadline_us = 0;
 static uint64_t s_next_round_at_us = 0;
@@ -2283,12 +2285,10 @@ int netHostStartRequested(void) { return s_start_requested; }
 /*
  * For the in-match Multiplayer Options folder (mpmenu.c), which opens by
  * itself on arriving and after RETURN TO LOBBY: the stage loads this machine
- * has made, and the returns to the lobby it has seen. A client tells a
- * return from the other reloads into a warmup without a word on the wire:
- * the host's lobby state says whether the round starts after the load (the
- * countdown's reload), and every other reload (the match continuing, START
- * with changed settings, the warmup running out) follows a start request the
- * round notice carried; a return to the lobby is the one with neither.
+ * has made, and the returns to the lobby it has seen. The host counts its
+ * own; a client counts the round notices that say so (NET_NOTICE_LOBBY, sent
+ * after the round reset of the return, protocol 29), rather than telling a
+ * return from the other reloads into a warmup by what came before it.
  */
 unsigned netSessionCount(void) { return s_sessions; }
 unsigned netStageLoadCount(void) { return s_stage_loads; }
@@ -2309,7 +2309,8 @@ static void netBroadcastRoundNotice(void) {
     netbufWriteU8(&buf, NET_MSG_ROUND_NOTICE);
     netbufWriteU8(&buf, (uint8_t)s_host_slot);
     netbufWriteU8(&buf, (s_start_requested ? NET_NOTICE_READY : 0) |
-        (s_vote_requested ? NET_NOTICE_VOTE : 0) | (s_warmup_end_us ? NET_NOTICE_WARMUP : 0));
+        (s_vote_requested ? NET_NOTICE_VOTE : 0) | (s_warmup_end_us ? NET_NOTICE_WARMUP : 0) |
+        (s_notice_lobby ? NET_NOTICE_LOBBY : 0));
     uint64_t now = sysGetMicroseconds();
     netbufWriteU32(&buf, s_warmup_end_us > now ? (uint32_t)((s_warmup_end_us - now + 999) / 1000) : 0);
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
@@ -2319,8 +2320,10 @@ static void netReceiveRoundNotice(ENetPeer *peer, struct netbuf *buf, size_t siz
     if (!peer || netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME || size != 13) return;
     unsigned flags = netbufReadU8(buf);
     uint32_t ms = netbufReadU32(buf);
-    if (buf->error || netbufReadLeft(buf) || (flags & ~7u) || ms > NET_WARMUP_SECONDS * 1000u ||
+    if (buf->error || netbufReadLeft(buf) || (flags & ~(unsigned)NET_NOTICE_MASK) || ms > NET_WARMUP_SECONDS * 1000u ||
         (!(flags & NET_NOTICE_WARMUP) && ms)) return;
+    /* the host's RETURN TO LOBBY: the folder opens after the reload (mpmenu.c) */
+    if (flags & NET_NOTICE_LOBBY) s_lobby_returns++;
     s_start_requested = (flags & NET_NOTICE_READY) != 0;
     s_vote_requested = (flags & NET_NOTICE_VOTE) != 0;
     s_warmup_started = (flags & NET_NOTICE_WARMUP) != 0;
@@ -2480,8 +2483,11 @@ void netHostReturnToLobby(void) {
     }
     NET_LOG("host: lobby");
     s_lobby_returns++;
-    /* Keep the active stage and kits. Pending choices wait for START MATCH. */
+    /* Keep the active stage and kits. Pending choices wait for START MATCH.
+     * The reset's round notice tells the clients it is a return (NET_NOTICE_LOBBY). */
+    s_notice_lobby = true;
     netBeginRoundReset(false);
+    s_notice_lobby = false;
 }
 
 /* Reload this map into a warmup with the host's pending choices: no second
@@ -4839,8 +4845,6 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
             NetRoundSettings round;
             if (!netReadRoundSettings(&buf, &round) || netbufReadLeft(&buf)) break;
-            /* the host's RETURN TO LOBBY: no round after the load, no start asked for (netLobbyReturnCount) */
-            if (!s_start_after_load && !s_start_requested) s_lobby_returns++;
             s_round = round;netImportCombatIdentity(&round);
             s_phase = NET_PHASE_WARMUP;
             s_match_ended = false;
@@ -5686,7 +5690,6 @@ static void netHostRoundTick(uint64_t now) {
         !s_next_round_at_us && netGetConnectedPlayerCount() >= 2 && (!s_dedicated || netGetHumanPlayerCount() > 0)) {
         s_start_requested = true;
         s_vote_requested = s_lobby_state.config.next_round == NET_NEXT_VOTE;
-        netBroadcastRoundNotice();   /* before any reload it brings: the clients tell it from a return to the lobby */
     }
     if (!s_results_deadline_us) netTryHostStartRequest();
     if (s_next_round_at_us && now >= s_next_round_at_us &&
