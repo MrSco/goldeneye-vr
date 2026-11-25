@@ -42,6 +42,8 @@ int gevrModAssetNameOk(const char *name);
 int gevrModAssetHasModel(const char *name);
 /* Open a validated model in the active pack; the caller closes it. */
 FILE *gevrModAssetOpenModel(const char *name);
+/* Optional .opaque companion to a validated pack mesh name. */
+FILE *gevrModAssetOpenModelOpacity(const char *name);
 /* The last model file loaded was the mod's (objecthandler_2.c): the patches
  * made for the cartridge's meshes (VR hands, magazines, the hat, Bean) leave
  * it alone. Cleared as each load starts. */

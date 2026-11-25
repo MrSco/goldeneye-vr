@@ -55,6 +55,15 @@ FILE *gevrModAssetOpenModel(const char *name)
     return fopen(path, "rb");
 }
 
+FILE *gevrModAssetOpenModelOpacity(const char *name)
+{
+    char filename[sizeof(".opaque") + 63], path[1024];
+    if (!nameOk(name)) return NULL;
+    snprintf(filename, sizeof(filename), "%s.opaque", name);
+    if (!assetPath(path, sizeof(path), gevrModActive(), "models", filename)) return NULL;
+    return fopen(path, "rb");
+}
+
 /* a file to read: a folder opens on some systems but gives no byte */
 int gevrModAssetHasModel(const char *name)
 {
