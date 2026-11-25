@@ -80,6 +80,7 @@ extern int netVoiceCaptureFailed(void);
 #include "glass.h"
 #include <stdlib.h>
 void mpwatchPlayBeep(void);
+s32 mpwatchIsPlayerPressingRight(s32 player);
 extern int netMpPlayerCount(int fallback);
 extern int netGetConnectedPlayerCount(void);
 /* The online score and kill tables' row pitch: the original 15 pixels up to
@@ -1556,6 +1557,7 @@ static s32 s_setupCursor[MAX_PLAYER_COUNT][SETUP_SHEET_COUNT];   /* the main she
 static s32 s_setupFrom[MAX_PLAYER_COUNT];      /* the page PREVIOUS goes back to; -1: the menu closes */
 static s32 s_setupLeaving[MAX_PLAYER_COUNT];   /* closes once the button that closed it is let go */
 static s32 s_setupHeld[MAX_PLAYER_COUNT];      /* held in the warmup (netSetSlotChoosing) */
+static s32 s_setupOwed[MAX_PLAYER_COUNT];      /* opens by itself at the next warmup's load (gevrMpOptionsAutoTick) */
 extern const char *netGetLobbyCode(void);
 
 static s32 gevrSetupHostSeat(s32 slot) { return netIsHost() && slot == netGetLocalSlot(); }
@@ -1789,6 +1791,8 @@ static void gevrSetupInfo(s32 slot, char *b, s32 n, s32 narrow)
                  netGetPhase() == 2 ? (narrow ? "NEXT ROUND" : "CHANGES APPLY NEXT ROUND")
                  : netGetConnectedPlayerCount() == 1 ? (narrow ? "START: RESTART" : "START: RESTART WARMUP WITH CHANGES")
                  : netHostStartRequested() ? "WAITING FOR READY"
+                 /* a START with changes reloads the warmup first (net_core.c netTryHostStartRequest) */
+                 : netWarmupSettingsPending() ? (narrow ? "START: LOAD" : "START: LOAD THE CHANGES INTO THE WARMUP")
                  : netRoundRosterReady() ? (narrow ? "START: MATCH" : "START: BEGIN THE MATCH")
                  : (narrow ? "START: ASK READY" : "START: REQUEST READY"));
     }
@@ -1818,6 +1822,7 @@ void gevrMpOptionsOpen(s32 slot, s32 from)
     s_setupFrom[slot] = from;
     s_setupArmed[slot] = 0;
     s_setupLeaving[slot] = 0;
+    s_setupOwed[slot] = 0;
     s_panelToSetup[slot] = 0;
     frontPanelPadReset(slot);
     pl->mpmenuon = TRUE;
@@ -2080,6 +2085,109 @@ static void gevrMpOptionsHoldTick(s32 slot)
         s_setupHeld[slot] = 0;
         if (!(gevrCharSelIsOpen(slot) && s_charSelDropIn[slot])) netSetSlotChoosing(slot, 0);
     }
+}
+
+/*
+ * The folder opens by itself (owner, 2026-11-24): on arriving in the match
+ * (the first warmup this machine loads after hosting or joining it) and after
+ * the host's RETURN TO LOBBY, for each local player; and when the host asks
+ * for the next round's votes, on NEXT MAP for each one who has not voted
+ * yet (at a match's end once they leave the results: right or START there).
+ * Not every warmup between rounds: the round notice says what is wanted.
+ */
+static unsigned s_setupSession;   /* net_core.c netSessionCount: the session the openings below are for */
+static unsigned s_setupLoads;     /* the stage load count an owed opening waits to pass */
+static unsigned s_setupReturns;   /* netLobbyReturnCount seen */
+static s32 s_setupVote;           /* netVoteRequested seen */
+
+static void gevrSetupOweAll(unsigned loads)
+{
+    s32 i;
+
+    s_setupLoads = loads;
+    for (i = 0; i < MAX_PLAYER_COUNT; i++) s_setupOwed[i] = gevrNetSlotIsLocalHuman(i) != 0;
+}
+
+/* the vote's folder, on NEXT MAP; over another page of the watch (PREVIOUS goes back to it), not over a game screen */
+static void gevrMpOptionsVoteOpen(s32 slot)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+
+    if (pl == NULL || !gevrMpOptionsAvailable(slot)) return;
+    if (gevrMenuPanelIsOpen(slot) && !gevrMpOptionsIsOpen(slot)) return;
+    if (!gevrMpOptionsIsOpen(slot)) gevrMpOptionsOpen(slot, pl->mpmenuon ? pl->mpmenumode : -1);
+    if (!gevrMpOptionsIsOpen(slot)) return;
+    s_setupSheet[slot] = SETUP_SHEET_MAIN;
+    s_setupCursor[slot][SETUP_SHEET_MAIN] = GEVR_SETUP_NEXT_MAP;
+}
+
+static void gevrMpOptionsAutoTick(s32 slot)
+{
+    struct player *pl;
+    s32 vote;
+    s32 i;
+
+    if (!netIsActive() || gevrNetConfigPve()) return;
+    if (netSessionCount() != s_setupSession)
+    {
+        /* arriving: the stage loaded now counts (or, joining a round, the next warmup's) */
+        s_setupSession = netSessionCount();
+        s_setupReturns = netLobbyReturnCount();
+        s_setupVote = netVoteRequested();
+        gevrSetupOweAll(netStageLoadCount() - 1);
+    }
+    if (netLobbyReturnCount() != s_setupReturns)
+    {
+        s_setupReturns = netLobbyReturnCount();
+        gevrSetupOweAll(netStageLoadCount());   /* after the reload into the lobby's warmup */
+    }
+    vote = netVoteRequested();
+    if (vote != s_setupVote)
+    {
+        s_setupVote = vote;
+        for (i = 0; vote && !g_gameOverFlag && i < MAX_PLAYER_COUNT; i++)
+        {
+            if (gevrNetSlotIsLocalHuman(i) && netGetVote(0, i) < 0) gevrMpOptionsVoteOpen(i);
+        }
+    }
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || !s_setupOwed[slot]) return;
+    pl = g_playerPointers[slot];
+    /* the first frame of a warmup past that load, the player alive (a round in progress: still owed) */
+    if (pl == NULL || netStageLoadCount() == s_setupLoads || netGetPhase() != 1 || pl->bonddead || g_gameOverFlag) return;
+    s_setupOwed[slot] = 0;
+    if (!pl->mpmenuon) gevrMpOptionsOpen(slot, -1);
+}
+
+/* the results of a match: right (or START, but the host's, which continues) leaves them for the folder, on NEXT MAP while voting */
+static s32 gevrMpOptionsFromResults(s32 slot)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+
+    if (pl == NULL || !g_gameOverFlag || pl->mpmenumode != MENU_SCORES || !gevrMpOptionsAvailable(slot)) return 0;
+    if (!mpwatchIsPlayerPressingRight(slot) &&
+        !(joyGetButtonsPressedThisFrame(slot, START_BUTTON) && !gevrSetupHostSeat(slot))) return 0;
+    mpwatchPlayBeep();
+    gevrMpOptionsOpen(slot, MENU_SCORES);
+    if (lobbyVoting()) s_setupCursor[slot][SETUP_SHEET_MAIN] = GEVR_SETUP_NEXT_MAP;
+    return gevrMpOptionsIsOpen(slot);
+}
+
+/* A split screen's new seat (input.c): in the warmup, the folder on its Select
+ * Character, which comes back to it; in a round, Select Character as a drop-in */
+void gevrMpOptionsDropIn(s32 slot)
+{
+    if (netGetPhase() == 1 && gevrMpOptionsAvailable(slot))
+    {
+        gevrMpOptionsOpen(slot, -1);
+        s_setupCursor[slot][SETUP_SHEET_MAIN] = GEVR_SETUP_CHARACTER;
+        gevrCharSelOpen(slot, 0);
+        if (gevrCharSelIsOpen(slot))
+        {
+            s_panelToSetup[slot] = 1;
+            return;
+        }
+    }
+    gevrCharSelOpen(slot, 1);
 }
 
 /* the pause window's Match tab (vr_pause_menu.cpp): PREVIOUS comes back to the window, a page of the watch */
@@ -3049,6 +3157,7 @@ void mpwatchMenuTick(void)
 #ifdef GEVR
     /* Select Character (co-op too, whose watch is the solo pause): nothing else
      * reads the pad meanwhile. After the game-over timer, which the first player drives. */
+    gevrMpOptionsAutoTick(player_num);
     gevrMpOptionsHoldTick(player_num);
     if (gevrCharSelTick(player_num)) return;
     if (gevrStageSelTick(player_num)) return;
@@ -3108,6 +3217,11 @@ void mpwatchMenuTick(void)
             {
 #ifdef GEVR
                 gevrMenuPagesTick(player_num);
+                if (gevrMpOptionsFromResults(player_num))
+                {
+                    /* the results left for the folder */
+                }
+                else
 #endif
                 if (mpwatchIsPlayerPressingRight(player_num) && mpwatchMenuCanGoRight())
                 {

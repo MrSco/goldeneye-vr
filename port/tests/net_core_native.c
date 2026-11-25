@@ -969,6 +969,29 @@ EXPORT int test_core_warmup_join_and_votes(void) {
     netHostStartRoundNow();CHECK(s_next_round_at_us==clock_us+10000000ull);
     return 0;
 }
+/*
+ * The in-match Multiplayer Options folder (mpmenu.c) opens by itself after the
+ * host's RETURN TO LOBBY: cancelling a start is not one, the reload is; the
+ * vote it opens on, and START's word for changes the warmup has yet to load.
+ */
+EXPORT int test_core_lobby_returns(void) {
+    fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();
+    unsigned before=netLobbyReturnCount();
+    CHECK(!netWarmupSettingsPending());
+    gevrNetConfigSet(CFG_GAME_LENGTH,(gevrNetConfigGet(CFG_GAME_LENGTH)+1)%4);CHECK(netWarmupSettingsPending());
+    netLatchRoundSettings();CHECK(!netWarmupSettingsPending());
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].ready=1;   /* the change un-readied them */
+    netHostStartRoundNow();CHECK(s_next_round_at_us);
+    netHostReturnToLobby();CHECK(!s_next_round_at_us && netLobbyReturnCount()==before);   /* a start cancelled */
+    netHostReturnToLobby();CHECK(netLobbyReturnCount()==before+1 && s_round_reset_loading && !s_start_after_load);
+    CHECK(!netWarmupSettingsPending());   /* loading */
+    s_lobby_state.config.next_round=NET_NEXT_SHUFFLE;s_vote_requested=true;CHECK(!netVoteRequested());
+    s_lobby_state.config.next_round=NET_NEXT_VOTE;CHECK(netVoteRequested());
+    s_vote_requested=false;CHECK(!netVoteRequested());
+    return 0;
+}
 static void roundNoticePacket(ENetPeer*peer,unsigned flags,uint32_t ms,int length) {
     u8 raw[6];struct netbuf b={.data=raw,.size=sizeof(raw)};
     netbufStartWrite(&b);netbufWriteU8(&b,flags);netbufWriteU32(&b,ms);netbufWriteU8(&b,0);

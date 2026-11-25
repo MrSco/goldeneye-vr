@@ -67,6 +67,7 @@ s32 gevrMpOptionsIsOpen(s32 slot);
 s32 gevrMpOptionsAvailable(s32 slot);
 s32 gevrMpOptionsStartPressed(s32 slot);
 void gevrMpOptionsFromPause(s32 slot);
+void gevrMpOptionsDropIn(s32 slot);
 #endif
 
 #endif

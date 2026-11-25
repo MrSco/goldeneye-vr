@@ -56,6 +56,7 @@ static bool s_round_reset_loading = false;
 static bool s_start_after_load = false;
 static bool s_lobby_open = false;
 static bool s_warmup_started = false, s_start_requested = false, s_vote_requested = false;
+static unsigned s_sessions, s_stage_loads, s_lobby_returns;   /* netSessionCount, netStageLoadCount, netLobbyReturnCount */
 static uint64_t s_warmup_end_us = 0;
 #define NET_WARMUP_SECONDS 120
 enum { NET_NOTICE_READY = 1, NET_NOTICE_VOTE = 2, NET_NOTICE_WARMUP = 4 };
@@ -702,6 +703,7 @@ static void netForgetPlayerScore(int slot) {
 }
 
 static void netResetLobbyState(void) {
+    s_sessions++;
     netClearHostHits();
     if(netIsHost())netResetCombatEpoch();
     else {s_combat_epoch=0;memset(s_hit_life,0,sizeof(s_hit_life));memset(s_clock_sync,0,sizeof(s_clock_sync));}
@@ -2278,6 +2280,25 @@ int netWarmupSecondsLeft(void) {
 
 int netHostStartRequested(void) { return s_start_requested; }
 
+/*
+ * For the in-match Multiplayer Options folder (mpmenu.c), which opens by
+ * itself on arriving and after RETURN TO LOBBY: the stage loads this machine
+ * has made, and the returns to the lobby it has seen. A client tells a
+ * return from the other reloads into a warmup without a word on the wire:
+ * the host's lobby state says whether the round starts after the load (the
+ * countdown's reload), and every other reload (the match continuing, START
+ * with changed settings, the warmup running out) follows a start request the
+ * round notice carried; a return to the lobby is the one with neither.
+ */
+unsigned netSessionCount(void) { return s_sessions; }
+unsigned netStageLoadCount(void) { return s_stage_loads; }
+unsigned netLobbyReturnCount(void) { return s_lobby_returns; }
+/* the host asked for the next round's votes, which the folder opens on */
+int netVoteRequested(void) {
+    return s_state == NET_STATE_INGAME && s_vote_requested && s_lobby_state.config.next_round == NET_NEXT_VOTE &&
+           !netModePve(s_lobby_state.config.mode);
+}
+
 static void netBroadcastRoundNotice(void) {
     if (!netIsHost() || s_state != NET_STATE_INGAME) return;
     u8 raw[13];
@@ -2330,10 +2351,11 @@ void netRoundNoticeTextFit(char *text, unsigned size, int narrow) {
         s_lobby_state.slots[s_local_slot].team == NET_TEAM_NONE;
     bool need_vote = s_vote_requested && s_lobby_state.config.next_round == NET_NEXT_VOTE &&
         (netGetVote(NET_BALLOT_STAGE, s_local_slot) < 0 || netGetVote(NET_BALLOT_WEAPONS, s_local_slot) < 0);
-    if (need_team) snprintf(text,size,"%s",narrow ? "MENU: TEAM, READY" : "HOST REQUESTS READY - OPEN MENU: CHOOSE TEAM / READY UP");
-    else if (need_ready && need_vote) snprintf(text,size,"%s",narrow ? "MENU: READY, VOTE" : "HOST REQUESTS READY / VOTES - OPEN MENU TO JOIN IN");
-    else if (need_ready) snprintf(text,size,"%s",narrow ? "MENU: READY UP" : "HOST REQUESTS READY - OPEN MENU: READY UP");
-    else if (need_vote) snprintf(text,size,"%s",narrow ? "MENU: VOTE" : "HOST REQUESTS VOTES - OPEN MENU: NEXT MAP / WEAPONS");
+    /* START: the Multiplayer Options folder (mpmenu.c), its START tab the READY */
+    if (need_team) snprintf(text,size,"%s",narrow ? "START: TEAM, READY" : "HOST REQUESTS READY - START: CHOOSE TEAM / READY UP");
+    else if (need_ready && need_vote) snprintf(text,size,"%s",narrow ? "START: READY, VOTE" : "HOST REQUESTS READY / VOTES - START: MULTIPLAYER OPTIONS");
+    else if (need_ready) snprintf(text,size,"%s",narrow ? "START: READY UP" : "HOST REQUESTS READY - START: READY UP");
+    else if (need_vote) snprintf(text,size,"%s",narrow ? "START: VOTE" : "HOST REQUESTS VOTES - START: NEXT MAP / WEAPONS");
     else if (s_start_requested) snprintf(text,size,"%s",narrow ? "WAITING FOR READY" : "WAITING FOR PLAYERS TO READY UP / LOAD");
     else if (s_phase == NET_PHASE_WARMUP) {
         int seconds = netWarmupSecondsLeft();
@@ -2457,6 +2479,7 @@ void netHostReturnToLobby(void) {
         return;
     }
     NET_LOG("host: lobby");
+    s_lobby_returns++;
     /* Keep the active stage and kits. Pending choices wait for START MATCH. */
     netBeginRoundReset(false);
 }
@@ -2493,6 +2516,12 @@ int netHostCanStartRound(void) {
     return 1;
 }
 
+static bool netWarmupSettingsChanged(void);
+/* the host's pending settings differ from the warmup's: START loads them into a new warmup first */
+int netWarmupSettingsPending(void) {
+    return netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_WARMUP && !s_round_reset_loading &&
+           !netModePve(s_lobby_state.config.mode) && netWarmupSettingsChanged();
+}
 static bool netWarmupSettingsChanged(void) {
     NetMatchConfig active = s_round.config, pending = s_lobby_state.config;
     active.next_round = pending.next_round = 0;
@@ -2583,6 +2612,7 @@ static void netReadyProgress(void) {
 }
 
 void netStageLoaded(void) {
+    s_stage_loads++;
     s_coop_ended = false;
     netCoopMenuReset();
     netSpectatorReset();
@@ -4809,6 +4839,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
             NetRoundSettings round;
             if (!netReadRoundSettings(&buf, &round) || netbufReadLeft(&buf)) break;
+            /* the host's RETURN TO LOBBY: no round after the load, no start asked for (netLobbyReturnCount) */
+            if (!s_start_after_load && !s_start_requested) s_lobby_returns++;
             s_round = round;netImportCombatIdentity(&round);
             s_phase = NET_PHASE_WARMUP;
             s_match_ended = false;
@@ -5654,6 +5686,7 @@ static void netHostRoundTick(uint64_t now) {
         !s_next_round_at_us && netGetConnectedPlayerCount() >= 2 && (!s_dedicated || netGetHumanPlayerCount() > 0)) {
         s_start_requested = true;
         s_vote_requested = s_lobby_state.config.next_round == NET_NEXT_VOTE;
+        netBroadcastRoundNotice();   /* before any reload it brings: the clients tell it from a return to the lobby */
     }
     if (!s_results_deadline_us) netTryHostStartRequest();
     if (s_next_round_at_us && now >= s_next_round_at_us &&

@@ -298,8 +298,8 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 if(model.setup) {
                     /* the game's Multiplayer Options folder (mpmenu.c), where the whole match is set up */
                     ImGui::SetCursorPos(ImVec2(x,822));
-                    if(ImGui::Button("Multiplayer Options",ImVec2(300,38)))action=GEVR_PAUSE_SETUP;
-                    x+=316;
+                    if(ImGui::Button("Multiplayer Options",ImVec2(340,38)))action=GEVR_PAUSE_SETUP;
+                    x+=356;
                 }
                 if(model.host) {
                     ImGui::SetCursorPos(ImVec2(x,822));

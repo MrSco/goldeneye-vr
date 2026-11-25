@@ -1470,11 +1470,12 @@ static void inputOnlineSeatsSync(void)
         for (s32 seat = 1; seat < count; ++seat) {
             const s32 slot = netSlotOfLocalSeat(seat);
             if (slot >= 0 && slot < MAX_PLAYER_COUNT && s_onlineSlotDev[slot] == JOIN_NONE) {
-                extern void gevrCharSelOpen(s32 slot, s32 dropin);
+                extern void gevrMpOptionsDropIn(s32 slot);
                 s_onlineSlotDev[slot] = s_onlinePending;   /* the match took it */
                 s_onlinePending = JOIN_NONE;
-                /* the newcomer chooses their character in their own view first (mpmenu.c) */
-                if (bossGetStageNum() != LEVELID_TITLE) gevrCharSelOpen(slot, 1);
+                /* the newcomer chooses their character in their own view first (mpmenu.c): in a
+                 * deathmatch's warmup from the Multiplayer Options folder, which it comes back to */
+                if (bossGetStageNum() != LEVELID_TITLE) gevrMpOptionsDropIn(slot);
                 break;
             }
         }

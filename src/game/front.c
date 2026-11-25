@@ -7933,7 +7933,8 @@ Gfx *frontMpOptionsDraw(Gfx *DL, s32 slot, const char *title, const FrontOptionR
             }
             continue;
         }
-        frontPanelFit(text, sizeof(text), r->label, valuex - 8, chars, font);
+        /* a row without a value (a screen's row, a list's) has the width */
+        frontPanelFit(text, sizeof(text), r->label, r->value != NULL && r->value[0] ? valuex - 8 : right - left - 6, chars, font);
         x = left;
         DL = textRender(DL, &x, &y, text, chars, font, colour, viGetX(), viGetY(), 0, 0);
         if (r->value != NULL && r->value[0])
