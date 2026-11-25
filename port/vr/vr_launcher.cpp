@@ -2396,12 +2396,23 @@ static void gevrMpStartHosting()
  * registration completes in the game (gevrLobbyGameTick sends the phase again
  * once it is CREATED).
  */
+/*
+ * The phase the lobby service lists a hosted game in (goldeneyevr.com
+ * services/lobbies): the pre-match lobby is its own ("In lobby"), a round in
+ * progress needs two players there (it refuses one), the rest is warmup.
+ */
+static const char *gevrLobbyPhaseName(int players)
+{
+    if (netInMatchLobby()) return "lobby";
+    return netGetPhase() == NET_PHASE_IN_PROGRESS && players > 1 ? "in_progress" : "warmup";
+}
+
 static void gevrMpLaunch(bool &startMatch)
 {
     const int players = netGetHumanPlayerCount();   // the lobby service counts the people
     if (!netIsHost() || !netLobbyHostLaunchMatch()) return;
-    gevrJavaCommand("lobbyCommand", (std::string("phase|") + (players > 1 ? "in_progress" : "warmup") + "|" +
-                                     std::to_string(players)).c_str());
+    gevrJavaCommand("lobbyCommand", (std::string("phase|") + (netInMatchLobby() ? "lobby" : players > 1 ? "in_progress" : "warmup") +
+                                     "|" + std::to_string(players)).c_str());
     // the game's globals from the lobby's config, as every headset sets them before a load
     netApplyMatchConfig();
     if (netGetMatchConfig()->mode != NET_MODE_COOP) // the boot loads co-op's menus (gevrMultiplayerTick)
@@ -2836,7 +2847,8 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                             snprintf(label, sizeof(label), "%s%s  -  %s  -  %d/%d players%s%s##online%s",
                                      game.name.c_str(), game.dedicated ? " [Dedicated]" : "", where.c_str(),
                                      game.players, game.maxPlayers, flat,
-                                     game.phase == "warmup"        ? " (warmup)"
+                                     game.phase == "lobby"         ? " (in lobby)"
+                                     : game.phase == "warmup"      ? " (warmup)"
                                      : game.phase == "in_progress" ? " (in progress)"
                                                                    : "",
                                      game.code.c_str());
@@ -3057,6 +3069,7 @@ extern "C" void gevrLobbyGameTick(void)
     static Uint32 lastTick = 0;
     static Uint32 lastRefresh = 0;
     static NetPhase lastPhase = NET_PHASE_WAITING;
+    static bool lastLobby = false;   /* the pre-match lobby is a warmup round of its own (gevrLobbyPhaseName) */
     static bool keepalivePaused = false;
     static std::vector<std::string> pendingAnswers;
     const Uint32 now = SDL_GetTicks();
@@ -3076,8 +3089,7 @@ extern "C" void gevrLobbyGameTick(void)
         if (netHostTakeOver(GEVR_DEFAULT_PORT)) {
             if (internet) {
                 gevrJavaCommand("lobbyCommand", (std::string("resume|") + netGetLobbyCode() + "|" + netGetLobbyToken() + "|" +
-                    std::to_string(netGetMaxPlayers()) + "|" +
-                    (netGetPhase() == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup") + "|1|" + gevrLobbyName()).c_str());
+                    std::to_string(netGetMaxPlayers()) + "|" + gevrLobbyPhaseName(2) + "|1|" + gevrLobbyName()).c_str());
             }
             netDiscoveryInit();
             netDiscoveryStartBroadcasting(netGetGameName(), GEVR_DEFAULT_PORT);
@@ -3131,11 +3143,13 @@ extern "C" void gevrLobbyGameTick(void)
             keepalivePaused = false;
             lastRefresh = 0;
         }
-        if (running && (phase != lastPhase || now - lastRefresh >= 5000 || lastRefresh == 0)) {
+        const bool lobby = netInMatchLobby();
+        if (running && (phase != lastPhase || lobby != lastLobby || now - lastRefresh >= 5000 || lastRefresh == 0)) {
             lastRefresh = now;
-            const char *phaseName = phase == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup";
-            if (phase != lastPhase) {
+            const char *phaseName = lobby ? "lobby" : phase == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup";
+            if (phase != lastPhase || lobby != lastLobby) {
                 lastPhase = phase;
+                lastLobby = lobby;
                 gevrJavaCommand("lobbyCommand", (std::string("phase|") + phaseName + "|" +
                                 std::to_string(netGetLivePlayerCount())).c_str());
             } else {

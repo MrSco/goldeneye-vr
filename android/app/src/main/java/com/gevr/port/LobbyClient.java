@@ -197,7 +197,7 @@ final class LobbyClient {
             }
             case "phase":
                 lastKeepalive = SystemClock.elapsedRealtime();
-                if (fields.length == 3 && ("warmup".equals(fields[1]) || "in_progress".equals(fields[1]))) {
+                if (fields.length == 3 && ("lobby".equals(fields[1]) || "warmup".equals(fields[1]) || "in_progress".equals(fields[1]))) {
                     phase = fields[1];
                     players = Integer.parseInt(fields[2]);
                     open = players < maxPlayers;

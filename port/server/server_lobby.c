@@ -234,11 +234,12 @@ void serverLobbyTick(void)
 	if (s_code[0]) {
 		const int players = netGetLivePlayerCount();
 		const int max = netGetMaxPlayers();
-		const int phase = netGetPhase() == NET_PHASE_IN_PROGRESS && players >= 2 ? 2 : 1;
+		/* 3: the pre-match lobby, which the service lists as its own (docs/match-lobby.md) */
+		const int phase = netInMatchLobby() ? 3 : netGetPhase() == NET_PHASE_IN_PROGRESS && players >= 2 ? 2 : 1;
 		char line[96];
 
 		if (phase != s_lastPhase) {
-			snprintf(line, sizeof(line), "phase|%s|%d", phase == 2 ? "in_progress" : "warmup", players);
+			snprintf(line, sizeof(line), "phase|%s|%d", phase == 3 ? "lobby" : phase == 2 ? "in_progress" : "warmup", players);
 			lobbyCommand(line);
 			s_lastPhase = phase;
 			s_nextRefreshMs = lobbyNowMs() + 5000;

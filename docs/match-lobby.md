@@ -104,8 +104,33 @@ the lobby `input.c` routes each local seat's pad by its slot, as in a match
 (the front end's menus otherwise read only this machine's first player), and
 a new pad's START joins a split screen there too.
 
-## Not yet
+## The pointer on the game's screens
 
-- The internet game list says "warmup" for a game in the lobby.
-- The game's own screens (Select Character, the map photos) take the pads'
-  sticks, as in a match, not the laser.
+Select Character, the Select Stage photos, Handicap and Teams take the
+headset's laser (a flat window's mouse) as the window does, in the lobby and
+in a match where the screen is on the virtual screen (owner, 2026-11-25:
+"consistent and polished"): `front.c frontPanelPointer`. Each screen notes
+where it drew what may be pointed at (`frontPanelHit`); the pointer takes
+over when it moves and gives way to the stick or the d-pad, and the trigger
+(Z) or a click (A) chooses:
+
+- Select Character: a side portrait slides the strip to it, the centre one
+  chooses it (the strip moving under a still pointer would run on if the
+  hover moved it).
+- The photos: the hover moves the highlight, a click chooses; the scroll
+  arrows step a row.
+- Handicap: the arrows step the health; the host's seat picks a player's row.
+- Teams: a side's column picks it.
+- Every footer's A: and B: words are its buttons.
+
+The photos and portraits are the textures the HD pack replaces (the "HD +
+AI" pack has them). The window comes back on the tab that opened a screen.
+
+## The internet game list
+
+The game reports the lobby as its own phase, `lobby` (`vr_launcher.cpp
+gevrLobbyPhaseName`, `port/server/server_lobby.c`), which the lobby service
+(goldeneyevr.com `services/lobbies`) lists as "In lobby" and idles as warmup:
+30 minutes alone from its last phase change. The launcher's list says
+"(in lobby)". The service must have it before a game sends it: an older one
+refuses the phase, and the game's lobby would drop from the list.
