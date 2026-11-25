@@ -37,6 +37,7 @@ extern "C" void pc_write_shot(const char *name, int w, int h);   // flat_render.
 #else
 /* no test scripts off PC */
 static inline int pcTestInputActive(void) { return 0; }
+static inline int pcTestInputPadAllowed(s32) { return 1; }
 static inline void pcTestInputFrame(s32 *, s32 *, u32 *, s32 *) { }
 static inline int pcTestInputPointer(s32 *, s32 *) { return 0; }
 static inline int pcTestInputLeftDown(void) { return 0; }
@@ -359,7 +360,7 @@ void flatLauncherFeedInput(ImGuiIO &io)
     const Uint8 *keys = SDL_GetKeyboardState(nullptr);
     bool padKeys = false;   // iOS: with a pad connected, the arrows and Return are visionOS's, not a keyboard's (input.c)
 #ifdef GEVR_IOS
-    for (int i = 0; i < SDL_NumJoysticks() && !padKeys; i++) padKeys = SDL_IsGameController(i) != SDL_FALSE;
+    for (int i = 0; i < SDL_NumJoysticks() && !padKeys; i++) padKeys = SDL_IsGameController(i) && pcTestInputPadAllowed(i);
 #endif
     auto key = [&](SDL_Scancode sc) -> bool {
         if (scripted) return pcTestInputKey(sc) != 0;
@@ -399,7 +400,7 @@ void flatLauncherFeedInput(ImGuiIO &io)
 #ifndef GEVR_TVOS
         if (padSeen) break;
 #endif
-        if (!SDL_IsGameController(i)) continue;
+        if (!SDL_IsGameController(i) || !pcTestInputPadAllowed(i)) continue;
         SDL_GameController *pad = SDL_GameControllerOpen(i);   // the one input.c holds, by reference
         if (!pad) continue;
         padSeen = true;
@@ -487,7 +488,7 @@ bool flatLauncherStickClick(int hand)
     }
     bool down = false;
     for (int i = 0; i < SDL_NumJoysticks() && !down; i++) {
-        if (!SDL_IsGameController(i)) continue;
+        if (!SDL_IsGameController(i) || !pcTestInputPadAllowed(i)) continue;
         SDL_GameController *pad = SDL_GameControllerOpen(i);
         if (!pad) continue;
         down = SDL_GameControllerGetButton(pad, hand ? SDL_CONTROLLER_BUTTON_RIGHTSTICK : SDL_CONTROLLER_BUTTON_LEFTSTICK) != 0;

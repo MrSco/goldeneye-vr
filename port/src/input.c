@@ -1043,6 +1043,8 @@ static s32 inputPadIgnored(s32 jidx)
         }
         return 1;
     }
+#elif defined(GEVR_PC)
+    if (!pcTestInputPadAllowed(jidx)) return 1;   /* a test script's run: its own virtual pads only */
 #else
     (void)jidx;
 #endif

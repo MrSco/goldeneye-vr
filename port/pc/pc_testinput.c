@@ -250,6 +250,18 @@ s32 pcTestInputActive(void)
 }
 
 /*
+ * Whether the game may take SDL's device jidx as a pad. A scripted run plays
+ * its own virtual pads only: it turns on SDL's background pad input for them
+ * (the window never has the focus), and a real pad on the desk is someone's
+ * in another window (owner, 2026-11-25: "goldeneye shouldn't take input when
+ * not in focus"). Off a script, every pad.
+ */
+s32 pcTestInputPadAllowed(s32 jidx)
+{
+	return !pcTestInputActive() || SDL_JoystickIsVirtual(jidx);
+}
+
+/*
  * Once a frame from inputUpdate: this frame's scripted mouse motion and
  * buttons replace the real ones. *lock is set to 1 or 0 when the script
  * captures or releases the mouse, and left alone otherwise.

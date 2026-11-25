@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 s32 pcTestInputActive(void);
+s32 pcTestInputPadAllowed(s32 jidx);
 void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock);
 s32 pcTestInputKey(s32 scancode);
 const char *pcTestInputTakeShot(void);
