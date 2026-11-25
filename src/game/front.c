@@ -1134,6 +1134,23 @@ static void gevrCouchCoopLeave(void)
 #define GEVR_MP_PADS() joyGetControllerCount()
 #define GEVR_MP_SELECTABLE() (joyGetControllerCount() >= 2)
 #endif
+#ifdef GEVR
+/*
+ * The mode select's rows (0 Select Mission, 1 Multiplayer, 2 Co-op or Cheat
+ * Options, 3 Cheat Options below Co-op): the game's 32 apart from 220, but 24
+ * apart when all four show, so the fourth is above the cursor's lowest reach
+ * (20 above the frame's foot) and inside the folder. A row takes the cursor
+ * from 9 above its text, as the game's 243 and 275 did.
+ */
+static s32 gevrModeRowY(s32 row)
+{
+    extern s32 is_cheat_menu_available;
+    const s32 four = GEVR_COOP_ROW() && is_cheat_menu_available;
+
+    return 0xDC + row * (four ? 0x18 : 0x20);
+}
+#define GEVR_MODE_ROW_FROM(row) ((f32)(gevrModeRowY(row) - 9))
+#endif
 
 Gfx* frontAddPreviousTabText(Gfx* DL);
 s32 check_if_stage_completed_on_difficulty(int stage, DIFFICULTY difficulty);
@@ -3183,7 +3200,7 @@ void interface_menu06_modesel(void)
             sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, 0);
         }
     }
-    else if ((is_cheat_menu_available) && ((GEVR_COOP_ROW() ? 307.0f : 275.0f) <= cursor_v_pos))
+    else if ((is_cheat_menu_available) && (GEVR_MODE_ROW_FROM(GEVR_COOP_ROW() ? 3 : 2) <= cursor_v_pos))
     {
         mission_difficulty_highlighted = DIFFICULTY_00;
         if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
@@ -3193,7 +3210,7 @@ void interface_menu06_modesel(void)
         }
     }
 #ifdef GEVR_FLAT
-    else if (GEVR_COOP_ROW() && (275.0f <= cursor_v_pos))
+    else if (GEVR_COOP_ROW() && (GEVR_MODE_ROW_FROM(2) <= cursor_v_pos))
     {
         /* couch co-op: the campaign for the players at this screen (its join page next) */
         mission_difficulty_highlighted = DIFFICULTY_007;
@@ -3205,7 +3222,7 @@ void interface_menu06_modesel(void)
         }
     }
 #endif
-    else if ((243.0f <= cursor_v_pos) && GEVR_MP_SELECTABLE())
+    else if ((GEVR_MODE_ROW_FROM(1) <= cursor_v_pos) && GEVR_MP_SELECTABLE())
     {
         mission_difficulty_highlighted = DIFFICULTY_SECRET;
         if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
@@ -3401,7 +3418,7 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
     DL = microcode_constructor(DL);
 
     x = 0x96;
-    y = 0xdc;
+    y = gevrModeRowY(0);
     DL = frontPrintText(DL, &x, &y, "1.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
 
     textstring = langGet((g_AppendCheatSinglePlayer != 0) ? getStringID(LTITLE, TITLE_STR_117_CHEATSELECTMISSION) : getStringID(LTITLE, TITLE_STR_29_SELECTMISSION));
@@ -3409,16 +3426,16 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
     textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
     x = 0xAA;
-    y = 0xdc;
+    y = gevrModeRowY(0);
     if (mission_difficulty_highlighted == 0)
     {
-        DL = microcode_constructor_related_to_menus(DL, 0x94, 0xDA, y2 + 0xAF, 0xEA, 0x32);
+        DL = microcode_constructor_related_to_menus(DL, 0x94, gevrModeRowY(0) - 2, y2 + 0xAF, gevrModeRowY(0) + 14, 0x32);
     }
 
     DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
 
     x = 0x96;
-    y = 0xFC;
+    y = gevrModeRowY(1);
     if (GEVR_MP_SELECTABLE())
     {
         text_color = 0xFF;
@@ -3434,10 +3451,10 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
     textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
     x = 0xAA;
-    y = 0xFC;
+    y = gevrModeRowY(1);
     if (mission_difficulty_highlighted == 1)
     {
-        DL = microcode_constructor_related_to_menus(DL, 0x94, 0xFA, y2 + 0xAF, 0x10A, 0x32);
+        DL = microcode_constructor_related_to_menus(DL, 0x94, gevrModeRowY(1) - 2, y2 + 0xAF, gevrModeRowY(1) + 14, 0x32);
     }
     DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, text_color, viGetX(), viGetY(), 0, 0);
 
@@ -3446,35 +3463,35 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
     {
         /* couch co-op: below Multiplayer, Cheat Options a row further down */
         x = 0x96;
-        y = 0x11C;
+        y = gevrModeRowY(2);
         DL = frontPrintText(DL, &x, &y, "3.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
         textstring = "CO-OP";
         textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
         x = 0xAA;
-        y = 0x11C;
+        y = gevrModeRowY(2);
         if (mission_difficulty_highlighted == DIFFICULTY_007)
         {
-            DL = microcode_constructor_related_to_menus(DL, 0x94, 0x11A, y2 + 0xAF, 0x12A, 0x32);
+            DL = microcode_constructor_related_to_menus(DL, 0x94, gevrModeRowY(2) - 2, y2 + 0xAF, gevrModeRowY(2) + 14, 0x32);
         }
         DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
     }
 #endif
     if (is_cheat_menu_available != 0)
     {
-        s32 row = GEVR_COOP_ROW() ? 0x20 : 0;   /* below a couch co-op row */
+        const s32 rowy = gevrModeRowY(GEVR_COOP_ROW() ? 3 : 2);   /* below a couch co-op row */
 
         x = 0x96;
-        y = 0x11C + row;
+        y = rowy;
         DL = frontPrintText(DL, &x, &y, GEVR_COOP_ROW() ? "4.\n" : "3.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
         textstring = langGet(getStringID(LTITLE, TITLE_STR_31_CHEATOPTIONS));
 
         textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
         x = 0xAA;
-        y = 0x11C + row;
+        y = rowy;
         if (mission_difficulty_highlighted == 2)
         {
-            DL = microcode_constructor_related_to_menus(DL, 0x94, 0x11A + row, y2 + 0xAF, 0x12A + row, 0x32);
+            DL = microcode_constructor_related_to_menus(DL, 0x94, rowy - 2, y2 + 0xAF, rowy + 14, 0x32);
         }
         DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
     }
