@@ -28,6 +28,8 @@ struct GevrPauseView {
     bool clockEnding=false;   /* the last minute of a timed match */
     GevrSettingsApi settings;   /* the Settings tab: the settings table (gevr_settings.c), or a test's rows */
     bool portraits=false;   /* the Player tab offers the game's Select Character screen, Match its Select Stage grid (in stereo on the HUD) */
+    bool handicap=false;    /* a flat deathmatch: the Player tab offers the game's Handicap screen */
+    bool teams=false;       /* and with teams its Teams screen (flat) */
 };
 struct GevrPauseUi {
     int tab=0;
@@ -39,7 +41,7 @@ struct GevrPauseUi {
 };
 /* HD textures is the Mods/Fun section's row now, and Reset sound gone with #229 (owner, 2026-11-23) */
 enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,
-       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_KICK_BASE=100 };
+       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_HANDICAP,GEVR_PAUSE_TEAMSEL,GEVR_PAUSE_KICK_BASE=100 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -354,11 +356,24 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         ImGui::EndChild();
         ImGui::SetCursorPos(ImVec2(18,816));
         if(ui.tab==GEVR_PAUSE_PLAYER && model.portraits) {
-            /* GoldenEye's own Select Character screen, in the game's view (mpmenu.c) */
-            ImGui::SetCursorPos(ImVec2(18,806));
-            if(ImGui::Button("Select Character",ImVec2(300,48)))action=GEVR_PAUSE_CHARSEL;
-            ImGui::SetCursorPos(ImVec2(336,816));
-            ImGui::TextDisabled("%s",model.coop?"Your character and status. Teammates continue.":"Your character, team and loadout. The match continues.");
+            /* GoldenEye's own Select Character screen, in the game's view (mpmenu.c); in a
+             * deathmatch its Handicap screen (everyone's health) and, with teams, its Teams screen */
+            float x=18;
+            ImGui::SetCursorPos(ImVec2(x,806));
+            if(ImGui::Button("Select Character",ImVec2(model.coop?300:270,48)))action=GEVR_PAUSE_CHARSEL;
+            x+=model.coop?318:286;
+            if(model.handicap) {
+                ImGui::SetCursorPos(ImVec2(x,806));
+                if(ImGui::Button("Handicap",ImVec2(190,48)))action=GEVR_PAUSE_HANDICAP;
+                x+=206;
+            }
+            if(model.teams) {
+                ImGui::SetCursorPos(ImVec2(x,806));
+                if(ImGui::Button("Select Team",ImVec2(220,48)))action=GEVR_PAUSE_TEAMSEL;
+                x+=236;
+            }
+            ImGui::SetCursorPos(ImVec2(x,816));
+            ImGui::TextDisabled("%s",model.coop?"Your character and status. Teammates continue.":model.teams?"The match continues.":"Your character, team and loadout. The match continues.");
         } else
         ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Movement speed applies immediately. Other round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
     }

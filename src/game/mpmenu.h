@@ -55,6 +55,11 @@ s32 gevrMenuPanelCancel(s32 slot);
 /* where the current player's panel is drawn: their view, or in stereo the head-locked HUD's canvas */
 void gevrMenuPanelRect(s32 *x, s32 *y, s32 *w, s32 *h);
 void gevrMenuPanelFit(s32 sw, s32 sh, s32 fbw, s32 fbh, s32 *x, s32 *y, s32 *w, s32 *h);
+/* online: the Handicap (each player's health) and Teams screens in a player's view */
+void gevrHandicapOpen(s32 slot);
+s32 gevrHandicapIsOpen(s32 slot);
+void gevrTeamSelOpen(s32 slot);
+s32 gevrTeamSelIsOpen(s32 slot);
 #endif
 
 #endif

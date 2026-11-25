@@ -7302,6 +7302,463 @@ Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 co
 #endif
 
 
+#ifdef GEVR
+/*
+ * The Handicap and Teams screens in a match (online, mpmenu.c): GoldenEye's
+ * multiplayer Select Handicap and Select Teams screens above (the folder's
+ * paper, the Zurich titles, "Health -1 (Veteran)" as the game words it, the
+ * red and blue team names in their colours) for one match slot, inside that
+ * player's own view and driven by their pad, while the others play on, as
+ * Select Character and Select Stage are. Online each shows the whole match:
+ * the original gave each of four players a quarter of the screen; here the
+ * roster is a list under the one being changed, and the teams are columns
+ * of names, so a player sees who is on which side. The caller (mpmenu.c)
+ * keeps the choice and fills the entries each frame; these only draw, with
+ * rectangles and text: the view's depth and geometry are left as they were.
+ */
+
+/* The pad in either panel: the stick moves, repeating while held; the d-pad
+ * and the C buttons step once a press (a flat pad's d-pad is its stick in
+ * the menus too, input.c inputFlatPadSticks). 1 A, Z or START; -1 B; 0 else. */
+static s32 s_panelStick[MAX_PLAYER_COUNT];
+static s32 s_panelHeld[MAX_PLAYER_COUNT];
+static s32 s_panelBlink[MAX_PLAYER_COUNT];
+
+void frontPanelPadReset(s32 slot)
+{
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    s_panelStick[slot] = 0;
+    s_panelHeld[slot] = 0;
+    s_panelBlink[slot] = 0;
+}
+
+s32 frontPanelPad(s32 slot, s32 *dx, s32 *dy)
+{
+    const u16 pad = L_JPAD | R_JPAD | U_JPAD | D_JPAD | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS;
+
+    *dx = 0;
+    *dy = 0;
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    if (joyGetButtonsPressedThisFrame(slot, B_BUTTON)) return -1;
+    if (joyGetButtonsPressedThisFrame(slot, A_BUTTON | Z_TRIG | START_BUTTON)) return 1;
+    if (joyGetButtons(slot, pad))
+    {
+        u16 pressed = joyGetButtonsPressedThisFrame(slot, pad);
+
+        if (pressed & (L_JPAD | L_CBUTTONS)) *dx = -1;
+        else if (pressed & (R_JPAD | R_CBUTTONS)) *dx = 1;
+        else if (pressed & (U_JPAD | U_CBUTTONS)) *dy = -1;
+        else if (pressed & (D_JPAD | D_CBUTTONS)) *dy = 1;
+        s_panelStick[slot] = 0;
+        s_panelHeld[slot] = 0;
+    }
+    else
+    {
+        s32 sx = joyGetStickX(slot);
+        s32 sy = joyGetStickY(slot);
+        s32 ax = sx < 0 ? -sx : sx;
+        s32 ay = sy < 0 ? -sy : sy;
+        s32 dir = 0;
+
+        if (ax > 30 && ax >= ay) dir = sx > 0 ? 1 : -1;
+        else if (ay > 30) dir = sy > 0 ? -2 : 2;   /* up the stick: a row up */
+        if (dir != s_panelStick[slot])
+        {
+            s_panelStick[slot] = dir;
+            s_panelHeld[slot] = 0;
+        }
+        else if (dir == 0 || ++s_panelHeld[slot] < 18 || (s_panelHeld[slot] - 18) % 6 != 0)
+        {
+            dir = 0;
+        }
+        if (dir == 1 || dir == -1) *dx = dir;
+        else if (dir) *dy = dir / 2;
+    }
+    return 0;
+}
+
+/* the screens' choosing sound */
+void frontPanelChosenSound(void)
+{
+    sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+}
+
+/*
+ * text cut to w pixels in font, a '.' where it was cut. A last "(...)" stays
+ * whole, the name before it cut: a split screen's guests are all "Name (2)",
+ * "Name (3)"..., and bots "Character (Bot)", told apart by it.
+ */
+static void frontPanelFit(char *out, s32 size, const char *text, s32 w, struct fontchar *chars, struct font *font)
+{
+    const char *src = text != NULL ? text : "";
+    const char *tail = strrchr(src, '(');
+    s32 th;
+    s32 tw;
+    s32 n;
+
+    snprintf(out, size, "%s", src);
+    textMeasure(&th, &tw, out, chars, font, 0);
+    if (tw <= w) return;
+    n = (s32)strlen(src);
+    if (tail != NULL && tail > src && n > 0 && src[n - 1] == ')')
+    {
+        s32 keep = (s32)(tail - src);
+
+        while (keep > 1)
+        {
+            keep--;
+            snprintf(out, size, "%.*s.%s", (int)keep, src, tail);
+            textMeasure(&th, &tw, out, chars, font, 0);
+            if (tw <= w) return;
+        }
+        snprintf(out, size, "%s", src);   /* not even with the name cut: cut the end */
+    }
+    n = (s32)strlen(out);
+    while (tw > w && n > 1)
+    {
+        n--;
+        out[n - 1] = '.';
+        out[n] = '\0';
+        textMeasure(&th, &tw, out, chars, font, 0);
+    }
+}
+
+/* the sheet and its title; the next line's top */
+static Gfx *frontPanelSheet(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh, char *title, s32 *top)
+{
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+
+    gDPPipeSync(DL++);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    DL = microcode_constructor(DL);
+    DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+    *top = vy + 2;
+    if (title == NULL) return DL;   /* a view too short for it */
+    textMeasure(&th, &tw, title, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    x = vx + (vw - tw) / 2;
+    y = vy + 2;
+    DL = frontPrintText(DL, &x, &y, (s8 *)title, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    *top = vy + 2 + STAGESEL_LINE(ptrFontZurichBoldChars) + 2;
+    return DL;
+}
+
+/* the buttons (and the note before them, where both fit) along the bottom */
+static Gfx *frontPanelFooter(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh, const char *note, const char *buttons)
+{
+    char text[96];
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+
+    if (note != NULL && note[0]) snprintf(text, sizeof(text), "%s   %s", note, buttons);
+    else snprintf(text, sizeof(text), "%s", buttons);
+    textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    if (tw > vw - 4 && note != NULL && note[0])
+    {
+        /* the note a line above the buttons, in the small font */
+        frontPanelFit(text, sizeof(text), note, vw - 4, ptrFontBankGothicChars, ptrFontBankGothic);
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = vx + (vw - tw) / 2;
+        y = vy + vh - STAGESEL_LINE(ptrFontZurichBoldChars) - STAGESEL_LINE(ptrFontBankGothicChars) - 3;
+        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
+        snprintf(text, sizeof(text), "%s", buttons);
+        textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    }
+    x = vx + (vw - tw) / 2;
+    if (x < vx + 2) x = vx + 2;
+    y = vy + vh - STAGESEL_LINE(ptrFontZurichBoldChars) - 2;
+    DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    return DL;
+}
+
+/* the state the frame's drawing leaves, as the Select Stage grid */
+static Gfx *frontPanelEnd(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    DL = combiner_bayer_lod_perspective(DL);
+    gDPPipeSync(DL++);
+    gDPSetCycleType(DL++, G_CYC_1CYCLE);
+    gDPSetTextureFilter(DL++, G_TF_BILERP);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    return DL;
+}
+
+/* the footer's height: the buttons and, room permitting, a note line */
+static s32 frontPanelFooterHeight(s32 vw, const char *note, const char *buttons)
+{
+    char text[96];
+    s32 th;
+    s32 tw;
+
+    if (note == NULL || !note[0]) return STAGESEL_LINE(ptrFontZurichBoldChars) + 2;
+    snprintf(text, sizeof(text), "%s   %s", note, buttons);
+    textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    if (tw <= vw - 4) return STAGESEL_LINE(ptrFontZurichBoldChars) + 2;
+    return STAGESEL_LINE(ptrFontZurichBoldChars) + STAGESEL_LINE(ptrFontBankGothicChars) + 5;
+}
+/* the title's height, where the view has room for it above need more */
+static s32 frontPanelTitled(s32 vy, s32 bottom, s32 need)
+{
+    return bottom - (vy + 2 + STAGESEL_LINE(ptrFontZurichBoldChars) + 2) >= need;
+}
+
+/*
+ * The Handicap screen over the view at (vx, vy), vw x vh screen pixels: the
+ * title, the health of the player under the cursor in the screen's own words
+ * ("Health -1" over "(Veteran)") between arrows where it may change, then
+ * the match's players, each with their health, the cursor's row on a dark
+ * band. The match's own health reads MATCH; one the host set is starred.
+ */
+Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count, s32 cursor, const char *note,
+                       s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    char text[80];
+    char name[48];
+    const FrontHandicapEntry *cur;
+    const char *buttons;
+    s32 bank = STAGESEL_LINE(ptrFontBankGothicChars);
+    s32 zline = STAGESEL_LINE(ptrFontZurichBoldChars);
+    s32 top;
+    s32 bottom;
+    s32 rows;
+    s32 first;
+    s32 big;
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0 || count <= 0) return DL;
+    if (cursor < 0 || cursor >= count) cursor = 0;
+    cur = &e[cursor];
+    buttons = cur->editable ? "A:OK  B:BACK" : "B:BACK";
+    bottom = vy + vh - frontPanelFooterHeight(vw, note, buttons);
+    snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, TITLE_STR_86_SELECTHANDICAP)));
+    DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, (count < 2 ? count : 2) * (bank + 1)) ? text : NULL, &top);
+
+    /* the cursor's health, as the screen shows it, where every player's row (or four) still fits under it */
+    big = bottom - top >= 2 * zline + 2 + bank + 3 + (count < 4 ? count : 4) * (bank + 1);
+    if (big)
+    {
+        s32 index = cur->index >= 0 && cur->index < 11 ? cur->index : 5;
+        u32 colour = cur->editable ? 0xFF : 0x80;
+
+        snprintf(text, sizeof(text), "%s", langGet(MP_handicap_table[index].text_preset));
+        textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        x = vx + (vw - tw) / 2;
+        y = top;
+        DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, colour, viGetX(), viGetY(), 0, 0);
+        if (cur->editable)
+        {
+            s32 aw;
+
+            /* the arrows beside it, where a step that way is left */
+            textMeasure(&th, &aw, "<", ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+            if (index > 0)
+            {
+                x = vx + (vw - tw) / 2 - aw - 8;
+                y = top + zline / 2;
+                if (x < vx + 2) x = vx + 2;
+                DL = frontPrintText(DL, &x, &y, (s8 *)"<", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+            }
+            if (index < 10)
+            {
+                x = vx + (vw + tw) / 2 + 8;
+                y = top + zline / 2;
+                if (x > vx + vw - aw - 2) x = vx + vw - aw - 2;
+                DL = frontPrintText(DL, &x, &y, (s8 *)">", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+            }
+        }
+        top += 2 * zline + 2;
+        /* whose, when not the player's own, and where it comes from */
+        if (!cur->me) snprintf(name, sizeof(name), "%s: ", cur->name);
+        else name[0] = '\0';
+        snprintf(text, sizeof(text), "%s%s", name, cur->host ? "SET BY THE HOST" : cur->match ? "THE MATCH'S HEALTH" : "OWN PICK");
+        frontPanelFit(name, sizeof(name), text, vw - 6, ptrFontBankGothicChars, ptrFontBankGothic);
+        textMeasure(&th, &tw, name, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = vx + (vw - tw) / 2;
+        y = top;
+        DL = textRender(DL, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, 0x202020FF, viGetX(), viGetY(), 0, 0);
+        top += bank + 3;
+    }
+
+    /* the players, a window of them around the cursor where they do not all fit */
+    rows = (bottom - top) / (bank + 1);
+    if (rows > count) rows = count;
+    if (rows < 1) rows = 1;
+    first = cursor - rows / 2;
+    if (first > count - rows) first = count - rows;
+    if (first < 0) first = 0;
+    for (i = first; i < first + rows && i < count; i++)
+    {
+        s32 left = vx + 4;
+        s32 right = vx + vw - 4;
+        s32 lw;
+        u32 colour = i == cursor ? 0xFFFFFFFF : 0x000000FF;
+
+        y = top + (i - first) * (bank + 1);
+        if (i == cursor) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x101010E0);
+        else if (e[i].me) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x00000030);
+        snprintf(text, sizeof(text), "%s%s%s%s", !big && i == cursor && e[i].editable ? "< " : "", e[i].match ? "MATCH" : e[i].label,
+                 e[i].host ? " *" : "", !big && i == cursor && e[i].editable ? " >" : "");
+        textMeasure(&th, &lw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = right - lw;
+        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+        frontPanelFit(name, sizeof(name), e[i].name, right - lw - left - 8, ptrFontBankGothicChars, ptrFontBankGothic);
+        x = left;
+        y = top + (i - first) * (bank + 1);
+        DL = textRender(DL, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+    }
+
+    DL = frontPanelFooter(DL, vx, vy, vw, vh, note, buttons);
+    return frontPanelEnd(DL, vx, vy, vw, vh);
+}
+
+/*
+ * The Teams screen over the view: the title, then Red Team and Blue Team in
+ * their colours side by side, each over its players and its open places,
+ * then the players on neither. The player at this screen is on a dark band
+ * in the column they are choosing, blinking as the screen's changing team
+ * does while it is not yet theirs; a player whose team changes at the next
+ * round is starred.
+ */
+Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, s32 pick, s32 cap_red, s32 cap_blue,
+                         const char *note, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    static const u32 colours[2] = { 0xFF0000FF, 0x0000FFFF };
+    char text[80];
+    char name[48];
+    s32 bank = STAGESEL_LINE(ptrFontBankGothicChars);
+    s32 zline = STAGESEL_LINE(ptrFontZurichBoldChars);
+    s32 caps[2];
+    s32 colw = (vw - 6) / 2;
+    s32 top;
+    s32 bottom;
+    s32 room;
+    s32 blink;
+    s32 t;
+    s32 i;
+    s32 k;
+    s32 th;
+    s32 tw;
+    s32 x;
+    s32 y;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0) return DL;
+    caps[0] = cap_red;
+    caps[1] = cap_blue;
+    blink = (s_panelBlink[slot] = (s_panelBlink[slot] + 1) % 20) < 10;
+    /* the two sides, each as many rows as its places, a line left under them for the unassigned;
+     * the title where a short view has room for it too */
+    room = caps[0] > caps[1] ? caps[0] : caps[1];
+    if (room < 1) room = 1;
+    bottom = vy + vh - frontPanelFooterHeight(vw, note, "A:OK  B:BACK");
+    snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, TITLE_STR_88_SELECTTEAMS)));
+    DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, zline + 1 + room * (bank + 1) + bank + 2) ? text : NULL, &top);
+    if (room > (bottom - top - zline - 1 - bank - 2) / (bank + 1)) room = (bottom - top - zline - 1 - bank - 2) / (bank + 1);
+    if (room < 1) room = 1;
+    for (t = 0; t < 2; t++)
+    {
+        s32 cx = vx + 3 + t * colw;
+        s32 shown;
+        s32 rows = room;
+
+        snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, t == 0 ? TITLE_STR_89_RED : TITLE_STR_90_BLUE)));
+        textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        x = cx + (colw - tw) / 2;
+        y = top;
+        DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, colours[t], viGetX(), viGetY(), 0, 0);
+        y = top + zline + 1;
+        shown = 0;
+        for (k = 0; k < 3 * count; k++)
+        {
+            /* the player at this screen, then the other players, then the bots: the player is never cut */
+            s32 pass = k / count;
+            s32 team;
+            s32 band;
+
+            i = k % count;
+            if (pass != (e[i].me ? 0 : e[i].bot ? 2 : 1)) continue;
+            team = e[i].me ? pick : e[i].team;
+            if (team != t || shown >= rows) continue;
+            band = e[i].me;
+            x = cx + 2;
+            if (band) DL = microcode_constructor_related_to_menus(DL, cx, y, cx + colw - 1, y + bank, 0x101010E0);
+            if (!(e[i].me && pick != e[i].team && !blink))
+            {
+                snprintf(text, sizeof(text), "%s%s", e[i].next || (e[i].me && pick != e[i].team) ? "*" : "", e[i].name);
+                frontPanelFit(name, sizeof(name), text, colw - 6, ptrFontBankGothicChars, ptrFontBankGothic);
+                DL = textRender(DL, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, band ? 0xFFFFFFFF : 0x000000FF,
+                                viGetX(), viGetY(), 0, 0);
+            }
+            y = top + zline + 1 + (++shown) * (bank + 1);
+        }
+        /* the open places */
+        for (; shown < rows && shown < caps[t]; shown++)
+        {
+            x = cx + 2;
+            y = top + zline + 1 + shown * (bank + 1);
+            DL = textRender(DL, &x, &y, "- OPEN -", ptrFontBankGothicChars, ptrFontBankGothic, 0x00000090, viGetX(), viGetY(), 0, 0);
+        }
+    }
+
+    /* the players on neither side, on a line (or as many as fit) */
+    {
+        s32 left = vx + 4;
+        s32 none = 0;
+
+        y = top + zline + 1 + room * (bank + 1) + 2;
+        x = left;
+        snprintf(text, sizeof(text), "%s:", "UNASSIGNED");
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000A0, viGetX(), viGetY(), 0, 0);
+        x = left + tw + 6;
+        for (i = 0; i < count; i++)
+        {
+            s32 team = e[i].me ? pick : e[i].team;
+            s32 nw;
+
+            if (team == 0 || team == 1) continue;
+            snprintf(text, sizeof(text), "%s%s", none ? ", " : "", e[i].name);
+            textMeasure(&th, &nw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            if (x + nw > vx + vw - 4)
+            {
+                y += bank + 1;
+                if (y + bank > bottom) break;
+                x = left;
+                snprintf(text, sizeof(text), "%s", e[i].name);
+                textMeasure(&th, &nw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            }
+            {
+                s32 ty = y;
+                s32 tx = x;
+
+                if (e[i].me) DL = microcode_constructor_related_to_menus(DL, tx - 1, ty, tx + nw + 1, ty + bank, 0x101010E0);
+                if (!(e[i].me && pick != e[i].team && !blink))
+                {
+                    DL = textRender(DL, &tx, &ty, text, ptrFontBankGothicChars, ptrFontBankGothic, e[i].me ? 0xFFFFFFFF : 0x000000FF,
+                                    viGetX(), viGetY(), 0, 0);
+                }
+            }
+            x += nw;
+            none++;
+        }
+        if (none == 0)
+        {
+            DL = textRender(DL, &x, &y, "-", ptrFontBankGothicChars, ptrFontBankGothic, 0x00000060, viGetX(), viGetY(), 0, 0);
+        }
+    }
+
+    DL = frontPanelFooter(DL, vx, vy, vw, vh, note, "A:OK  B:BACK");
+    return frontPanelEnd(DL, vx, vy, vw, vh);
+}
+#endif
+
+
 MPSCENARIOS get_scenario(void)
 {
   return scenario;

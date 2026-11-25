@@ -76,6 +76,7 @@ def build_core():
                  "netGetLocalDeviceKey","netGetSlotDeviceName","netBuildOf","netGetSlotBuild","netGetLocalBuild","netGetSlotAppVersion"})
     keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady","netPveLoadGraceOver"})
+    keep.update({"netSlotHandicapIndex","netSetSlotHandicap","netGetSlotHandicap","netRoundHandicapIndex","netSlotHandicapEditable","netLobbySetHandicapSlot","netHostSetSlotHandicap","netSyncRoundHandicaps","netSlotHandicapJoined","netGetActiveSlotTeam"})
     keep.update({"netPeerSlotMask","netPeerOwnsSlot","netPeerAttachSlot","netPeerDetachSlot","netPeerPrimarySlot","netPeerSeenBefore","netSlotSyncIndex","netPeerVoiceSameGroup","netLocalSlotCount","netSlotIsLocalHuman","gevrNetSlotIsLocalHuman","netLocalSeatOfSlot","netSlotOfLocalSeat","netGetSlotOwner","gevrLocalViewCount","gevrLocalViewIndex","netSetLocalDesiredCount","netSetLocalSeatConfig","netTakeLocalGuestNotice","netLobbySetReadySlot","netLobbySetCharacterSlot","netLobbySetLoadoutSlot","netLobbySetTeamSlot","netSetVoteSlot","netRemoveLocalSlotEntry","netLocalGuestStartsSpectating","netHostDropSingleSlot","netSendLocalGuestReply","netRequestAddLocalGuest","netRequestRemoveLocalGuest","netReceiveLocalGuest","netCleanName","netSetJoinerName"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
@@ -89,6 +90,11 @@ def build_core():
     for start,end in reversed(replacements):source=source[:start]+(" fixtureDamage(target,attacker,weapon,dmg,vx,vz); " if "static void netApplyDamage(" in source[max(0,start-170):start] else "")+source[end:]
     subset=NATIVE/"net_core_test_subset.inc";subset.write_text(source,encoding="utf-8")
     fixture=(ROOT/"port/tests/net_core_native.c").read_text(encoding="utf-8").replace('../src/net/net_core.c',subset.as_posix())
+    # the damage modifiers of front.c's MP_handicap_table, so the handicap test multiplies by the game's own
+    table=re.search(r"MP_handicap_table\[\] = \{(.*?)\n\};",(ROOT/"src/game/front.c").read_text(encoding="utf-8"),re.S).group(1)
+    damage=re.findall(r"\{[^{}]*?,\s*0,\s*([0-9.]+)\}",table)
+    if len(damage)!=11: raise RuntimeError("front.c MP_handicap_table: %d rows"%len(damage))
+    fixture=fixture.replace("/* MP_HANDICAP_TABLE */",",".join(d+"f" for d in damage))
     generated=NATIVE/"net_core_native.c";generated.write_text(fixture,encoding="utf-8")
     args=[shutil.which("gcc") or "gcc","-std=c11","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
     args += SHARED
@@ -346,6 +352,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_line_edges_and_vertex_ring_offset(self): self.assertEqual(self.lib.test_line_indices(),0)
     def test_gauge_clearance_and_symmetry(self): self.assertEqual(self.lib.test_gauge_geometry(),0)
     def test_host_pending_and_active_teams(self): self.assertEqual(self.core.test_core_teams(),0)
+    def test_per_player_handicaps(self): self.assertEqual(self.core.test_core_handicaps(),0)
     def test_pve_teammates_voice_full_volume(self): self.assertEqual(self.core.test_core_pve_voice_teammates(),0)
     def test_closing_door_escape_preserves_entry_collision(self): self.assertEqual(self.lib.test_door_escape(),0)
     def test_combat_allocator_canaries_and_merge(self): self.assertEqual(self.allocator.test_vtxstore(),0)

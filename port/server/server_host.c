@@ -162,6 +162,7 @@ static void serverList(void)
 	for (i = 0; i < 7; i++) printf("  %3d  %s\n", i, netGameLengthName(i));
 	printf("\nMpHealth=\n");
 	for (i = 0; i < netHealthCount(); i++) printf("  %3d  %s\n", i, netHealthName(i));
+	printf("\nMpHandicaps=  1: each player picks their own health (protocol 29), 0: everyone plays at MpHealth\n");
 	printf("\nMpBotMode=\n");
 	for (i = 0; i < NET_BOT_MODE_COUNT; i++) printf("  %3d  %s\n", i, netBotModeName(i));
 	printf("\nMpBotCount=  1-%d (with MpBotMode=2)\n\nMpBotDifficulty=\n", GEVR_MAX_PLAYERS - 1);

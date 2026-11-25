@@ -493,6 +493,7 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
     iniPrintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
+    iniPrintf(f, "; 1 = the host's Handicaps rule: each player picks their own health.\nMpHandicaps=%d\n", VrMpHandicaps ? 1 : 0);
     iniPrintf(f, "FriendsShowDetail=%d\nFriendsAppearOffline=%d\nFriendsRestoreNoted=%d\n",
             VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted);
     iniPrintf(f, "FriendsSidebar=%d\nFriendsSearchable=%d\n", VrFriendsSidebar, VrFriendsSearchable);
@@ -1145,6 +1146,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpHealth") == 0) VrMpHealth = ival;
             else if (strcmp(key, "MpDual") == 0) VrMpDual = ival;
             else if (strcmp(key, "MpLoadouts") == 0) VrMpLoadouts = ival != 0;
+            else if (strcmp(key, "MpHandicaps") == 0) VrMpHandicaps = ival != 0;
             else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
             else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = strtoull(eq + 1, NULL, 10); /* past 32 bits */
             else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;

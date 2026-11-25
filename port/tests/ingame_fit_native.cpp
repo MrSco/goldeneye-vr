@@ -30,6 +30,7 @@ static const FakeField s_player[] = {
     {"NEXT ROUND READY", GEVR_PAUSE_TOGGLE, 0, "READY"}, {"YOUR TEAM", GEVR_PAUSE_CHOICE, 3, "Unassigned"},
     {"CHARACTER", GEVR_PAUSE_CHOICE, 64, "Siberian Special Forces"}, {"LOADOUT 1", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"},
     {"LOADOUT 2", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"}, {"LOADOUT 3", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"},
+    {"YOUR HEALTH", GEVR_PAUSE_CHOICE, 11, "+10 (Rookie)"},
 };
 static int s_fieldsEditable = 1;
 extern "C" int gevrPauseReadField(int tab, int index, GevrPauseField *f) {
@@ -160,7 +161,7 @@ int main() {
             const int n = rows.sectionRows(tab, GEVR_SET_INGAME, ids, 48);
             std::snprintf(what, sizeof(what), "%s: its rows (%d)", state, n);
             /* Rules: mpmenu.c's 17 less its two fun copies, and the table's six fun rows; Audio: the table's five */
-            settingsFitFail(n == (tab == GEVR_PAUSE_RULES ? 15 + 6 : tab == GEVR_PAUSE_PLAYER ? 6 : 5), what);
+            settingsFitFail(n == (tab == GEVR_PAUSE_RULES ? 15 + 6 : tab == GEVR_PAUSE_PLAYER ? 7 : 5), what);
             online++;
         }
     }

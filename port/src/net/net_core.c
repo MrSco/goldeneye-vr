@@ -285,12 +285,14 @@ typedef struct {
     uint8_t character[GEVR_MAX_PLAYERS];
     uint8_t loadout[GEVR_MAX_PLAYERS][4];
     uint8_t team[GEVR_MAX_PLAYERS];
+    uint8_t handicap[GEVR_MAX_PLAYERS]; /* protocol 29: the front.c MP_handicap_table index each plays with */
     int32_t departed_score[2];
 } NetRoundSettings;
 static NetRoundSettings s_round;
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpScenario, VrMpLength, VrMpHealth;
 extern int VrMpDual, VrMpLoadouts, VrMpNextRound, VrMpCustom[4], VrMpLoadout[4];
 extern int VrMpMovementSpeed;
+extern int VrMpHandicaps;
 extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers;
 extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty;
 extern int VrCoopFastReinforcements;
@@ -491,6 +493,18 @@ static int netConfigSlots(const NetMatchConfig *c) {
 }
 
 static bool netUpdateBots(bool next_round);
+/*
+ * The health a lobby slot will play with (protocol 29, net_rules.h): its own
+ * or the host's pick, else the match's. Deathmatch only: co-op's difficulty
+ * and Horde's waves set the damage, at the table's Normal.
+ */
+int netSlotHandicapIndex(int slot) {
+    const NetMatchConfig *c = &s_lobby_state.config;
+    if (netModePve(c->mode)) return 5;
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected)
+        return netHandicapResolve(NET_HANDICAP_MATCH, 0, c->health, netHealthCount());
+    return netHandicapResolve(s_lobby_state.slots[slot].handicap, c->handicaps, c->health, netHealthCount());
+}
 static void netLatchRoundSettings(void) {
     netUpdateBots(true);   /* the next round's bots, before its roster is frozen */
     s_round.config = s_lobby_state.config;
@@ -505,6 +519,7 @@ static void netLatchRoundSettings(void) {
     s_round.departed_score[0] = s_round.departed_score[1] = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         s_round.team[i] = s_lobby_state.slots[i].team;
+        s_round.handicap[i] = (uint8_t)netSlotHandicapIndex(i);
         s_round.character[i] = s_lobby_state.slots[i].chr_id;
         memcpy(s_round.loadout[i], s_lobby_state.slots[i].loadout, 4);
     }
@@ -519,6 +534,7 @@ static void netWriteRoundSettings(struct netbuf *buf) {
     for (int t=0;t<2;t++) netbufWriteU32(buf, (uint32_t)s_round.departed_score[t]);
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         netbufWriteU8(buf, s_round.team[i]);
+        netbufWriteU8(buf, s_round.handicap[i]);
         netbufWriteU8(buf, s_round.character[i]);
         for (int k = 0; k < 4; k++) netbufWriteU8(buf, s_round.loadout[i][k]);
     }
@@ -532,6 +548,8 @@ static bool netReadRoundSettings(struct netbuf *buf, NetRoundSettings *r) {
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         r->team[i] = netbufReadU8(buf);
         if (r->team[i] > NET_TEAM_NONE) return false;
+        r->handicap[i] = netbufReadU8(buf);
+        if (r->handicap[i] >= netHealthCount()) return false;
         r->character[i] = netbufReadU8(buf);
         if (r->character[i] >= netCharacterCount()) return false;
         for (int k = 0; k < 4; k++) {
@@ -1847,6 +1865,7 @@ static void netBroadcastLobbyState(void) {
         netbufWriteU8(&buf, s_lobby_state.slots[i].eliminated);
         netbufWriteU8(&buf, s_lobby_state.slots[i].is_bot);
         netbufWriteU8(&buf, s_lobby_state.slots[i].owner_slot);
+        netbufWriteU8(&buf, s_lobby_state.slots[i].handicap);
         netbufWriteU16(&buf, s_lobby_state.slots[i].ping_ms);
         for (int k = 0; k < 4; k++) netbufWriteU8(&buf, s_lobby_state.slots[i].loadout[k]);
         netbufWriteStr(&buf, s_lobby_state.slots[i].name);
@@ -1857,7 +1876,7 @@ static void netBroadcastLobbyState(void) {
 static void netTakeSpecialItem(int slot, int item);
 
 static void netSendMatchSnapshot(ENetPeer *peer) {
-    u8 raw[1024];   /* 79 + 49N + 4N^2 bytes: 727 at eight players */
+    u8 raw[1024];   /* 83 + 50N + 4N^2 bytes: 739 at eight players */
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -2482,6 +2501,7 @@ static bool netWarmupSettingsChanged(void) {
     /* a dedicated server's seat spectates every round: no change to load for */
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) if (netLobbySlotConnected(i) && !netDedicatedSeat(i)) {
         if (s_lobby_state.slots[i].spectator || s_round.team[i] != s_lobby_state.slots[i].team ||
+            s_round.handicap[i] != netSlotHandicapIndex(i) ||
             s_round.character[i] != s_lobby_state.slots[i].chr_id ||
             (pending.loadouts && memcmp(s_round.loadout[i], s_lobby_state.slots[i].loadout, 4))) return true;
     }
@@ -2734,6 +2754,7 @@ NetMatchConfig netMatchConfigFromSettings(void) {
     c.weapon_set = (uint8_t)netClampChoice(VrMpWeaponSet, netWeaponSetCount(), 4);
     c.game_length = (uint8_t)netClampChoice(VrMpLength, 7, 2);
     c.health = (uint8_t)netClampChoice(VrMpHealth, netHealthCount(), 5);
+    c.handicaps = VrMpHandicaps ? 1 : 0;
     c.dual_wield = (uint8_t)netClampChoice(VrMpDual, 3, 0);
     c.loadouts = VrMpLoadouts ? 1 : 0;
     c.next_round = (uint8_t)netClampChoice(VrMpNextRound, 3, 0);
@@ -2754,7 +2775,7 @@ NetMatchConfig netMatchConfigFromSettings(void) {
         c.horde_start_wave=(uint8_t)(VrHordeStartWave<1?1:VrHordeStartWave>NET_HORDE_MAX_START_WAVE?NET_HORDE_MAX_START_WAVE:VrHordeStartWave);
         c.friendly_fire=VrHordeFriendlyFire!=0;
         c.max_players=NET_COOP_MAX_PLAYERS;c.bot_mode=NET_BOT_OFF;
-        c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;
+        c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;c.handicaps=0;
         return c;
     }
     if (VrMpMode == NET_MODE_COOP) {
@@ -3062,7 +3083,8 @@ void netApplyMatchConfig(void) {
     }
     for (int p = 0; p < GEVR_MAX_PLAYERS; p++) {
         player_char[p] = s_round.character[p] < netCharacterCount() ? s_round.character[p] : p;
-        player_handicap[p] = c->health < netHealthCount() ? c->health : 5;
+        /* each player's own (protocol 29), latched with the round; the match's health otherwise */
+        player_handicap[p] = s_round.handicap[p] < netHealthCount() ? s_round.handicap[p] : c->health < netHealthCount() ? c->health : 5;
         if (netScenarioHasTeams(c->scenario)) set_players_team_or_scenario_item_flag(p, s_round.team[p] == NET_TEAM_BLUE ? 1 : 0);
     }
     NET_LOG("config applied: stage %d scenario %d set %d length %d health %d dual %d loadouts %d next %d",
@@ -3101,6 +3123,8 @@ int netTeamRosterReady(void) {
     return netTeamRosterComplete(s_lobby_state.config.scenario, GEVR_MAX_PLAYERS, connected, team);
 }
 int netGetSlotTeam(int slot) { return slot >= 0 && slot < GEVR_MAX_PLAYERS ? s_lobby_state.slots[slot].team : NET_TEAM_NONE; }
+/* the team the slot plays on in the round loaded (its lobby team is the next round's) */
+int netGetActiveSlotTeam(int slot) { return slot >= 0 && slot < GEVR_MAX_PLAYERS ? s_round.team[slot] : NET_TEAM_NONE; }
 int netGetSlotPing(int slot) {
     if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || s_state == NET_STATE_MIGRATING) return -1;
     if (slot == s_host_slot) return 0;
@@ -3162,6 +3186,79 @@ void netLobbySetTeam(uint8_t team) {
     netLobbySetTeamSlot(s_local_slot, team);
 }
 
+/*
+ * Per-player health (protocol 29, net_rules.h NET_HANDICAP_*): the host sets
+ * anyone's (by_host: marked the host's, always counted; a bot's too), a
+ * player their own while the Handicaps rule is on and the host has not set
+ * it. Deathmatch only. Like the match's health it is latched with the round
+ * (netLatchRoundSettings) and applied at the next load.
+ */
+static bool netSetSlotHandicap(int slot, int value, bool by_host) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected ||
+        s_lobby_state.config.mode != NET_MODE_DEATHMATCH || value < 0 || value > 0xFF) return false;
+    if (value != NET_HANDICAP_MATCH) value &= ~NET_HANDICAP_HOST;
+    if (!netHandicapValid(value, netHealthCount())) return false;
+    if (by_host) {
+        if (value != NET_HANDICAP_MATCH) value |= NET_HANDICAP_HOST;
+    } else if (s_lobby_state.slots[slot].is_bot ||
+               !netHandicapOwnEditable(s_lobby_state.slots[slot].handicap, s_lobby_state.config.handicaps)) {
+        return false;
+    }
+    if (s_lobby_state.slots[slot].handicap == value) return true;
+    s_lobby_state.slots[slot].handicap = (uint8_t)value;
+    netBroadcastLobbyState();
+    return true;
+}
+int netGetSlotHandicap(int slot) { return slot >= 0 && slot < GEVR_MAX_PLAYERS ? s_lobby_state.slots[slot].handicap : NET_HANDICAP_MATCH; }
+/* The round's: what the slot plays with now */
+int netRoundHandicapIndex(int slot) { return slot >= 0 && slot < GEVR_MAX_PLAYERS && s_round.handicap[slot] < netHealthCount() ? s_round.handicap[slot] : 5; }
+/* The player in slot, at this machine, may change their own: the host's own seat always, a
+ * player (a guest at the host's screen too) under the rule. The host sets the others' with
+ * netHostSetSlotHandicap. */
+int netSlotHandicapEditable(int slot) {
+    if (!netIsActive() || slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected ||
+        s_lobby_state.config.mode != NET_MODE_DEATHMATCH) return 0;
+    if (netIsHost() && slot == s_local_slot) return 1;
+    if (slot != s_local_slot && !netSlotIsLocalHuman(slot)) return 0;
+    return netHandicapOwnEditable(s_lobby_state.slots[slot].handicap, s_lobby_state.config.handicaps);
+}
+/* A local seat's own pick: the host's own seat sets it as the host's */
+void netLobbySetHandicapSlot(int slot, int value) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || value < 0 || value > 0xFF) return;
+    if (slot != s_local_slot && !netSlotIsLocalHuman(slot)) return;
+    if (netIsHost()) { netSetSlotHandicap(slot, value, slot == s_local_slot); return; }
+    if (!s_server_peer || !netHandicapValid(value, netHealthCount()) || netHandicapIsHosts(value)) return;
+    u8 raw[9]; struct netbuf buf = { .data=raw, .size=sizeof(raw) };
+    netbufStartWrite(&buf); netbufWriteU32(&buf, GEVR_NET_MAGIC); netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_LOBBY_HANDICAP); netbufWriteU8(&buf, (uint8_t)slot); netbufWriteU8(&buf, (uint8_t)value);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+}
+/* The host: anyone's, a bot's too */
+void netHostSetSlotHandicap(int slot, int value) {
+    if (netIsHost()) netSetSlotHandicap(slot, value, true);
+}
+/*
+ * The round's handicaps into the game, for a player who arrived after the
+ * load (a drop-in guest, a joiner in a seat a player with their own health
+ * left): lv.c reads them at the load only. The owner's machine applies its
+ * player's damage (netApplyDamage), so its copy is the one that counts.
+ */
+static void netSyncRoundHandicaps(void) {
+    if (s_state != NET_STATE_INGAME || s_round.config.mode != NET_MODE_DEATHMATCH ||
+        netGameScenario(s_round.config.scenario) == SCENARIO_LTK) return;
+    for (int p = 0; p < GEVR_MAX_PLAYERS; p++) {
+        if (s_round.handicap[p] >= netHealthCount() || player_handicap[p] == s_round.handicap[p]) continue;
+        player_handicap[p] = s_round.handicap[p];
+        g_playerPlayerData[p].handicap = get_player_mp_handicap(p);
+    }
+}
+/* A player took the slot after the round was latched: theirs from now on */
+static void netSlotHandicapJoined(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS) return;
+    s_round.handicap[slot] = (uint8_t)netSlotHandicapIndex(slot);
+    netSyncRoundHandicaps();
+}
+
 bool netLocalIsSpectator(void) {
     return netIsActive() && netSlotIsSpectator(s_local_slot);
 }
@@ -3187,6 +3284,7 @@ int gevrNetConfigGet(int field) {
     case CFG_BOT_COUNT: return c->bot_count;
     case CFG_BOT_DIFFICULTY: return c->bot_difficulty;
     case CFG_MOVEMENT_SPEED: return c->movement_speed;
+    case CFG_HANDICAPS: return c->handicaps;
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
     }
 }
@@ -3224,6 +3322,7 @@ void gevrNetConfigSet(int field, int value) {
     case CFG_BOT_COUNT: if (!gevrNetBotRowsEditable() || value < 1) return; c.bot_count = value; break;
     case CFG_BOT_DIFFICULTY: if (!gevrNetBotRowsEditable()) return; c.bot_difficulty = value; break;
     case CFG_MOVEMENT_SPEED: c.movement_speed = value; break;
+    case CFG_HANDICAPS: if (c.mode != NET_MODE_DEATHMATCH) return; c.handicaps = value; break;
     default: if (field < CFG_CUSTOM0 || field > CFG_CUSTOM3) return; c.custom_set[field-CFG_CUSTOM0] = value; break;
     }
     if (!netValidConfig(&c)) return;
@@ -3235,6 +3334,7 @@ void gevrNetConfigSet(int field, int value) {
         VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpMaxPlayers=c.max_players;
         VrMpBotMode=c.bot_mode; VrMpBotCount=c.bot_count; VrMpBotDifficulty=c.bot_difficulty;
     }
+    if (c.mode == NET_MODE_DEATHMATCH) VrMpHandicaps=c.handicaps;
     VrMpVoiceMode=c.voice_mode;
     if(c.mode==NET_MODE_HORDE) VrHordeFriendlyFire=c.friendly_fire; else VrMpFriendlyFire=c.friendly_fire;
     VrMpFunFlags=c.fun_flags & NET_FUN_MASK; VrMpGunSize=c.gun_size;
@@ -3995,6 +4095,7 @@ int netRequestAddLocalGuest(const char *name, uint8_t chr_id, uint8_t input_clas
         s_slot_reload[assigned] = s_local_reload;
         strncpy(s_slot_app_version[assigned], s_local_app_version, sizeof(s_slot_app_version[0]) - 1);
         s_round.team[assigned] = bot_team;
+        netSlotHandicapJoined(assigned);
         if (!replacing_bot || s_state != NET_STATE_INGAME) s_round.character[assigned] = chr_id;
         memcpy(s_round.loadout[assigned], kit, 4);
         s_input_table_resend = true;
@@ -4112,6 +4213,7 @@ static void netReceiveLocalGuest(ENetPeer *peer, int slot_id, struct netbuf *buf
             for (int k = 0; k < 4; k++) sl->loadout[k] = netItemIndexOf(kit[k]) >= 0 ? kit[k] : 0;
             netSetJoinerName(assigned, name, name_end);
             s_round.team[assigned] = bot_team;
+            netSlotHandicapJoined(assigned);
             s_join_took_bot[assigned] = replacing_bot;
             if (!replacing_bot || s_state != NET_STATE_INGAME) s_round.character[assigned] = chr_id;
             memcpy(s_round.loadout[assigned], sl->loadout, 4);
@@ -4341,9 +4443,11 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 s_lobby_state.slots[slot].owner_slot = (uint8_t)assigned_slots[0];
                 if (!s_slot_grace_us[slot]) {
                     s_lobby_state.slots[slot].team = bot_team;
+                    s_lobby_state.slots[slot].handicap = NET_HANDICAP_MATCH;   /* not the seat's last player's */
                     s_lobby_state.slots[slot].eliminated = 0;
                     s_lobby_state.slots[slot].ping_ms = NET_PING_UNKNOWN;
                     s_round.team[slot] = bot_team;
+                    netSlotHandicapJoined(slot);
                     /* Horde admits arrivals during preparation/breaks; campaign
                      * and players taking a bot's place can always drop in. */
                     s_lobby_state.slots[slot].spectator = netJoinStartsSpectating() && !replacing_bot;
@@ -4522,7 +4626,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 slot->eliminated = netbufReadU8(&buf);
                 slot->is_bot = netbufReadU8(&buf);
                 slot->owner_slot = netbufReadU8(&buf);
+                slot->handicap = netbufReadU8(&buf);
                 slot->ping_ms = netbufReadU16(&buf);
+                if (!netHandicapValid(slot->handicap, netHealthCount())) valid = false;
                 if (slot->connected > 1 || slot->ready > 1 || slot->loaded > 1 || slot->spectator > 1 || slot->eliminated > 1 || slot->is_bot > 1 || slot->team > NET_TEAM_NONE || slot->chr_id >= netCharacterCount() || (slot->owner_slot >= GEVR_MAX_PLAYERS && slot->owner_slot != 0xFF)) valid = false;
                 for (int k = 0; k < 4; k++) {
                     slot->loadout[k] = netbufReadU8(&buf);
@@ -4552,6 +4658,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_lobby_received_us = sysGetMicroseconds();
             s_lobby_state = next;
             s_round = round;netImportCombatIdentity(&round);
+            netSyncRoundHandicaps();   /* a guest dropped in here, or a seat changed hands mid-round */
             s_lobby_open = lobby_open;
             s_start_after_load = start_after_load;
             break;
@@ -4579,6 +4686,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             uint8_t team = netbufReadU8(&buf);
             if (netIsHost() && !buf.error && size == 9 && netPeerOwnsSlot(peer, slot_id))
                 netSetSlotTeam(slot_id, team);
+            break;
+        }
+        case NET_MSG_LOBBY_HANDICAP: {
+            /* a player's own health: never the host's mark, and only under the host's rule */
+            uint8_t handicap = netbufReadU8(&buf);
+            if (netIsHost() && !buf.error && size == 9 && netPeerOwnsSlot(peer, slot_id) && !netHandicapIsHosts(handicap))
+                netSetSlotHandicap(slot_id, handicap, false);
             break;
         }
         case NET_MSG_LOBBY_CHARACTER: {
@@ -4841,6 +4955,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             }
             if (buf.error || netbufReadLeft(&buf) != 0) break;
             s_round = round;netImportCombatIdentity(&round);
+            netSyncRoundHandicaps();
             s_lobby_state.config = pending;
             s_lobby_received_us = sysGetMicroseconds();
             for (int i=0;i<GEVR_MAX_PLAYERS;i++) {

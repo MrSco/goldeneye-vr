@@ -70,6 +70,7 @@ int VrGexGuns = 0;          /* GoldenEye X's first-person models: guns, items, h
                                screen and in the headset (gevr_gexmodel.c, gun.c); off, as the original */
 int VrCampaign = 0;         /* 0 GoldenEye, 1 Goldfinger 64 (data/goldfinger64.z64), 2 Tomorrow Never Dies, 3 Mirror Mode, 4 Mario Characters (data/mario.z64) */
 int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
+int VrMpHandicaps = 0;   /* the host's Handicaps rule: each player picks their own health (protocol 29); off */
 int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
 int VrMpLoadout[4] = { 4, 8, 15, 26 };  /* ITEM_WPPK, ITEM_AK47, ITEM_SHOTGUN, ITEM_GRENADE */
 unsigned long long VrMpFavStages = 0; /* a bit per stage list position (net_match.c) */

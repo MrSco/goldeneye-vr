@@ -378,6 +378,32 @@ s32 frontStageSelectTick(s32 slot, const FrontStageTile *tiles, s32 count);
 s32 frontStageSelectShown(s32 slot);
 Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 count, const char *title,
                           const char *verb, s32 vx, s32 vy, s32 vw, s32 vh);
+/* The Handicap and Teams screens for one match slot (online, mpmenu.c): the
+ * pad (1 A, -1 B, 0 else; the steps in dx, dy), the chosen sound, and each
+ * screen's drawing from the entries the caller fills each frame. */
+void frontPanelPadReset(s32 slot);
+s32 frontPanelPad(s32 slot, s32 *dx, s32 *dy);
+void frontPanelChosenSound(void);
+typedef struct {
+    const char *name;
+    const char *label;   /* the health's short name ("-1 (Veteran)") */
+    s8 index;            /* MP_handicap_table: the health shown */
+    u8 match;            /* no pick of their own: the match's health */
+    u8 host;             /* the host set it */
+    u8 editable;         /* the player at this screen may change it */
+    u8 me;               /* the player at this screen */
+} FrontHandicapEntry;
+Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count, s32 cursor, const char *note,
+                       s32 vx, s32 vy, s32 vw, s32 vh);
+typedef struct {
+    const char *name;
+    s8 team;             /* the team chosen for the next round: 0 red, 1 blue, else none */
+    u8 next;             /* not the team played now: it changes at the next round */
+    u8 bot;              /* listed after the players */
+    u8 me;               /* the player at this screen (drawn in the column of their pick, first) */
+} FrontTeamEntry;
+Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, s32 pick, s32 cap_red, s32 cap_blue,
+                         const char *note, s32 vx, s32 vy, s32 vw, s32 vh);
 #endif
 
 #endif

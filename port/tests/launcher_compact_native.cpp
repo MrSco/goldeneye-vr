@@ -11,6 +11,7 @@
 #include <vector>
 static ImVec4 gold(1, .84f, .47f, 1);
 static int VrMpScenario, VrMpLength, VrMpHealth=5, VrMpDual, VrMpLoadouts, VrMpNextRound;
+static int VrMpHandicaps=1;   /* the host's Handicaps rule: its checkbox drawn */
 static int VrAlly, VrHordeFriendlyFire, VrHordeStage = 24, VrHordeStartWave = 1;
 static int VrMpMode, VrMpBotMode, VrMpBotCount=7, VrMpBotDifficulty=5, VrMpFriendlyFire;
 static int VrMpStage=34,VrMpMaxPlayers=8,VrMpVisibility=1,VrMpWeaponSet=4,VrMpCustom[4];
@@ -32,10 +33,10 @@ enum {SCENARIO_YOLT=1, SCENARIO_TLD=2, SCENARIO_MWTGG=3, CFG_MOVEMENT_SPEED};
 #define SMOOTHTURN_MIN 45
 #define SMOOTHTURN_MAX 240
 #define SMOOTHTURN_STEP 15
-struct FixtureConfig {int movement_speed,fun_flags,mode,scenario,bot_difficulty;};
+struct FixtureConfig {int movement_speed,fun_flags,mode,scenario,bot_difficulty,health=5;};
 struct NetMsgLobbyState {
     FixtureConfig config;
-    struct {int connected,is_bot,chr_id,team,ready;char name[GEVR_MAX_NAME_LEN];} slots[8];
+    struct {int connected,is_bot,chr_id,team,ready,handicap;char name[GEVR_MAX_NAME_LEN];} slots[8];
 };
 static NetMsgLobbyState lobby;
 static FixtureConfig &config=lobby.config;
@@ -91,6 +92,15 @@ static void gevrTeamChoiceRow(const char*) {
     if(!gevrLobbyHasTeams(&config))return;
     ImGui::TextUnformatted("Your team:");ImGui::SameLine();int team=0;ImGui::SetNextItemWidth(ImGui::GetFontSize()*5);
     namedCombo("##fixtureTeam",3,netTeamName,&team);
+}
+/* each player's health (protocol 29): the roster's tooltip and the host's menu, the row as drawn */
+static int netSlotHandicapIndex(int slot){return netHandicapResolve(lobby.slots[slot].handicap,1,config.health,netHealthCount());}
+static void netHostSetSlotHandicap(int slot,int value){lobby.slots[slot].handicap=value;}
+static void gevrHandicapChoiceRow(const char*) {
+    if(!online || config.mode!=NET_MODE_DEATHMATCH)return;
+    if(gevrLobbyHasTeams(&config))ImGui::SameLine(0.0f,ImGui::GetFontSize()*1.5f);
+    ImGui::TextUnformatted("Your health:");ImGui::SameLine();int index=10;ImGui::SetNextItemWidth(ImGui::GetFontSize()*9.0f);
+    namedCombo("##fixtureHealth",netHealthCount(),netHealthName,&index);
 }
 static void gevrMatchLiveOptions();
 /* the Screen tab: the virtual screen, the display rate, SpaceWarp, anti-aliasing and resolution */

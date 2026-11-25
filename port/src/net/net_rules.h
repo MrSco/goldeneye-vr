@@ -97,6 +97,42 @@ static inline int netVoicePairMode(int scenario, int selected, int a_team, int b
     if (!netScenarioHasTeams(scenario)) return selected;
     return a_team < 2 && a_team == b_team ? NET_VOICE_COUCH : NET_VOICE_PROXIMITY;
 }
+/*
+ * A player's own health (protocol 29): the lobby slot's handicap, 0
+ * (NET_HANDICAP_MATCH) the host's match health, otherwise one more than a
+ * front.c MP_handicap_table index (1 Hero, x10 damage .. 11 Rookie), so a
+ * cleared slot plays at the match's. NET_HANDICAP_HOST marks the host's pick
+ * for that player, which always counts; a player's own pick counts only while
+ * the host's Handicaps rule is on (NetMatchConfig.handicaps), so a stranger
+ * cannot make themselves tougher in a match that did not ask for it.
+ * Deathmatch only: co-op's difficulty and Horde's waves set the damage.
+ */
+#define NET_HANDICAP_MATCH 0
+#define NET_HANDICAP_HOST  0x80
+static inline int netHandicapValid(int value, int count) {
+    return value == NET_HANDICAP_MATCH || (value > 0 && value <= 0xFF && (value & 0x7F) >= 1 && (value & 0x7F) <= count);
+}
+static inline int netHandicapIsHosts(int value) { return value != NET_HANDICAP_MATCH && (value & NET_HANDICAP_HOST) != 0; }
+/* A table index as a slot's value (without the host's mark) */
+static inline int netHandicapOf(int index) { return index + 1; }
+/* The health a player plays with: an index into the table */
+static inline int netHandicapResolve(int value, int rule, int match, int count) {
+    if (match < 0 || match >= count) match = count > 5 ? 5 : 0;
+    if (!netHandicapValid(value, count) || value == NET_HANDICAP_MATCH) return match;
+    return netHandicapIsHosts(value) || rule ? (value & 0x7F) - 1 : match;
+}
+/* May the player change their own: the rule on, and the host has not set it */
+static inline int netHandicapOwnEditable(int value, int rule) { return rule && !netHandicapIsHosts(value); }
+/* The value for table index shown: the match's health is the match's again (it follows the host's) */
+static inline int netHandicapPick(int index, int match, int count) {
+    if (index < 0) index = 0;
+    if (index >= count) index = count - 1;
+    return index == match ? NET_HANDICAP_MATCH : netHandicapOf(index);
+}
+/* One step along the table from the health shown */
+static inline int netHandicapStep(int value, int rule, int match, int count, int dir) {
+    return netHandicapPick(netHandicapResolve(value, rule, match, count) + (dir < 0 ? -1 : dir > 0 ? 1 : 0), match, count);
+}
 static inline int netTeamKillPoints(int shooter_team, int victim_team, int kills) {
     return shooter_team == victim_team ? -kills : kills;
 }

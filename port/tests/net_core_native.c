@@ -13,7 +13,7 @@ struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 s32 g_gameOverFlag, D_80048394;
 struct player *g_playerPointers[MAX_PLAYER_COUNT];
 s32 startpadcount=8;
-static unsigned char sent_data[1024];   /* an eight-player match snapshot is 727 bytes */
+static unsigned char sent_data[1024];   /* an eight-player match snapshot is 739 bytes */
 static size_t sent_size;
 static int fixture_cur=-1;   /* the player ticking, when not the local one (a bot) */
 s32 get_cur_playernum(void) { return fixture_cur>=0 ? fixture_cur : s_local_slot; }
@@ -27,6 +27,11 @@ int VrMpStage,VrMpWeaponSet,VrMpChr,VrMpScenario,VrMpLength,VrMpHealth;
 int VrGuestChr[3];
 int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
 int VrMpMovementSpeed;
+int VrMpHandicaps;
+/* front.c's MP_handicap_table damage modifiers, filled from front.c by test_multiplayer.py */
+static const float s_mp_damage[11] = { /* MP_HANDICAP_TABLE */ };
+s32 player_handicap[MAX_PLAYER_COUNT];
+f32 get_player_mp_handicap(s32 player) { return s_mp_damage[player_handicap[player]]; }
 int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
@@ -229,6 +234,80 @@ EXPORT int test_core_teams(void) {
     voice_resets=0;netHostRoundEnded();if(!netVoiceSameGroup(0,1) || voice_resets!=GEVR_MAX_PLAYERS) return 10;
     return 0;
 }
+/*
+ * Per-player health (protocol 29): a player's own pick counts only under the
+ * host's Handicaps rule, the host's always; the round latches it, the wire
+ * carries it, a pending change reloads the warmup, and the owner's copy of a
+ * player takes damage scaled by their own row of front.c's table.
+ */
+EXPORT int test_core_handicaps(void) {
+    fixture(SCENARIO_NORMAL);
+    s_lobby_state.config.health=5;s_lobby_state.config.handicaps=0;
+    CHECK(netSlotHandicapIndex(1)==5 && s_lobby_state.slots[1].handicap==NET_HANDICAP_MATCH);
+    /* the rule off: a player's own is refused, the host's counts and is marked */
+    CHECK(!netSetSlotHandicap(1,netHandicapOf(10),false) && netSlotHandicapIndex(1)==5);
+    netHostSetSlotHandicap(1,netHandicapOf(0));
+    CHECK(s_lobby_state.slots[1].handicap==(NET_HANDICAP_HOST|netHandicapOf(0)) && netSlotHandicapIndex(1)==0);
+    CHECK(!netSetSlotHandicap(2,netHandicapOf(11),true) && !netSetSlotHandicap(2,0x7F,true));
+    /* the rule on: anyone their own, but not one the host set */
+    gevrNetConfigSet(CFG_HANDICAPS,1);
+    CHECK(s_lobby_state.config.handicaps==1 && VrMpHandicaps==1);
+    CHECK(netSetSlotHandicap(2,netHandicapOf(10),false) && netSlotHandicapIndex(2)==10);
+    CHECK(!netSetSlotHandicap(1,netHandicapOf(9),false) && netSlotHandicapIndex(1)==0);
+    CHECK(netSetSlotHandicap(3,NET_HANDICAP_MATCH,false) && netSlotHandicapIndex(3)==5);
+    /* the host's match health moves those on the match's, not the picks */
+    gevrNetConfigSet(CFG_HEALTH,7);
+    CHECK(netSlotHandicapIndex(3)==7 && netSlotHandicapIndex(2)==10 && netSlotHandicapIndex(1)==0);
+    /* the rule off again: the own pick waits, the host's stays */
+    gevrNetConfigSet(CFG_HANDICAPS,0);
+    CHECK(netSlotHandicapIndex(2)==7 && netSlotHandicapIndex(1)==0 && s_lobby_state.slots[2].handicap==netHandicapOf(10));
+    gevrNetConfigSet(CFG_HANDICAPS,1);gevrNetConfigSet(CFG_HEALTH,5);
+    /* the screen's step: back onto the match's health is the match's again */
+    CHECK(netHandicapStep(NET_HANDICAP_MATCH,1,5,11,1)==netHandicapOf(6));
+    CHECK(netHandicapStep(netHandicapOf(6),1,5,11,-1)==NET_HANDICAP_MATCH);
+    CHECK(netHandicapStep(netHandicapOf(10),1,5,11,1)==netHandicapOf(10) && netHandicapStep(netHandicapOf(0),1,5,11,-1)==netHandicapOf(0));
+    /* the round latches them and carries them */
+    netLatchRoundSettings();
+    CHECK(s_round.handicap[0]==5 && s_round.handicap[1]==0 && s_round.handicap[2]==10 && s_round.handicap[3]==5 && s_round.handicap[5]==5);
+    u8 raw[192];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings r;
+    netbufStartWrite(&b);netWriteRoundSettings(&b);netbufStartReadData(&b,raw,b.wp);
+    CHECK(netReadRoundSettings(&b,&r) && !netbufReadLeft(&b) && r.handicap[1]==0 && r.handicap[2]==10 && r.config.handicaps==1);
+    s_round.handicap[4]=11;netbufStartWrite(&b);netWriteRoundSettings(&b);netbufStartReadData(&b,raw,b.wp);
+    CHECK(!netReadRoundSettings(&b,&r));   /* past the table */
+    s_round.handicap[4]=5;
+    /* a pending change is a change to load into the warmup */
+    s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    CHECK(!netWarmupSettingsChanged());
+    netHostSetSlotHandicap(3,netHandicapOf(2));
+    CHECK(netWarmupSettingsChanged() && s_round.handicap[3]==5);
+    /* the damage each takes: the owner's copy multiplies by its own row (bondview2.c) */
+    for(int p=0;p<MAX_PLAYER_COUNT;p++){player_handicap[p]=5;g_playerPlayerData[p].handicap=1.0f;}
+    netLatchRoundSettings();netSyncRoundHandicaps();
+    CHECK(player_handicap[1]==0 && player_handicap[2]==10 && player_handicap[3]==2 && player_handicap[0]==5);
+    CHECK(g_playerPlayerData[1].handicap==s_mp_damage[0] && g_playerPlayerData[2].handicap==s_mp_damage[10]);
+    CHECK(g_playerPlayerData[1].handicap*1.0f>9.0f && g_playerPlayerData[2].handicap*1.0f<0.2f && g_playerPlayerData[0].handicap==1.0f);
+    /* License to Kill keeps its one-shot damage */
+    s_round.config.scenario=SCENARIO_LTK;player_handicap[2]=5;g_playerPlayerData[2].handicap=200.0f;netSyncRoundHandicaps();
+    CHECK(g_playerPlayerData[2].handicap==200.0f);
+    s_round.config.scenario=SCENARIO_NORMAL;player_handicap[2]=10;g_playerPlayerData[2].handicap=s_mp_damage[10];
+    /* a joiner in a seat a player with their own health left plays at theirs, at once */
+    s_lobby_state.slots[2].handicap=NET_HANDICAP_MATCH;netSlotHandicapJoined(2);
+    CHECK(s_round.handicap[2]==5 && player_handicap[2]==5 && g_playerPlayerData[2].handicap==s_mp_damage[5]);
+    /* this machine: the host's own seat may change its own; a guest at the host's screen
+     * is a player like any other, its own only under the rule; nobody else's here */
+    s_local_slots[1]=2;s_local_count=2;   /* slot 3 the host set: not the player's own to change */
+    CHECK(netSlotHandicapEditable(0) && netSlotHandicapEditable(2) && !netSlotHandicapEditable(1) && !netSlotHandicapEditable(3));
+    gevrNetConfigSet(CFG_HANDICAPS,0);
+    CHECK(netSlotHandicapEditable(0) && !netSlotHandicapEditable(2));
+    netLobbySetHandicapSlot(2,netHandicapOf(9));CHECK(s_lobby_state.slots[2].handicap==NET_HANDICAP_MATCH);
+    netLobbySetHandicapSlot(0,netHandicapOf(9));CHECK(s_lobby_state.slots[0].handicap==(NET_HANDICAP_HOST|netHandicapOf(9)));
+    s_local_slots[1]=-1;s_local_count=1;
+    /* PvE: the difficulty and the waves decide; nobody's own */
+    fixture(SCENARIO_NORMAL);s_lobby_state.config.mode=NET_MODE_HORDE;s_lobby_state.config.handicaps=1;
+    s_lobby_state.slots[1].handicap=netHandicapOf(0);
+    CHECK(netSlotHandicapIndex(1)==5 && !netSetSlotHandicap(1,netHandicapOf(10),true) && !netSlotHandicapEditable(0));
+    return 0;
+}
 /* Teammates are always heard at full gain: in Horde and co-op everyone is one,
  * so the host's Proximity choice only reaches free-for-all opponents. */
 EXPORT int test_core_pve_voice_teammates(void) {
@@ -250,7 +329,7 @@ EXPORT int test_core_live_voice(void) {
     NetMatchConfig c=s_lobby_state.config;c.voice_mode=1;c.stage=31;netLobbySetConfig(&c);
     if(s_round.config.voice_mode != 1 || s_round.config.stage != 34 || s_lobby_state.config.stage != 31 || voice_resets != GEVR_MAX_PLAYERS) return 1;
     c.voice_mode=2;netLobbySetConfig(&c);if(s_lobby_state.config.voice_mode != 1) return 2;
-    u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings restored;
+    u8 raw[192];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings restored;
     s_round.team[1]=1;s_round.departed_score[1]=-3;
     netbufStartWrite(&b);netWriteRoundSettings(&b);netbufStartReadData(&b,raw,b.wp);
     if(!netReadRoundSettings(&b,&restored) || netbufReadLeft(&b) || restored.team[1]!=1 || restored.departed_score[1]!=-3 || restored.config.voice_mode!=1) return 3;
@@ -269,7 +348,7 @@ EXPORT int test_core_friendly_fire(void) {
     if(netDamageAllowed(0,1)) return 2;
     c.friendly_fire=2;netLobbySetConfig(&c);if(s_round.config.friendly_fire) return 3;
     c.friendly_fire=1;netLobbySetConfig(&c);if(!netDamageAllowed(0,1)) return 4;
-    u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings r;
+    u8 raw[192];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings r;
     netbufStartWrite(&b);netWriteRoundSettings(&b);netbufStartReadData(&b,raw,b.wp);
     if(!netReadRoundSettings(&b,&r) || !r.config.friendly_fire || r.team[1]!=NET_TEAM_RED) return 5;
     s_local_slot=2;ENetPeer peer={0};netHostLost(&peer);
@@ -1084,7 +1163,7 @@ EXPORT int test_core_timed_hits(void) {
 }
 EXPORT int test_core_combat_identity(void) {
     hitFixture();s_hit_life[1]=7;s_hit_life[2]=9;
-    u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);netWriteRoundSettings(&b);
+    u8 raw[192];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);netWriteRoundSettings(&b);
     unsigned len=b.wp;NetRoundSettings r;netbufStartReadData(&b,raw,len);CHECK(netReadRoundSettings(&b,&r));
     CHECK(r.combat_epoch==s_combat_epoch && r.life[1]==7 && r.life[2]==9);
     for(unsigned n=0;n<len;n++){netbufStartReadData(&b,raw,n);CHECK(!netReadRoundSettings(&b,&r));}
@@ -1188,11 +1267,11 @@ EXPORT int test_core_eight_slots(void) {
     g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
     CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
 
-    /* the late-join snapshot: 81 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty, the bots and Horde's start wave), past the old 512 */
+    /* the late-join snapshot: 83 + 50N + 4N^2 bytes (two match configs with co-op's mode and difficulty, the bots, Horde's start wave and the Handicaps rule; each player's handicap), past the old 512 */
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==81+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==83+50*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);

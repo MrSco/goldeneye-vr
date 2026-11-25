@@ -1797,6 +1797,32 @@ static void gevrTeamChoiceRow(const char *id) {
     if (netGetPhase() == NET_PHASE_IN_PROGRESS)
         ImGui::SameLine(), ImGui::TextDisabled("next match");
 }
+// Your own health (protocol 29, net_rules.h NET_HANDICAP_*): the match's, unless the
+// host's Handicaps rule lets you pick or the host set it. Deathmatch only.
+static void gevrHandicapChoiceRow(const char *id) {
+    if (!netIsActive() || netGetMatchConfig()->mode != NET_MODE_DEATHMATCH)
+        return;
+    const int slot = netGetLocalSlot();
+    const bool editable = netSlotHandicapEditable(slot) != 0;
+    int index = netSlotHandicapIndex(slot);
+    // beside the team row (gevrTeamChoiceRow), where there is one: a row of its own made the host's lobby scroll
+    if (gevrLobbyHasTeams(netGetMatchConfig()))
+        ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
+    ImGui::TextUnformatted("Your health:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+    ImGui::BeginDisabled(!editable);
+    if (namedCombo(id, netHealthCount(), netHealthName, &index))
+        netLobbySetHandicapSlot(slot, netHandicapPick(index, netGetMatchConfig()->health, netHealthCount()));
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        gevrTooltip("%s", editable ? (netIsHost() ? "Yours as the host. Set anyone's from the player list."
+                                                  : "Your own health. The match's is the host's Health.")
+                          : netHandicapIsHosts(netGetSlotHandicap(slot)) ? "The host set your health."
+                          : "The host's Player handicaps rule is off: everyone plays at the match's health.");
+    if (netGetPhase() == NET_PHASE_IN_PROGRESS)
+        ImGui::SameLine(), ImGui::TextDisabled("next match");
+}
 static std::string gevrPingText(int slot) {
     int ping = netGetSlotPing(slot);
     return ping < 0 ? "—" : std::to_string(ping);
@@ -1819,6 +1845,8 @@ static void gevrHostChoiceChanged() {
     VrMpWeaponSet = accepted->weapon_set;
     VrMpLength = accepted->game_length;
     VrMpHealth = accepted->health;
+    if (accepted->mode == NET_MODE_DEATHMATCH)
+        VrMpHandicaps = accepted->handicaps;
     VrMpDual = accepted->dual_wield;
     VrMpLoadouts = accepted->loadouts;
     VrMpNextRound = accepted->next_round;
@@ -1952,6 +1980,16 @@ static void gevrMatchOptions(bool favorites = false) {
             changed = true;
         }
         if (ImGui::IsItemHovered()) gevrTooltip("Players spawn with their own four selected guns.");
+        if (VrMpMode == NET_MODE_DEATHMATCH) {
+            bool handicaps = VrMpHandicaps != 0;
+            if (ImGui::Checkbox("Player handicaps", &handicaps)) {
+                VrMpHandicaps = handicaps ? 1 : 0;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                gevrTooltip("Each player picks their own health (in game: Handicap).\n"
+                            "Off: everyone plays at the match's health, but for players you set from the player list.");
+        }
         ImGui::TableNextColumn();
         gevrSectionHeader(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "BOTS AND LIVE SETTINGS");
         // Bots: player slots the host runs (gevr_bot.c); they change between rounds only
@@ -2094,7 +2132,10 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
                             canKick && !host ? "\nSelect for Kick." : "");
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(netCharacterName(slot.chr_id));
-            if (ImGui::IsItemHovered()) gevrTooltip("%s", netCharacterName(slot.chr_id));   // a long one is cut
+            if (ImGui::IsItemHovered() && lobby->config.mode == NET_MODE_DEATHMATCH)   // a long one is cut; and their health
+                gevrTooltip("%s\nHealth: %s%s", netCharacterName(slot.chr_id), netHealthName(netSlotHandicapIndex(i)),
+                            slot.handicap == NET_HANDICAP_MATCH ? " (the match's)" : netHandicapIsHosts(slot.handicap) ? " (set by the host)" : "");
+            else if (ImGui::IsItemHovered()) gevrTooltip("%s", netCharacterName(slot.chr_id));
             if (teams) {
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(netTeamName(slot.team));
@@ -2157,6 +2198,20 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
                     const int relation = gevrFriendRelation(fm, code, &requestId);
                     if (gevrAddFriendButton(relation, fm.status == "ready", slot.name, code))
                         gevrFriendsSend(relation == GEVR_RELATION_REQUEST ? "answer|" + requestId + "|1" : "add|" + code);
+                }
+            }
+            if (lobby->config.mode == NET_MODE_DEATHMATCH) {
+                // each player's health (protocol 29): the host sets anyone's, a bot's too
+                int index = netSlotHandicapIndex(i);
+                if (canKick) {
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted("Health:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+                    if (namedCombo("##rosterhealth", netHealthCount(), netHealthName, &index))
+                        netHostSetSlotHandicap(i, netHandicapPick(index, lobby->config.health, netHealthCount()));
+                } else {
+                    ImGui::TextDisabled("Health: %s", netHealthName(index));
                 }
             }
             if (canKick && i != netGetHostSlot()) {
@@ -2434,6 +2489,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
     }
     if (hosting) {
         gevrTeamChoiceRow("##hostteam");
+        gevrHandicapChoiceRow("##hosthealth");
         gevrLobbyRoster(gold,false);
         if (gevrLobbyHasTeams(netGetMatchConfig()) && !netTeamRosterReady()) {
             if (ImGui::IsItemHovered())gevrTooltip("Complete teams before countdown; warmup remains available.");
@@ -2927,6 +2983,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
         }
         loadoutRows("mpplayer");
         gevrTeamChoiceRow("##playerteam");
+        gevrHandicapChoiceRow("##playerhealth");
 #ifdef GEVR_FLAT
         gevrLocalSplitScreenStrip(gold, "playeropts");
 #endif
@@ -3055,6 +3112,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                         ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
                                     netScenarioName(cfg->scenario));
                     gevrTeamChoiceRow("##clientteam");
+                    gevrHandicapChoiceRow("##clienthealth");
                     gevrLobbyRoster(gold);
 #ifdef GEVR_FLAT
                     gevrLocalSplitScreenStrip(gold, "clientlobby");

@@ -9,7 +9,8 @@ extern "C" {
 enum { CFG_STAGE, CFG_SCENARIO, CFG_WEAPON_SET, CFG_GAME_LENGTH, CFG_HEALTH,
        CFG_DUAL_WIELD, CFG_LOADOUTS, CFG_NEXT_ROUND, CFG_CUSTOM0, CFG_CUSTOM1,
        CFG_CUSTOM2, CFG_CUSTOM3, CFG_VOICE_MODE, CFG_FRIENDLY_FIRE, CFG_FUN_FLAGS, CFG_GUN_SIZE,
-       CFG_MAX_PLAYERS, CFG_FAST_REINFORCEMENTS, CFG_BOT_MODE, CFG_BOT_COUNT, CFG_BOT_DIFFICULTY, CFG_MOVEMENT_SPEED };
+       CFG_MAX_PLAYERS, CFG_FAST_REINFORCEMENTS, CFG_BOT_MODE, CFG_BOT_COUNT, CFG_BOT_DIFFICULTY, CFG_MOVEMENT_SPEED,
+       CFG_HANDICAPS };
 int gevrNetConfigGet(int field);
 /* Online in a co-op mission: where retail reads two or more players as a
  * deathmatch, the game asks this and plays the solo mission's rules. */
@@ -30,6 +31,15 @@ int gevrNetBotFoes(int a, int b);     /* b is a's foe: not itself, not its side 
 int gevrNetBotDifficulty(void);       /* the round's NET_BOT_MEAT .. NET_BOT_DARK */
 int gevrNetBotRowsEditable(void);     /* the host's bot rows: deathmatch, outside a round in progress */
 int netGetSlotTeam(int slot);
+int netGetActiveSlotTeam(int slot);   /* the round's (netGetSlotTeam: the next round's) */
+/* Per-player health (protocol 29, net_rules.h NET_HANDICAP_*): the slot's value, the
+ * table index it will play with, the round's, whether this machine may change it */
+int netGetSlotHandicap(int slot);
+int netSlotHandicapIndex(int slot);
+int netRoundHandicapIndex(int slot);
+int netSlotHandicapEditable(int slot);
+void netLobbySetHandicapSlot(int slot, int value);   /* a local seat's own (the host's seat: the host's) */
+void netHostSetSlotHandicap(int slot, int value);    /* the host: anyone's */
 int netGetSlotPing(int slot);
 /* Local host policy. Cap is clamped to 0..80 ms. */
 void netSetHostEqualization(int enabled, unsigned cap_ms);
