@@ -65,10 +65,11 @@ settings, saves and ROMs, with big packs opt-in. Decisions (user):
 - **Client ID and secret:** installed-app secrets are not confidential by
   Google's own rules, but they stay out of the public repo (a build setting,
   like the Discord SDK path), so forks use their own Google project.
-- **Before release:** the OAuth consent screen in **Production** (in
-  Testing, refresh tokens die after 7 days); brand verification with the
-  goldeneyevr.com privacy policy (add a Google Drive section and Google's
-  Limited Use statement), the domain and the logo.
+- **Production** since 2026-11-25 (in Testing, refresh tokens die after 7 days
+  and only listed test users can link). The owner set up the domain and
+  branding. Still to do before release: a Google Drive section in the
+  goldeneyevr.com privacy policy with Google's Limited Use statement (the live
+  policy did not mention Google on 2026-11-25).
 
 ## Records: one writer per file
 
@@ -218,11 +219,9 @@ value back: each uploads only what differs from what it last synced.
 
 Owner setup (2026-11-25): Google Cloud project "GoldenEye VR", Drive API on,
 OAuth client "GoldenEye VR devices" (TVs and Limited Input), consent screen
-External, in Testing with the owner as test user. The client ID and secret
+External, in Production since 2026-11-25 (owner: domain and branding set up). The client ID and secret
 live only in the main checkout's ignored `build/google/oauth.properties`
 (`gevr.googleClientId`, `gevr.googleClientSecret`); builds read them from
 there, else build without Google Drive. Data access: `drive.file` (done).
-Before release: Production status (Testing limits sign-in to the listed test
-users and drops refresh tokens after 7 days), brand verification with the
-privacy policy's Google Drive section. Later: Desktop and iOS clients for
+Before release: the privacy policy's Google Drive section (Limited Use). Later: Desktop and iOS clients for
 browser sign-in.
