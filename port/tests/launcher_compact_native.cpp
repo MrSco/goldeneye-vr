@@ -12,6 +12,7 @@
 static ImVec4 gold(1, .84f, .47f, 1);
 static int VrMpScenario, VrHordeStage = 24, VrHordeStartWave = 50;
 static int VrMpMode;
+static int VrMpLobby = 1;   /* the Lobby rule's default: the Host page's longer text */
 static int VrMpStage=34,VrMpVisibility=1,VrMpWeaponSet=4;
 static int VrMpVrOnly;   /* the host's "VR players only" */
 static int VrCampaign;   /* GoldenEye: every mode offered (a hack campaign offers co-op only) */
@@ -23,7 +24,7 @@ static unsigned VrMpFavSets;
 static float VrUseSnapTurn, VrComfortVignette=.5f, vignette=.5f;
 static bool vignetteOn=true;
 static int turn, online, host;
-enum {SCENARIO_YOLT=1, SCENARIO_TLD=2, SCENARIO_MWTGG=3, CFG_MOVEMENT_SPEED};
+enum {SCENARIO_YOLT=1, SCENARIO_TLD=2, SCENARIO_MWTGG=3, CFG_MOVEMENT_SPEED, CFG_LOBBY};
 #define NET_PHASE_IN_PROGRESS 2
 #define GEVR_MAX_PLAYERS 8
 #define GEVR_MAX_NAME_LEN 25
@@ -94,7 +95,7 @@ static void fixtureFunRows() {
 static auto netGetMatchConfig(){return &config;}
 static void vrSettingsSave(){}
 static void gevrHostChoiceChanged(){}
-static void gevrNetConfigSet(int,int value){if(host)config.movement_speed=VrMpMovementSpeed=value;}
+static void gevrNetConfigSet(int field,int value){if(host && field==CFG_MOVEMENT_SPEED)config.movement_speed=VrMpMovementSpeed=value;}
 static int netGetHostEqualization(unsigned *cap){*cap=50;return 1;}
 static void netSetHostEqualization(bool,unsigned){}
 static void netHostEqualizationText(char *out,size_t n){std::snprintf(out,n,"Host delay: 50 ms");}

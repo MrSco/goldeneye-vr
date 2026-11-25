@@ -45,6 +45,7 @@ extern "C" void gevrHandicapOpen(int slot);               // mpmenu.c: the Handi
 extern "C" void gevrTeamSelOpen(int slot);                // mpmenu.c: the Teams screen in the view (stereo: the HUD)
 extern "C" void gevrMpOptionsFromPause(int slot);         // mpmenu.c: the Multiplayer Options folder in the view (stereo: the HUD)
 extern "C" int gevrMpOptionsAvailable(int slot);
+extern "C" int gevrInMatchLobby(void);                    // mpmenu.c: the pre-match lobby, where this window is the screen
 // vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
 void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
 namespace {
@@ -214,6 +215,7 @@ extern "C" void gevrNativePauseRender(void) {
     view.teams=view.handicap&&netScenarioHasTeams(gevrNetConfigGet(CFG_SCENARIO));
 #endif
     view.portraits=true;   /* the game's own screens: in the view, or in stereo on the head-locked HUD (mpmenu.c) */
+    view.lobby=!view.coop&&gevrInMatchLobby()!=0;
     /* a split screen's setup is each player's folder; one player's is this window (mpmenu.c gevrMpOptionsAsMenu) */
     view.setup=gevrMpOptionsAvailable(netGetLocalSlot())!=0 && netLocalSlotCount()>1;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
@@ -238,6 +240,8 @@ extern "C" void gevrNativePauseRender(void) {
         const int left=gevrPauseMatchClock(view.clock,sizeof(view.clock));
         view.clockEnding=left>=0&&left<=60;
     }
+    if(view.lobby && !view.countdown)
+        snprintf(view.status,sizeof(view.status),"%s",view.host?"Lobby: set up, then start":"Lobby: ready up");
     if(!view.coop && !view.countdown) {
         int seconds=netWarmupSecondsLeft();
         if(view.startRequested)snprintf(view.status,sizeof(view.status),"Waiting for ready / loading players");
@@ -257,15 +261,15 @@ extern "C" void gevrNativePauseRender(void) {
             p.friendRelation=gevrNetSlotIsLocalHuman(slot)?GEVR_RELATION_SELF:gevrFriendRelation(gevrFriends(),p.friendCode);
         }
         p.ready=lobby->slots[slot].ready!=0;p.down=view.coop&&gevrCoopDowned(slot);p.ping=netGetSlotPing(slot);
-        if(!view.coop)gevrPausePlayerStats(slot,&p.points,&p.kills,&p.losses);
+        if(!view.coop && !view.lobby)gevrPausePlayerStats(slot,&p.points,&p.kills,&p.losses);
     }
     action=gevrDrawPauseWindow(view,ui,(ImTextureID)(intptr_t)icon);
     drawFriends();
     joinFriend=confirmJoin();
 #ifdef GEVR_FLAT
-    if(!popupWasOpen&&!inputIsBindingCapture()&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;
+    if(!view.lobby&&!popupWasOpen&&!inputIsBindingCapture()&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;
 #else
-    if(!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;
+    if(!view.lobby&&!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;   /* the lobby's window stays */
 #endif
     }
 #ifndef GEVR_FLAT   /* the controllers' pointer spot; a window has its own cursor, a phone none */

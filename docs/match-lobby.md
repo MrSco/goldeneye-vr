@@ -17,13 +17,17 @@ Owner decisions (2026-11-25):
 3. An optional warmup (practice on the map) after the lobby's START: Off by
    default, the host picks 30 s, 60 s or 2 min.
 4. Music: the file select's music, quietly.
-5. A split screen gets each local player their own folder in their part of
-   the screen, as in a match.
+5. The lobby's menus are the match's: one player on the screen (flat or in a
+   headset) has the full pause window, the launcher's look, with the laser
+   pointer in a headset; a split screen, where the window does not fit, gives
+   each local player their own Multiplayer Options folder in their part of
+   the screen.
 6. Dedicated servers run the lobby too.
 
 ## The host's rules
 
-Two rows of the folder (the host's; dimmed elsewhere), saved in
+Two rows of the pause window's Rules tab and of the folder (the host's;
+dimmed elsewhere), saved in
 `goldeneye-vr.ini` and in the match config (`NetMatchConfig.lobby` and
 `.warmup`, protocol 29, which is unreleased, so no bump):
 
@@ -68,17 +72,27 @@ Joining mid-match still drops straight into the match.
 ## The screen
 
 `src/game/front.c` `MENU_MP_LOBBY` on the title stage (`menu_init` sends the
-title stage there whenever the round is the lobby); `src/game/mpmenu.c`
-`gevrLobbyStage*`:
+title stage there whenever the round is the lobby), the file select's music
+quietly; what is on it is the match's own menus, by the same rule:
 
-- One player: the folder on the left, and **Players** beside it: everyone in
-  the lobby, the character they chose, and HOST, READY or WAITING
-  (`front.c frontLobbyRosterDraw`), with "n OF m READY" under it.
-- Two players: halves; three or four: quarters, each its player's folder,
-  driven by their own pad. The info line adds "n/m" READY.
-- The folder stays up: B on it does nothing, a screen it opens (Select
-  Character, the stage photos, Handicap, Teams, the sheets) comes back to it.
-  **Leave Match** (A twice) leaves; a split screen's guest has Drop Out.
+- **One player on the screen** (flat, or always in a headset): the full pause
+  window (`port/vr/vr_pause_menu.cpp`, `gevr_pause_widgets.h` with
+  `GevrPauseView.lobby`), up for the whole lobby (`input.c`
+  `gevrNativePauseOpen`): the map, weapons and scenario on Match, the Lobby
+  and Warmup rules on Rules, the character and loadout on Player, the players
+  and who is READY, then Start match (the host; alone, Practice on the map)
+  or Ready up, Cancel start in the countdown, and Leave match. No Resume (no
+  game under it), no scores and no health arcs. In a headset the laser
+  points at it as at the launcher. Its Select Character, map photos,
+  Handicap and Teams buttons open the game's own screens, drawn here
+  (`mpmenu.c gevrLobbyStage*`), and the window comes back when they close.
+- **A split screen** (two players: halves; three or four: quarters): each
+  player's Multiplayer Options folder, driven by their own pad; the info
+  line adds "n/m" READY. The folder stays up: B on it does nothing, a screen
+  it opens (Select Character, the stage photos, Handicap, Teams, the sheets)
+  comes back to it. **Leave Match** (A twice) leaves; a guest has Drop Out.
+  A new pad's START joins here as in a match (the window gives way to the
+  folders); a guest leaving brings the window back.
 - The first lobby shows the host's Level and Weapons; after a match with
   Next Round on Vote, Next Map and Next Weapons are the vote.
 
@@ -93,5 +107,5 @@ a new pad's START joins a split screen there too.
 ## Not yet
 
 - The internet game list says "warmup" for a game in the lobby.
-- The headset: checked on PC flat only so far (two copies, host and joiner,
-  hosting, joining, READY, START, the map loading on both).
+- The game's own screens (Select Character, the map photos) take the pads'
+  sticks, as in a match, not the laser.

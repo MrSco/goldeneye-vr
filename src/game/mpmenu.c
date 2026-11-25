@@ -53,8 +53,6 @@ extern int netLobbyRuleOn(void);
 extern int netHostCanEnterLobby(void);
 extern int netLobbyReadyCount(int *humans);
 extern int netSlotOfLocalSeat(int seat);
-extern int netGetHostSlot(void);
-extern bool netIsDedicated(void);
 void viSetViewSize(s16 x, s16 y);          /* fr.h */
 void viSetViewPosition(s16 left, s16 top);
 static s32 gevrLobbySeatCount(void);
@@ -1701,7 +1699,7 @@ s32 gevrMpOptionsAvailable(s32 slot)
  * with the whole setup on it (owner, 2026-11-25, Quest: "it shows the small
  * pause panel... it should show full panel if not in splitscreen").
  */
-static s32 gevrMpOptionsAsMenu(void) { return netLocalSlotCount() > 1 || gevrInMatchLobby(); }   /* the lobby: always the folder */
+static s32 gevrMpOptionsAsMenu(void) { return netLocalSlotCount() > 1; }   /* the lobby too: one player's is the window */
 
 /* where the folder opens by itself (arriving, RETURN TO LOBBY, Horde's setup
  * break): a split screen's folder, or one player's full pause window */
@@ -2462,12 +2460,15 @@ void gevrMpOptionsQueueStart(s32 slot)
 
 /*
  * The pre-match lobby (front.c MENU_MP_LOBBY, docs/match-lobby.md): the title
- * stage, no players and no map; each local player's folder in their own part
- * of the screen (one: the whole of it, beside the list of who is in the lobby
- * and READY; two: halves; three or four: quarters, as the match's views),
- * driven by their own pad as in a match. The folder stays up: B on it does
- * nothing, and a screen it opens comes back to it. Leaving is the folder's
- * Leave Match row. The host's START loads the map (net_core.c).
+ * stage, no players and no map. As in a match, one player on the screen (flat
+ * or in a headset) has the full pause window (vr_pause_menu.cpp, input.c
+ * gevrNativePauseOpen), which stays up; a split screen gives each local player
+ * their folder in their own part of the screen (two: halves; three or four:
+ * quarters, as the match's views), driven by their own pad. The folder stays
+ * up: B on it does nothing, and a screen it opens comes back to it; leaving is
+ * its Leave Match row. The game's own screens (Select Character, the stage
+ * photos, Handicap, Teams) are drawn here for either. The host's START loads
+ * the map (net_core.c).
  */
 static s32 gevrLobbySeatCount(void)
 {
@@ -2535,42 +2536,22 @@ void gevrLobbyStageTick(void)
 
         if (slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(slot)) continue;
         s_lobbyActing = slot;
-        if (!s_lobbySeat[slot].on) gevrMpOptionsOpen(slot, -1);
-        if (!gevrCharSelTick(slot) && !gevrStageSelTick(slot) && !gevrHandicapTick(slot) && !gevrTeamSelTick(slot))
+        if (!gevrMpOptionsAsMenu())
+        {
+            /* one player: the pause window; a folder left from a split screen gives way to it */
+            if (gevrSeatMode(slot) == MENU_SETUP) gevrSeatHide(slot);
+        }
+        else if (!gevrMenuPanelIsOpen(slot))
+        {
+            gevrMpOptionsOpen(slot, -1);   /* a split screen: each player's folder */
+        }
+        if (!gevrCharSelTick(slot) && !gevrStageSelTick(slot) && !gevrHandicapTick(slot) && !gevrTeamSelTick(slot) &&
+            gevrMpOptionsAsMenu())
         {
             gevrMpOptionsTick(slot);
         }
         s_lobbyActing = -1;
     }
-}
-
-/* the players in the lobby, the host first, then in slot order */
-static s32 gevrLobbyRoster(FrontRosterEntry *e)
-{
-    s32 host = netGetHostSlot();
-    s32 n = 0;
-    s32 pass;
-    s32 i;
-
-    for (pass = 0; pass < 2; pass++)
-    {
-        for (i = 0; i < MAX_PLAYER_COUNT && n < MAX_PLAYER_COUNT; i++)
-        {
-            const char *name;
-
-            if ((i == host) != (pass == 0) || !netLobbySlotConnected(i)) continue;
-            name = netGetSlotName(i);
-            if (i == host && netIsDedicated()) continue;   /* a dedicated server's own seat plays no one */
-            e[n].name = name != NULL ? name : "";
-            e[n].character = netCharacterName(gevrNetSlotChr(i));
-            e[n].bot = gevrNetSlotIsBot(i) != 0;
-            e[n].host = i == host && !e[n].bot;
-            e[n].ready = netSlotReady(i) != 0;
-            e[n].me = gevrNetSlotIsLocalHuman(i) != 0;
-            n++;
-        }
-    }
-    return n;
 }
 
 static Gfx *gevrLobbySeatDraw(Gfx *gdl, s32 slot, s32 x, s32 y, s32 w, s32 h)
@@ -2603,19 +2584,6 @@ Gfx *gevrLobbyStageDraw(Gfx *gdl)
 
         if (slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrNetSlotIsLocalHuman(slot)) continue;
         gevrLobbySeatRect(k, n, sw, sh, &x, &y, &w, &h);
-        if (n == 1)
-        {
-            /* one player: the folder, and beside it who is in the lobby and READY */
-            FrontRosterEntry roster[MAX_PLAYER_COUNT];
-            s32 humans = 0;
-            s32 ready = netLobbyReadyCount(&humans);
-            s32 rw = w * 2 / 5;
-            char note[32];
-
-            snprintf(note, sizeof(note), "%d OF %d READY", (int)ready, (int)humans);
-            gdl = frontLobbyRosterDraw(gdl, roster, gevrLobbyRoster(roster), "Players", note, x + w - rw, y, rw, h);
-            w -= rw;
-        }
         s_lobbyActing = slot;
         gdl = gevrLobbySeatDraw(gdl, slot, x, y, w, h);
         s_lobbyActing = -1;
@@ -2804,6 +2772,7 @@ static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
     if (!strcmp(n,"HEALTH")) {field=CFG_HEALTH;count=netHealthCount();}
     if (!strcmp(n,"DUAL WIELD")) {field=CFG_DUAL_WIELD;count=3;}
     if (!strcmp(n,"NEXT ROUND")) {field=CFG_NEXT_ROUND;count=3;}
+    if (!strcmp(n,"WARMUP")) {field=CFG_WARMUP;count=NET_WARMUP_RULE_COUNT;}
     if (!strcmp(n,"VOICE MODE")) {field=CFG_VOICE_MODE;count=2;}
     if (!strcmp(n,"MOVEMENT SPEED")) { *selected=(netMovementSpeedPercent(netActiveMovementSpeed())-50)/25;return 7; }
     if (!strcmp(n,"GUN SIZE")) {field=CFG_GUN_SIZE;count=3;}
@@ -2872,6 +2841,7 @@ const char *gevrPauseChoice(int id,int index)
     if(!strcmp(n,"HEALTH"))return netHealthName(index);
     if(!strcmp(n,"DUAL WIELD"))return netDualWieldName(index);
     if(!strcmp(n,"NEXT ROUND"))return netNextRoundName(index);
+    if(!strcmp(n,"WARMUP"))return netWarmupRuleName(index);
     if(!strcmp(n,"VOICE MODE"))return netVoiceModeName(index);
     if(!strcmp(n,"CHARACTER"))return netCharacterName(index);
     if(!strcmp(n,"YOUR TEAM"))return netTeamName(index);
@@ -2903,6 +2873,7 @@ void gevrPauseSelect(int id,int index)
     else if(!strcmp(r->name,"BOTS"))gevrNetConfigSet(CFG_BOT_MODE,index);
     else if(!strcmp(r->name,"BOT COUNT"))gevrNetConfigSet(CFG_BOT_COUNT,index+1);
     else if(!strcmp(r->name,"BOT DIFFICULTY"))gevrNetConfigSet(CFG_BOT_DIFFICULTY,index);
+    else if(!strcmp(r->name,"WARMUP"))gevrNetConfigSet(CFG_WARMUP,index);
     else r->step(index-current);
     mpwatchPlayBeep();
 }

@@ -2111,15 +2111,15 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                                "the host picks the mission and the difficulty. The rules are in the pause menu.");
         } else {
             if (VrMpLobby)
-                ImGui::TextWrapped("Host opens the pre-match lobby, where Multiplayer Options sets the match: "
-                                   "the map, scenario, players, weapons, length, health and bots, and each player's "
-                                   "own character, team and loadout. Everyone readies up there; the host's START "
-                                   "loads the map.");
+                ImGui::TextWrapped("Host opens the pre-match lobby, the match's menu (a split screen's: each "
+                                   "player's Multiplayer Options): the map, scenario, players, weapons, length, health "
+                                   "and bots, and each player's own character, team and loadout. Everyone readies up "
+                                   "there; the host's Start match loads the map.");
             else
                 ImGui::TextWrapped("Host goes straight into the warmup, where Multiplayer Options sets the match: "
                                    "the map, scenario, players, weapons, length, health and bots, and each player's "
                                    "own character, team and loadout.");
-            // the Lobby rule (docs/match-lobby.md): also a row of the game's folder
+            // the Lobby rule (docs/match-lobby.md): also a row of the match menu's Rules and of the folder
             bool lobby = VrMpLobby != 0;
             if (ImGui::Checkbox("Lobby before each match", &lobby)) {
                 VrMpLobby = lobby ? 1 : 0;
@@ -3041,8 +3041,10 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
         }
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            gevrTooltip("Starts hosting and goes into the match: the warmup (Deathmatch), the setup break (Horde) "
-                        "or the mission select (Co-op).");
+            gevrTooltip(VrMpMode == NET_MODE_DEATHMATCH && VrMpLobby
+                            ? "Starts hosting and opens the pre-match lobby."
+                            : "Starts hosting and goes into the match: the warmup (Deathmatch), the setup break (Horde) "
+                              "or the mission select (Co-op).");
         ImGui::SameLine();
     }
 }

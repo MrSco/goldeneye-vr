@@ -39,6 +39,7 @@ struct GevrPauseView {
     bool handicap=false;    /* a deathmatch: the Player tab offers the game's Handicap screen */
     bool teams=false;       /* and with teams its Teams screen (in stereo on the HUD) */
     bool setup=false;       /* an online deathmatch: the Match tab opens the game's Multiplayer Options folder */
+    bool lobby=false;       /* the pre-match lobby (docs/match-lobby.md): the window is the screen, no Resume, no scores yet */
 };
 struct GevrPauseUi {
     int tab=0;
@@ -220,8 +221,10 @@ inline void gevrPauseHeader(ImTextureID icon,const GevrPauseRadarView& radar,con
     if(icon){ImGui::SetCursorPos(ImVec2(18,18));ImGui::Image(icon,ImVec2(192,64));}
     else{ImGui::SetCursorPos(ImVec2(18,32));ImGui::TextColored(ImVec4(1,.84f,.47f,1),"GOLDENEYE VR");}
     gevrPauseRadarWidget(radar);
-    gevrPauseGaugeWidget(gauges);
-    gevrPauseGaugeWidget(gauges+46);
+    if(gauges) {   /* none in the lobby: nobody is in the game yet */
+        gevrPauseGaugeWidget(gauges);
+        gevrPauseGaugeWidget(gauges+46);
+    }
     ImGui::SetCursorPos(ImVec2(742,22));ImGui::TextColored(gold,"%s",session);
     /* the match clock at the right of the map's name */
     if(clock[0]) {
@@ -237,7 +240,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     ImGui::SetNextWindowPos(ImVec2(0,0));ImGui::SetNextWindowSize(ImVec2(1280,960));
     ImGui::SetNextWindowBgAlpha(1.0f);
     ImGui::Begin("##match-window",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoScrollbar);
-    gevrPauseHeader(icon,model.radar,model.gauges,model.session,model.status,model.clock,model.clockEnding);
+    gevrPauseHeader(icon,model.radar,model.lobby?nullptr:model.gauges,model.session,model.status,model.clock,model.clockEnding);
     /* the tab row, as the launcher's and the panel's (Settings: the panel's sections, online) */
     const char*names[]={"Match","Rules","Player","Audio","Settings"};
     const GevrSettingsApi rows=gevrPauseRowsApi(model.settings);
@@ -334,23 +337,28 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                     if(ImGui::Button("Vote with photos",ImVec2(260,38)))action=GEVR_PAUSE_STAGEVOTE;
                     x+=276;
                 }
-                ImGui::SetCursorPos(ImVec2(x,832));ImGui::TextDisabled("%s",model.host?"Changes apply next round.":"The host's changes apply next round.");
+                ImGui::SetCursorPos(ImVec2(x,832));ImGui::TextDisabled("%s",model.lobby?(model.host?"The map loads when you start the match.":"The map loads when the host starts the match."):
+                    model.host?"Changes apply next round.":"The host's changes apply next round.");
             } else {
-                ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("%s",model.host?"Map, weapon and scenario changes apply next round: press the button beside Resume.":"The host's map, weapon and scenario changes apply next round, once players ready up.");
+                ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("%s",model.lobby?(model.host?"Set up the match, then Start match: the map loads for everyone.":"The host sets up the match. Ready up; the map loads when the host starts."):
+                    model.host?"Map, weapon and scenario changes apply next round: press the button beside Resume.":"The host's map, weapon and scenario changes apply next round, once players ready up.");
             }
         }
-        ImGui::SetCursorPos(ImVec2(18,276));ImGui::TextColored(gold,"%s  (%d / %d)",model.coop?"PARTY":"PLAYERS & SCORES",model.count,model.capacity);
+        ImGui::SetCursorPos(ImVec2(18,276));ImGui::TextColored(gold,"%s  (%d / %d)",model.coop?"PARTY":model.lobby?"PLAYERS":"PLAYERS & SCORES",model.count,model.capacity);
         ImGui::SetCursorPos(ImVec2(18,320));
         const bool kicks=model.host && !model.coop;
-        if(ImGui::BeginTable("players",model.coop?5:kicks?9:8,ImGuiTableFlags_RowBg|ImGuiTableFlags_BordersInnerH|ImGuiTableFlags_SizingStretchProp|ImGuiTableFlags_ScrollY,ImVec2(1244,model.coop?224:382))) {
+        const bool scores=!model.coop && !model.lobby;   /* the lobby: no match played yet */
+        if(ImGui::BeginTable("players",model.coop?5:(scores?8:5)+(kicks?1:0),ImGuiTableFlags_RowBg|ImGuiTableFlags_BordersInnerH|ImGuiTableFlags_SizingStretchProp|ImGuiTableFlags_ScrollY,ImVec2(1244,model.coop?224:382))) {
             ImGui::TableSetupColumn("PLAYER",ImGuiTableColumnFlags_WidthStretch,2.2f);
             ImGui::TableSetupColumn("CHARACTER",ImGuiTableColumnFlags_WidthStretch,1.8f);
             ImGui::TableSetupColumn("DEVICE",ImGuiTableColumnFlags_WidthStretch,1.5f);
             if(model.coop) {ImGui::TableSetupColumn("STATUS");ImGui::TableSetupColumn("PING MS");}
             else {
-                ImGui::TableSetupColumn("PTS",ImGuiTableColumnFlags_WidthFixed,68);
-                ImGui::TableSetupColumn("KILLS",ImGuiTableColumnFlags_WidthFixed,94);
-                ImGui::TableSetupColumn("LOSSES",ImGuiTableColumnFlags_WidthFixed,110);
+                if(scores) {
+                    ImGui::TableSetupColumn("PTS",ImGuiTableColumnFlags_WidthFixed,68);
+                    ImGui::TableSetupColumn("KILLS",ImGuiTableColumnFlags_WidthFixed,94);
+                    ImGui::TableSetupColumn("LOSSES",ImGuiTableColumnFlags_WidthFixed,110);
+                }
                 ImGui::TableSetupColumn("PING MS",ImGuiTableColumnFlags_WidthFixed,128);
                 ImGui::TableSetupColumn("STATUS",ImGuiTableColumnFlags_WidthStretch,1.7f);
             }
@@ -373,9 +381,11 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 ImGui::TableNextColumn();ImGui::TextDisabled("%s",p.bot?"Bot":p.device[0]?p.device:"—");
                 if(model.coop) {ImGui::TableNextColumn();ImGui::TextColored(p.down?bad:good,"%s",p.down?"Down / revive":"Active");ImGui::TableNextColumn();ImGui::Text("%d",p.ping);}
                 else {
-                    ImGui::TableNextColumn();ImGui::TextColored(gold,"%d",p.points);
-                    ImGui::TableNextColumn();ImGui::Text("%d",p.kills);
-                    ImGui::TableNextColumn();ImGui::Text("%d",p.losses);
+                    if(scores) {
+                        ImGui::TableNextColumn();ImGui::TextColored(gold,"%d",p.points);
+                        ImGui::TableNextColumn();ImGui::Text("%d",p.kills);
+                        ImGui::TableNextColumn();ImGui::Text("%d",p.losses);
+                    }
                     ImGui::TableNextColumn();if(p.bot)ImGui::TextUnformatted("—");else ImGui::Text("%d",p.ping);
                     ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",!p.loaded?"Loading":p.host?"Host":p.bot?"Bot":p.ready?(p.spectator?"Ready (S)":"Ready"):(p.spectator?"Spectator":"Waiting"));
                 }
@@ -457,22 +467,32 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 x+=236;
             }
             ImGui::SetCursorPos(ImVec2(x,816));
-            ImGui::TextDisabled("%s",model.coop?"Your character and status. Teammates continue.":model.teams?"The match continues.":"Your character, team and loadout. The match continues.");
-        } else
+            ImGui::TextDisabled("%s",model.coop?"Your character and status. Teammates continue.":model.lobby?"Your character, team and loadout for the match.":model.teams?"The match continues.":"Your character, team and loadout. The match continues.");
+        } else if(model.lobby && ui.tab!=GEVR_PAUSE_AUDIO)
+            ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_RULES?"The host's rules, for the match the host starts.":"Your character, team and loadout for the match.");
+        else
         ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Movement speed applies immediately. Other round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
     }
     ImGui::SetCursorPos(ImVec2(18,864));ImGui::Separator();
-    ImGui::SetCursorPos(ImVec2(18,886));
-    if(ImGui::Button("Resume",ImVec2(244,52)))action=GEVR_PAUSE_RESUME;
-    if(ui.focusResume){ImGui::SetItemDefaultFocus();ImGui::SetKeyboardFocusHere(-1);ui.focusResume=false;}
+    /* the lobby has no game to go back to: no Resume, and START or READY where it was */
+    const float row0=model.lobby?18:282;
+    if(!model.lobby) {
+        ImGui::SetCursorPos(ImVec2(18,886));
+        if(ImGui::Button("Resume",ImVec2(244,52)))action=GEVR_PAUSE_RESUME;
+        if(ui.focusResume){ImGui::SetItemDefaultFocus();ImGui::SetKeyboardFocusHere(-1);ui.focusResume=false;}
+    }
     if(!model.coop) {
-        ImGui::SetCursorPos(ImVec2(282,886));
-        if(model.host) {char start[64];snprintf(start,sizeof(start),model.countdown>0?"Starting in %d":model.soloWarmup?"Restart warmup":model.startRequested?"Waiting for ready":!model.rosterReady?"Request ready":model.warmup?"Start match":"Next warmup",model.countdown);ImGui::BeginDisabled(!model.canStart || model.countdown>0);if(ImGui::Button(start,ImVec2(300,52)))gevrPauseAction("START MATCH");ImGui::EndDisabled();}
-        else if(ImGui::Button(model.localReady?"Unready":"Ready up",ImVec2(300,52))) {
+        ImGui::SetCursorPos(ImVec2(row0,886));
+        if(model.host) {char start[64];snprintf(start,sizeof(start),model.countdown>0?"Starting in %d":model.soloWarmup?(model.lobby?"Practice on the map":"Restart warmup"):model.startRequested?"Waiting for ready":!model.rosterReady?"Request ready":model.warmup?"Start match":"Next warmup",model.countdown);ImGui::BeginDisabled(!model.canStart || model.countdown>0);if(ImGui::Button(start,ImVec2(model.lobby?400:300,52)))gevrPauseAction("START MATCH");ImGui::EndDisabled();}
+        else if(ImGui::Button(model.localReady?"Unready":"Ready up",ImVec2(model.lobby?400:300,52))) {
             GevrPauseField f;for(int i=0;gevrPauseReadField(GEVR_PAUSE_PLAYER,i,&f);i++)if(!strcmp(f.label,"NEXT ROUND READY"))gevrPauseStep(f.id,1);
         }
-        ImGui::SetCursorPos(ImVec2(600,886));ImGui::BeginDisabled(!model.canReturn);
-        if(ImGui::Button(model.countdown>0 || model.startRequested?"Cancel start":"Return to lobby",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
+        if(model.lobby && ui.focusResume){ImGui::SetItemDefaultFocus();ImGui::SetKeyboardFocusHere(-1);ui.focusResume=false;}
+        /* the lobby's countdown can be cancelled; there is no lobby to return to from it */
+        if(!model.lobby || model.countdown>0 || model.startRequested) {
+            ImGui::SetCursorPos(ImVec2(model.lobby?436:600,886));ImGui::BeginDisabled(!model.canReturn);
+            if(ImGui::Button(model.countdown>0 || model.startRequested?"Cancel start":"Return to lobby",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
+        }
     } else if(model.horde && model.host) {
         /* the setup break's START WAVE (the first wave waits for the host) */
         ImGui::SetCursorPos(ImVec2(282,886));ImGui::BeginDisabled(!model.hordeCanStart);

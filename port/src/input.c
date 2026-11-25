@@ -1588,7 +1588,7 @@ static void inputOnlineTickDropIn(void)
     const s32 ownUsed = s_ownPresses != s_onlineOwnBase;
     s32 joined = 0;
     /* the pre-match lobby takes a new pad's START as a match does: its seat gets a folder */
-    if ((stage == LEVELID_TITLE && !gevrInMatchLobby()) || gevrNativePauseOpen()) {
+    if (stage == LEVELID_TITLE ? !gevrInMatchLobby() : gevrNativePauseOpen()) {   /* the lobby's window is always up */
         for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_onlinePadHeld[k] = 0;
     } else {
         for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
@@ -2742,7 +2742,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
          */
         const s32 pdev = isLocalOnline ? devSlot : idx;
         SDL_GameController *pad = pads[pdev];
-        struct player *const me = inputReadPlayer(player);
+        /* the pre-match lobby's title stage has no players: a guest's pad drives their folder only */
+        struct player *const me = bossGetStageNum() == LEVELID_TITLE ? NULL : inputReadPlayer(player);
         if (isLocalOnline && me != NULL) {
             s32 prev = get_cur_playernum();
             set_cur_player(player);
@@ -5966,6 +5967,12 @@ int gevrNativePauseOpen(void) {
     int slot=netIsActive()?netGetLocalSlot():-1;
     /* the game's own screen is up instead, Select Character or Select Stage (mpmenu.c) */
     extern s32 gevrMenuPanelIsOpen(s32 slot);
+    /* the pre-match lobby: one player's screen is this window, up until the match (docs/match-lobby.md),
+     * once its screen is (hosting starts the session in the launcher's last frame, before the game runs) */
+    if (gevrInMatchLobby()) {
+        extern s32 gevrLobbyScreenUp(void);
+        return gevrLobbyScreenUp() && slot>=0 && slot<INPUT_MAX_SLOT_PADS && !gevrMenuPanelIsOpen(slot);
+    }
     return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon
         && !gevrMenuPanelIsOpen(slot);
 }

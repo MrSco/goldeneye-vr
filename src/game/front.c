@@ -7726,76 +7726,6 @@ Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count
  */
 static char s_teamNames[MAX_PLAYER_COUNT][PANEL_NAME_LEN];   /* frontTeamSelectDraw's names, cut alike */
 
-/*
- * The pre-match lobby's player list (docs/match-lobby.md), beside the folder
- * on a screen with one player: everyone in the lobby, their character and
- * whether they are READY, on the folder's paper; the players at this screen
- * on the dark band, as the Teams screen marks them. The host's line says
- * HOST (its START is its READY), a bot's BOT.
- */
-static char s_rosterNames[MAX_PLAYER_COUNT][PANEL_NAME_LEN];
-Gfx *frontLobbyRosterDraw(Gfx *DL, const FrontRosterEntry *e, s32 count, const char *title, const char *note,
-                          s32 vx, s32 vy, s32 vw, s32 vh)
-{
-    const char *list[MAX_PLAYER_COUNT];
-    char text[64];
-    s32 bank = STAGESEL_LINE(ptrFontBankGothicChars);
-    s32 zline = STAGESEL_LINE(ptrFontZurichBoldChars);
-    s32 pitch = bank * 2 + 3;
-    s32 statew;
-    s32 top;
-    s32 bottom;
-    s32 n = count < MAX_PLAYER_COUNT ? count : MAX_PLAYER_COUNT;
-    s32 i;
-    s32 th;
-    s32 tw;
-    s32 x;
-    s32 y;
-
-    if (vw <= 0 || vh <= 0) return DL;
-    bottom = vy + vh - (note != NULL && note[0] ? STAGESEL_LINE(ptrFontBankGothicChars) + 3 : 0);
-    snprintf(text, sizeof(text), "%s", title != NULL ? title : "");
-    DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, n * pitch) ? text : NULL, &top);
-    textMeasure(&th, &statew, "WAITING", ptrFontBankGothicChars, ptrFontBankGothic, 0);
-    for (i = 0; i < n; i++) list[i] = e[i].name;
-    frontPanelFitNames(s_rosterNames, list, n, vw - 12 - statew, ptrFontBankGothicChars, ptrFontBankGothic);
-    for (i = 0; i < n && top + (i + 1) * pitch <= bottom; i++)
-    {
-        const char *state = e[i].bot ? "BOT" : e[i].host ? "HOST" : e[i].ready ? "READY" : "WAITING";
-        u32 ink = e[i].me ? 0xFFFFFFFF : 0x000000FF;
-        s32 rowy = top + i * pitch;
-
-        if (e[i].me) DL = microcode_constructor_related_to_menus(DL, vx + 2, rowy, vx + vw - 2, rowy + pitch - 1, 0x101010E0);
-        x = vx + 4;
-        y = rowy + 1;
-        DL = textRender(DL, &x, &y, s_rosterNames[i], ptrFontBankGothicChars, ptrFontBankGothic, ink, viGetX(), viGetY(), 0, 0);
-        /* READY in green, waiting dimmed: the line to read at a glance */
-        textMeasure(&th, &tw, (char *)state, ptrFontBankGothicChars, ptrFontBankGothic, 0);
-        x = vx + vw - 4 - tw;
-        y = rowy + 1;
-        DL = textRender(DL, &x, &y, (char *)state, ptrFontBankGothicChars, ptrFontBankGothic,
-                        e[i].ready || e[i].host ? 0x00A000FF : e[i].me ? 0xC0C0C0FF : 0x00000090, viGetX(), viGetY(), 0, 0);
-        if (e[i].character != NULL && e[i].character[0])
-        {
-            frontPanelFit(text, sizeof(text), e[i].character, vw - 16, ptrFontBankGothicChars, ptrFontBankGothic);
-            x = vx + 10;
-            y = rowy + bank + 2;
-            DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, e[i].me ? 0xC0C0C0FF : 0x00000090,
-                            viGetX(), viGetY(), 0, 0);
-        }
-    }
-    if (note != NULL && note[0])
-    {
-        frontPanelFit(text, sizeof(text), note, vw - 6, ptrFontBankGothicChars, ptrFontBankGothic);
-        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
-        x = vx + (vw - tw) / 2;
-        y = vy + vh - STAGESEL_LINE(ptrFontBankGothicChars) - 2;
-        DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
-    }
-    (void)zline;
-    return frontPanelEnd(DL, vx, vy, vw, vh);
-}
-
 Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, s32 pick, s32 cap_red, s32 cap_blue,
                          const char *note, s32 vx, s32 vy, s32 vw, s32 vh)
 {
@@ -10793,6 +10723,12 @@ extern Gfx *gevrLobbyStageDraw(Gfx *DL);
 void gevrMatchLobbyArrive(void)
 {
     menu_update = MENU_MP_LOBBY;
+}
+
+/* The lobby's screen is up: the game runs (not the launcher's last frame) on it (input.c gevrNativePauseOpen) */
+s32 gevrLobbyScreenUp(void)
+{
+    return gevrInMatchLobby() && current_menu == MENU_MP_LOBBY;
 }
 
 static void init_menu_mplobby(void)
