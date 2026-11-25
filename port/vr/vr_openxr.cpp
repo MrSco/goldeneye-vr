@@ -1719,8 +1719,9 @@ extern "C" int vr_spacewarp_setting_on(void)
      * second run of the frame's draws, and under the emulated multiview it
      * switched eyes per draw too; the frame that turned it on at 45 fps went
      * from 20 to 47 ms, so the hold grew to 3 and 4 slots (22.5 fps). The
-     * eye pass now draws each eye whole (gevr_mv_emu_view_pass); SpaceWarp
-     * comes back once a device log shows the room for it. */
+     * eye pass now draws each eye whole (gevr_mv_emu_view_pass), and Vision
+     * Pro is fast enough to hold its panel rate without it (user, 2026-11-25):
+     * off unless the player turns it on. */
     return 0 && vosHoldsFrames();
 #else
     return gevrBeanIsEnabled() != 0 && vr_spacewarp_display_hz() > 115.0f;

@@ -85,8 +85,10 @@ Conventions:
   (report 09265b33, 2026-11-25: "erratic visual movement, even in one eye"). Now
   every stereo frame is kept and replayed, left eye whole and then right eye whole
   (`gevr_mv_emu_view_pass`, `gevr_vr_replay_frame`), which is one render pass per
-  eye. SpaceWarp is off by default on visionOS (`vr_spacewarp_setting_on`) until a
-  device log shows room for it.
+  eye. SpaceWarp is off by default on visionOS (`vr_spacewarp_setting_on`): Vision
+  Pro is fast enough without it. In the simulator after the fix, the game thread
+  draws for about 3 ms a frame and spends the rest waiting in `xrWaitFrame` (the
+  perf line's DRAW counts that wait).
 - **Sense grip:** Apple's `.grip` turned +5.037 degrees about X. That is
   Klepton's net turn for an OpenXR game: its controller side's -37 and its OpenXR
   side's +37 cancel. Build 9 had only the -37, and the gun pointed down.
