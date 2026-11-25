@@ -384,6 +384,17 @@ Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 co
 void frontPanelPadReset(s32 slot);
 s32 frontPanelPad(s32 slot, s32 *dx, s32 *dy);
 void frontPanelChosenSound(void);
+/* The pointer (the headset's laser, a flat window's mouse) on the game's screens: what each
+ * screen noted as it drew (front.c frontPanelHit), by these ids past its own items (0..999) */
+#define FRONT_HIT_OK    1000   /* a footer's A word */
+#define FRONT_HIT_BACK  1001   /* its B word */
+#define FRONT_HIT_LEFT  1002   /* Handicap's < */
+#define FRONT_HIT_RIGHT 1003   /* and > */
+#define FRONT_HIT_UP    1004   /* the Select Stage grid's scroll arrows */
+#define FRONT_HIT_DOWN  1005
+#define FRONT_HIT_ROW   2000   /* + a Handicap entry */
+#define FRONT_HIT_TEAM  3000   /* + 0 Red, 1 Blue, 2 neither */
+s32 frontPanelPointer(s32 slot, s32 *id, s32 *click);
 typedef struct {
     const char *name;
     const char *label;   /* the health's short name ("-1 (Veteran)") */

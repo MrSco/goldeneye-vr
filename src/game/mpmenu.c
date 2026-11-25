@@ -1338,6 +1338,45 @@ void gevrHandicapOpen(s32 slot)
     gevrSeatShow(slot, MENU_HANDICAP);
 }
 
+/* the slot of the screen's entry n (gevrHandicapEntries' order); -1 none */
+static s32 gevrHandicapEntrySlot(s32 n)
+{
+    s32 i;
+
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        if (!netLobbySlotConnected(i)) continue;
+        if (n-- == 0) return i;
+    }
+    return -1;
+}
+
+/*
+ * The pointer on Handicap or Teams (front.c frontPanelPointer): a click on
+ * A: or B: is the button, on an arrow or a side a step that way; *row the
+ * entry clicked (-1 none). Whether the pointer had the frame (the pad's
+ * frontPanelPad is then not asked).
+ */
+static s32 gevrPanelPointer(s32 slot, s32 *result, s32 *dx, s32 *dy, s32 *row)
+{
+    s32 id;
+    s32 click;
+
+    *result = 0;
+    *dx = 0;
+    *dy = 0;
+    *row = -1;
+    if (!frontPanelPointer(slot, &id, &click)) return 0;
+    if (!click) return 1;
+    if (id == FRONT_HIT_OK) *result = 1;
+    else if (id == FRONT_HIT_BACK) *result = -1;
+    else if (id == FRONT_HIT_LEFT || id == FRONT_HIT_TEAM + 0) *dx = -1;
+    else if (id == FRONT_HIT_RIGHT || id == FRONT_HIT_TEAM + 1) *dx = 1;
+    else if (id == FRONT_HIT_TEAM + 2) *dy = 1;
+    else if (id >= FRONT_HIT_ROW && id < FRONT_HIT_ROW + MAX_PLAYER_COUNT) *row = id - FRONT_HIT_ROW;
+    return 1;
+}
+
 /* every change made: the host's seat as the host's, a player's own as theirs */
 static void gevrHandicapSend(s32 me)
 {
@@ -1377,7 +1416,22 @@ static s32 gevrHandicapTick(s32 player_num)
         if (!gevrPanelHeld(player_num)) gevrPanelClose(player_num, MENU_HANDICAP);
         return 1;
     }
-    result = frontPanelPad(player_num, &dx, &dy);
+    {
+        s32 row;
+
+        if (!gevrPanelPointer(player_num, &result, &dx, &dy, &row)) result = frontPanelPad(player_num, &dx, &dy);
+        else if (row >= 0 && gevrHandicapHostSeat(player_num))
+        {
+            /* the host's seat: a click on a player's row is theirs to set */
+            s32 target = gevrHandicapEntrySlot(row);
+
+            if (target >= 0 && target != s_hcapCursor[player_num])
+            {
+                s_hcapCursor[player_num] = target;
+                mpwatchPlayBeep();
+            }
+        }
+    }
     if (result > 0)
     {
         frontPanelChosenSound();
@@ -1527,7 +1581,12 @@ static s32 gevrTeamSelTick(s32 player_num)
         if (!gevrPanelHeld(player_num)) gevrPanelClose(player_num, MENU_TEAMSEL);
         return 1;
     }
-    result = frontPanelPad(player_num, &dx, &dy);
+    {
+        s32 row;
+
+        /* the pointer: a click on a side's column picks it, on A: or B: is the button */
+        if (!gevrPanelPointer(player_num, &result, &dx, &dy, &row)) result = frontPanelPad(player_num, &dx, &dy);
+    }
     pick = s_teamSelPick[player_num];
     if (result > 0)
     {

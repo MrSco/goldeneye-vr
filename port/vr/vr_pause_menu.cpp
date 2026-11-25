@@ -53,6 +53,7 @@ ImGuiContext* context=nullptr;
 GLuint texture=0,framebuffer=0,icon=0;
 Uint64 last=0;
 bool wasOpen=false,wasPanel=false,wasHold=false;
+int returnTab=-1;   /* the tab that opened one of the game's screens: the window comes back on it */
 GevrPauseUi ui;
 GevrPanelUi panelUi;
 GevrFriendsUiState friendsUi;
@@ -182,6 +183,8 @@ extern "C" void gevrNativePauseRender(void) {
     vr_screen_set_visible(1);
     if(!wasOpen || panel!=wasPanel || hold!=wasHold){
         ui=GevrPauseUi();panelUi=GevrPanelUi();if(hold)ui.tab=GEVR_PAUSE_SETTINGS;
+        else if(returnTab>=0)ui.tab=returnTab;
+        returnTab=-1;
         if(!wasOpen){vr_screen_recenter();gevrTextInputBegin();}io.ClearInputKeys();
     }
     gevrTextInputFeed(io);
@@ -219,6 +222,8 @@ extern "C" void gevrNativePauseRender(void) {
     /* a split screen's setup is each player's folder; one player's is this window (mpmenu.c gevrMpOptionsAsMenu) */
     view.setup=gevrMpOptionsAvailable(netGetLocalSlot())!=0 && netLocalSlotCount()>1;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
+    /* the lobby has no map loaded: the one the host has set, which START loads */
+    if(view.lobby)snprintf(view.session,sizeof(view.session),"%s",netStageName(netStageIndexOf((uint8_t)gevrNetConfigGet(CFG_STAGE))));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {
         snprintf(view.session,sizeof(view.session),"Horde: %s",netHordeStageName((unsigned)bossGetStageNum()));
@@ -297,6 +302,8 @@ extern "C" void gevrNativePauseRender(void) {
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
     /* the window closes on the game's Select Character screen (in stereo on the
      * head-locked HUD); choosing or B comes back here (the headset's Menu closes both, input.c) */
+    if(action==GEVR_PAUSE_CHARSEL||action==GEVR_PAUSE_STAGESEL||action==GEVR_PAUSE_STAGEVOTE||action==GEVR_PAUSE_HANDICAP||
+       action==GEVR_PAUSE_TEAMSEL||action==GEVR_PAUSE_SETUP)returnTab=ui.tab;
     if(action==GEVR_PAUSE_CHARSEL){gevrNativePauseResume();gevrCharSelOpen(netGetLocalSlot(),0);}
     if(action==GEVR_PAUSE_STAGESEL||action==GEVR_PAUSE_STAGEVOTE){gevrNativePauseResume();gevrStageSelOpen(netGetLocalSlot(),action==GEVR_PAUSE_STAGEVOTE);}
     if(action==GEVR_PAUSE_HANDICAP){gevrNativePauseResume();gevrHandicapOpen(netGetLocalSlot());}

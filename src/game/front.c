@@ -311,6 +311,11 @@ s32 g_AppendCheatMultiPlayer = FALSE;
 
 f32 cursor_h_pos = 220.0;
 f32 cursor_v_pos = 165.0;
+#ifdef GEVR
+static void frontPointerToFrame(f32 u, f32 v, f32 *x, f32 *y);   /* below: a pointer's point of the frame */
+extern void mpwatchPlayBeep(void);
+extern s32 netIsActive(void);   /* the game's bool */
+#endif
 
 s32 final_menu_briefing_page = BRIEFING_M;
 s32 current_menu_briefing_page = BRIEFING_TITLE;
@@ -1467,19 +1472,8 @@ void frontUpdateControlStickPosition(void) {
         }
         if (pointing)
         {
-            /* Screen shape 16:9: the folders are a 4:3 canvas centred on the
-             * wide screen (menu_jump_constructor_handler), and u runs across
-             * the whole screen: into the canvas, or the cursor sat inside the
-             * spot, by an eighth at the edges (user, SteamVR screenshot) */
-            const f32 wide = portNativeAspect();
-            const f32 canvas = (f32)viGetX() / (f32)viGetY();
-            if (wide > 1.3334f && canvas > 0.0f)
-            {
-                u = 0.5f + (u - 0.5f) * wide / canvas;
-                u = u < 0.0f ? 0.0f : u > 1.0f ? 1.0f : u;   /* on a bar: the canvas's edge */
-            }
-            cursor_h_pos = u * (f32)viGetX();
-            cursor_v_pos = v * (f32)viGetY();
+            /* Screen shape 16:9: the folders are a 4:3 canvas centred on the wide screen */
+            frontPointerToFrame(u, v, &cursor_h_pos, &cursor_v_pos);
         }
     }
 #endif
@@ -5478,11 +5472,155 @@ static f32 s_charSelScale = 1.0f;
 static s32 s_charSelOffX;
 static s32 s_charSelOffY;
 static s32 s_charSelAnyone;
+static s32 s_charSelPointerAte;
 #define CHARSEL_X(x) (s_charSelOffX + (s32)((x) * s_charSelScale))
 #define CHARSEL_Y(y) (s_charSelOffY + (s32)((y) * s_charSelScale))
 #else
 #define CHARSEL_X(x) (x)
 #define CHARSEL_Y(y) (y)
+#endif
+
+#ifdef GEVR
+/*
+ * A pointer at the screen (the headset's laser on the virtual screen, a flat
+ * window's free mouse: gevrVrScreenPointer) as a point of the viGetX x viGetY
+ * frame. The front end is drawn 4:3, centred on a wider screen (menu_jump_
+ * constructor_handler, PORT_HUD_ASPECT, which a split screen's views skip),
+ * and u runs across the whole screen: into the canvas, or the cursor sat
+ * inside the spot, by an eighth at the edges (user, SteamVR screenshot).
+ */
+static void frontPointerToFrame(f32 u, f32 v, f32 *x, f32 *y)
+{
+    const f32 wide = portNativeAspect();
+    const f32 canvas = (f32)viGetX() / (f32)viGetY();
+
+    if (wide > 1.3334f && canvas > 0.0f && gevrLocalViewCount() < 2)
+    {
+        u = 0.5f + (u - 0.5f) * wide / canvas;
+        u = u < 0.0f ? 0.0f : u > 1.0f ? 1.0f : u;   /* on a bar: the canvas's edge */
+    }
+    *x = u * (f32)viGetX();
+    *y = v * (f32)viGetY();
+}
+
+/*
+ * The pointer on the game's screens in a match and the pre-match lobby
+ * (Select Character, the Select Stage grid, Handicap, Teams), as on the
+ * launcher and the pause window (owner, 2026-11-25: "we need to be
+ * consistent and polished"). Each screen notes where it drew what may be
+ * pointed at as it draws (frontPanelHit, for the slot frontPanelHitsBegin
+ * names); the next tick asks what is under the pointer and whether it chose
+ * (frontPanelPointer). As the folders' cursor: the pointer takes over when it
+ * moves and gives way to the stick, the d-pad or the C buttons as soon as one
+ * is used. It is this machine's first player's: the headset's, the window's
+ * mouse. The trigger (Z) or a click (A) chooses.
+ */
+#define FRONT_PANEL_HITS 96
+typedef struct { s16 id; s16 l; s16 t; s16 r; s16 b; } FrontPanelHit;
+static FrontPanelHit s_panelHits[MAX_PLAYER_COUNT][FRONT_PANEL_HITS];
+static s32 s_panelHitCount[MAX_PLAYER_COUNT];
+static s32 s_panelHitSlot = -1;
+static s32 s_panelPointing[MAX_PLAYER_COUNT];
+
+/* slot's screen is being drawn: what it notes now replaces the last frame's */
+static void frontPanelHitsBegin(s32 slot)
+{
+    s_panelHitSlot = slot >= 0 && slot < MAX_PLAYER_COUNT ? slot : -1;
+    if (s_panelHitSlot >= 0) s_panelHitCount[s_panelHitSlot] = 0;
+}
+
+/* id drawn over l..r x t..b, screen pixels */
+static void frontPanelHit(s32 id, s32 l, s32 t, s32 r, s32 b)
+{
+    FrontPanelHit *h;
+
+    if (s_panelHitSlot < 0 || s_panelHitCount[s_panelHitSlot] >= FRONT_PANEL_HITS || r <= l || b <= t) return;
+    h = &s_panelHits[s_panelHitSlot][s_panelHitCount[s_panelHitSlot]++];
+    h->id = (s16)id;
+    h->l = (s16)l;
+    h->t = (s16)t;
+    h->r = (s16)r;
+    h->b = (s16)b;
+}
+
+/* the A and B words of a footer ("A:OK  B:BACK") drawn in font from (x, y), lineh tall */
+static void frontPanelHitButtons(const char *text, s32 x, s32 y, s32 lineh, struct fontchar *chars, struct font *font)
+{
+    static const char keys[2] = { 'A', 'B' };
+    char part[96];
+    s32 k;
+
+    for (k = 0; k < 2; k++)
+    {
+        const char *at;
+        const char *end;
+        s32 th;
+        s32 start;
+        s32 w;
+
+        for (at = text; (at = strchr(at, keys[k])) != NULL; at++)
+        {
+            if (at[1] == ':' && (at == text || at[-1] == ' ')) break;
+        }
+        if (at == NULL) continue;
+        end = strstr(at, "  ");
+        if (end == NULL) end = at + strlen(at);
+        snprintf(part, sizeof(part), "%.*s", (int)(at - text), text);
+        textMeasure(&th, &start, part, chars, font, 0);
+        if (part[0] == '\0') start = 0;
+        snprintf(part, sizeof(part), "%.*s", (int)(end - at), at);
+        textMeasure(&th, &w, part, chars, font, 0);
+        frontPanelHit(k == 0 ? FRONT_HIT_OK : FRONT_HIT_BACK, x + start - 3, y - 2, x + start + w + 3, y + lineh + 2);
+    }
+}
+
+/*
+ * The pointer on slot's screen this frame: 0 when it is not pointing (none at
+ * the screen, the stick or the pad used, another player's screen); else 1,
+ * with *id what is under it (-1 nothing) and *click whether it chose there.
+ */
+s32 frontPanelPointer(s32 slot, s32 *id, s32 *click)
+{
+    extern s32 gevrVrScreenPointer(f32 *u, f32 *v);
+    extern int netGetLocalSlot(void);
+    const u16 pad = L_JPAD | R_JPAD | U_JPAD | D_JPAD | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS;
+    f32 u;
+    f32 v;
+    f32 px;
+    f32 py;
+    s32 hit;
+    s32 sx;
+    s32 sy;
+    s32 i;
+
+    *id = -1;
+    *click = 0;
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    if (!netIsActive() || slot != netGetLocalSlot())
+    {
+        s_panelPointing[slot] = 0;
+        return 0;
+    }
+    hit = gevrVrScreenPointer(&u, &v);
+    sx = joyGetStickX(slot);
+    sy = joyGetStickY(slot);
+    if (hit == 0 || joyGetButtons(slot, pad) || sx > 30 || sx < -30 || sy > 30 || sy < -30) s_panelPointing[slot] = 0;
+    else if (hit == 2) s_panelPointing[slot] = 1;
+    if (!s_panelPointing[slot]) return 0;
+    frontPointerToFrame(u, v, &px, &py);
+    for (i = s_panelHitCount[slot] - 1; i >= 0; i--)   /* the last drawn is on top */
+    {
+        const FrontPanelHit *h = &s_panelHits[slot][i];
+
+        if (px >= h->l && px < h->r && py >= h->t && py < h->b)
+        {
+            *id = h->id;
+            break;
+        }
+    }
+    *click = joyGetButtonsPressedThisFrame(slot, A_BUTTON | Z_TRIG) != 0;
+    return 1;
+}
 #endif
 
 //********************************************************************************************************
@@ -5542,7 +5680,11 @@ static s32 frontCharSelectPlayerTick(s32 i, s32 count)
                 mp_char_cur_select_player[i]++;
             }
         }
-        else if (joyGetButtonsPressedThisFrame(i, A_BUTTON|Z_TRIG|START_BUTTON)) // 0xb000
+        else if (joyGetButtonsPressedThisFrame(i, A_BUTTON|Z_TRIG|START_BUTTON)
+#ifdef GEVR
+                 && !s_charSelPointerAte   /* the pointer's click, already taken (frontCharSelectTick) */
+#endif
+                ) // 0xb000
         {
 #ifdef GEVR
             if (s_charSelAnyone)
@@ -5798,6 +5940,17 @@ Gfx *frontRenderCharacterPortrait(Gfx *DL, s32 arg1, s32 arg2, s32 arg3, s32 arg
     gSPMatrix(DL++, OS_PHYSICAL_TO_K0(spD4), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
     gSPMatrix(DL++, OS_PHYSICAL_TO_K0(spD0), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 
+#ifdef GEVR
+    /*
+     * The vertices take the texture scale as they load (fast3d, as the RSP),
+     * and the texSelect below that sets it comes after them: each portrait
+     * drew with the one before's, and the first with whatever the frame had.
+     * In a match the world leaves the full scale; on the pre-match lobby's
+     * title stage nothing had, and the first portrait drawn each frame came
+     * out in flat colours (one texel a quarter, 2026-11-25). Say it first.
+     */
+    gSPTexture(DL++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
+#endif
     gSPVertex(DL++, spCC, 16, 0);
 
     selected_photo = mp_chr_setup[arg5].select_photo * 4;
@@ -5870,6 +6023,27 @@ static Gfx *frontCharSelectPanel(Gfx *DL, s32 playernum, s32 panel_left, s32 pan
     DL = microcode_constructor(DL);
     DL = frontPrintText(DL, &name_x, &name_y, (s8 *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
     DL = frontRenderCharacterPortrait(DL, panel_left + 0xD, (panel_left + panel_width) - 0xE, panel_center_x - mp_char_select_scroll_offset[playernum], portrait_y_base + 0x46, mp_char_prev_select_player[playernum], size_mp_select_image_player[playernum]);
+#ifdef GEVR
+    if (s_charSelAnyone && !player_has_selected_char[playernum] && size_mp_select_image_player[playernum] == 0)
+    {
+        /* each portrait in sight, where the pointer may choose it (frontCharSelectTick) */
+        s32 d;
+
+        for (d = -3; d <= 3; d++)
+        {
+            s32 chr = mp_char_prev_select_player[playernum] + d;
+            s32 cx = panel_center_x - mp_char_select_scroll_offset[playernum] + d * 0x54;
+            s32 l = cx - 0x23;
+            s32 r = cx + 0x23;
+
+            if (chr < 0 || chr >= count) continue;
+            if (l < panel_left + 0xD) l = panel_left + 0xD;
+            if (r > panel_left + panel_width - 0xE) r = panel_left + panel_width - 0xE;
+            if (r - l < 12) continue;
+            frontPanelHit(chr, CHARSEL_X(l), CHARSEL_Y(portrait_y_base + 0x46 - 0x2A), CHARSEL_X(r), CHARSEL_Y(portrait_y_base + 0x46 + 0x2A));
+        }
+    }
+#endif
 
     if (((player_has_selected_char[playernum] == 0) && (size_mp_select_image_player[playernum] == 0)) || (mp_char_prev_select_player[playernum] != mp_char_cur_select_player[playernum]))
     {
@@ -6009,8 +6183,30 @@ s32 frontCharSelectTick(s32 slot, s32 count)
         return -1;
     }
     s_charSelAnyone = 1;
+    s_charSelPointerAte = 0;
+    if (!player_has_selected_char[slot] && size_mp_select_image_player[slot] == 0)
+    {
+        /* the pointer: a click on a side portrait slides the strip to it, on the centre one chooses it */
+        s32 id;
+        s32 click;
+
+        if (frontPanelPointer(slot, &id, &click) && click)
+        {
+            s_charSelPointerAte = 1;
+            if (id >= 0 && id < count && id != mp_char_cur_select_player[slot])
+            {
+                mp_char_cur_select_player[slot] = id;
+                mpwatchPlayBeep();
+            }
+            else if (id >= 0 && id < count && mp_char_select_scroll_offset[slot] == 0)
+            {
+                s_charSelPointerAte = 0;   /* the centre portrait: chosen, as A chooses it */
+            }
+        }
+    }
     done = frontCharSelectPlayerTick(slot, count);
     s_charSelAnyone = 0;
+    s_charSelPointerAte = 0;
     return done ? 1 : 0;
 }
 
@@ -6050,6 +6246,7 @@ Gfx *frontCharSelectDraw(Gfx *DL, s32 slot, s32 count, s32 vx, s32 vy, s32 vw, s
     s_charSelOrtho[2] = 330.0f - (f32)(sh - s_charSelOffY) / scale;
     s_charSelOrtho[3] = 330.0f + (f32)s_charSelOffY / scale;
     s_charSelAnyone = 1;
+    frontPanelHitsBegin(slot);
 
     /* The portraits are shaded triangles: the whole screen's viewport, no depth test. */
     viewport = dynAllocate(sizeof(Vp));
@@ -6073,6 +6270,7 @@ Gfx *frontCharSelectDraw(Gfx *DL, s32 slot, s32 count, s32 vx, s32 vy, s32 vw, s
     gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
 
     s_charSelAnyone = 0;
+    s_panelHitSlot = -1;   /* the portraits' places are noted */
     s_charSelScale = 1.0f;
     s_charSelOffX = 0;
     s_charSelOffY = 0;
@@ -7003,6 +7201,35 @@ s32 frontStageSelectTick(s32 slot, const FrontStageTile *tiles, s32 count)
     s_stageSelCursor[slot] = cur;
 
     if (joyGetButtonsPressedThisFrame(slot, B_BUTTON)) return -1;
+    {
+        /* the pointer: over a photo it moves the highlight, a click there (or on A:) chooses */
+        s32 id;
+        s32 click;
+
+        if (frontPanelPointer(slot, &id, &click))
+        {
+            if (id >= 0 && id < count && id != cur && tiles[id].eligible)
+            {
+                s_stageSelCursor[slot] = cur = id;
+                mpwatchPlayBeep();
+            }
+            if (!click) return 0;
+            if (id == FRONT_HIT_BACK) return -1;
+            if (id == FRONT_HIT_UP || id == FRONT_HIT_DOWN)
+            {
+                next = frontStageSelectStep(tiles, count, s_stageSelCols[slot], cur, 0, id == FRONT_HIT_UP ? -1 : 1);
+                if (next != cur)
+                {
+                    s_stageSelCursor[slot] = next;
+                    mpwatchPlayBeep();
+                }
+                return 0;
+            }
+            if (!((id >= 0 && id < count) || id == FRONT_HIT_OK) || !tiles[cur].eligible) return 0;   /* a click on nothing */
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+            return 1;
+        }
+    }
     if (joyGetButtonsPressedThisFrame(slot, A_BUTTON | Z_TRIG | START_BUTTON))
     {
         if (!tiles[cur].eligible) return 0;
@@ -7162,6 +7389,15 @@ Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 co
     gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
     DL = microcode_constructor(DL);
     DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+    frontPanelHitsBegin(slot);
+    for (i = scroll * cols; i < count && i < (scroll + rows) * cols; i++)
+    {
+        /* each photo in sight, where the pointer may choose it: its whole tile */
+        s32 cx = gx + (i % cols) * pitchx + pitchx / 2;
+        s32 cy = gy + (i / cols - scroll) * pitchy + band / 2;
+
+        frontPanelHit(i, cx - pitchx / 2, cy - pitchy / 2, cx + pitchx / 2, cy + pitchy / 2);
+    }
 
     /* the bands, the frames, and the cards of stages without a picture */
     for (i = 0; i < rows; i++)
@@ -7277,6 +7513,7 @@ Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 co
         x = gx + cols * pitchx + 1;
         y = gy;
         if (x > vx + vw - 8) x = vx + vw - 8;
+        frontPanelHit(FRONT_HIT_UP, x - 6, y - 4, x + 14, y + STAGESEL_LINE(ptrFontBankGothicChars) + 6);
         DL = textRender(DL, &x, &y, "^", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
     }
     if (scroll + rows < total)
@@ -7285,6 +7522,7 @@ Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 co
         x = gx + cols * pitchx + 1;
         y = gy + gridh - th;
         if (x > vx + vw - 8) x = vx + vw - 8;
+        frontPanelHit(FRONT_HIT_DOWN, x - 6, y - 6, x + 14, y + th + 4);
         DL = textRender(DL, &x, &y, "v", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
     }
     {
@@ -7302,6 +7540,7 @@ Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 co
         x = vx + (vw - tw) / 2;
         if (x < vx + 2) x = vx + 2;
         y = gy + gridh + 3;
+        frontPanelHitButtons(text, x, y, STAGESEL_LINE(ptrFontZurichBoldChars), ptrFontZurichBoldChars, ptrFontZurichBold);
         DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, tiles[cur].eligible ? 0xFF : 0x80,
                             viGetX(), viGetY(), 0, 0);
     }
@@ -7311,6 +7550,7 @@ Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 co
     gDPSetCycleType(DL++, G_CYC_1CYCLE);
     gDPSetTextureFilter(DL++, G_TF_BILERP);
     gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    s_panelHitSlot = -1;   /* the screen's places are noted */
     return DL;
 }
 #endif
@@ -7553,6 +7793,7 @@ static Gfx *frontPanelFooter(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh, const char
     x = vx + (vw - tw) / 2;
     if (x < vx + 2) x = vx + 2;
     y = vy + vh - STAGESEL_LINE(ptrFontZurichBoldChars) - 2;
+    frontPanelHitButtons(text, x, y, STAGESEL_LINE(ptrFontZurichBoldChars), ptrFontZurichBoldChars, ptrFontZurichBold);
     DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
     return DL;
 }
@@ -7560,6 +7801,7 @@ static Gfx *frontPanelFooter(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh, const char
 /* the state the frame's drawing leaves, as the Select Stage grid */
 static Gfx *frontPanelEnd(Gfx *DL, s32 vx, s32 vy, s32 vw, s32 vh)
 {
+    s_panelHitSlot = -1;   /* the screen's places are noted */
     DL = combiner_bayer_lod_perspective(DL);
     gDPPipeSync(DL++);
     gDPSetCycleType(DL++, G_CYC_1CYCLE);
@@ -7619,6 +7861,7 @@ Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count
     cur = &e[cursor];
     buttons = cur->editable ? "A:OK  B:BACK" : "B:BACK";
     bottom = vy + vh - frontPanelFooterHeight(vw, note, buttons);
+    frontPanelHitsBegin(slot);
     snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, TITLE_STR_86_SELECTHANDICAP)));
     DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, (count < 2 ? count : 2) * (bank + 1)) ? text : NULL, &top);
 
@@ -7645,6 +7888,7 @@ Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count
                 x = vx + (vw - tw) / 2 - aw - 8;
                 y = top + zline / 2;
                 if (x < vx + 2) x = vx + 2;
+                frontPanelHit(FRONT_HIT_LEFT, x - 8, top - 2, x + aw + 6, top + 2 * zline + 2);
                 DL = frontPrintText(DL, &x, &y, (s8 *)"<", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
             }
             if (index < 10)
@@ -7652,6 +7896,7 @@ Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count
                 x = vx + (vw + tw) / 2 + 8;
                 y = top + zline / 2;
                 if (x > vx + vw - aw - 2) x = vx + vw - aw - 2;
+                frontPanelHit(FRONT_HIT_RIGHT, x - 6, top - 2, x + aw + 8, top + 2 * zline + 2);
                 DL = frontPrintText(DL, &x, &y, (s8 *)">", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
             }
         }
@@ -7699,12 +7944,22 @@ Gfx *frontHandicapDraw(Gfx *DL, s32 slot, const FrontHandicapEntry *e, s32 count
             u32 colour = i == cursor ? 0xFFFFFFFF : 0x000000FF;
 
             y = top + (i - first) * (bank + 1);
+            frontPanelHit(FRONT_HIT_ROW + i, left - 2, y, right + 2, y + bank + 1);
             if (i == cursor) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x101010E0);
             else if (e[i].me) DL = microcode_constructor_related_to_menus(DL, left - 2, y, right + 2, y + bank, 0x00000030);
             snprintf(text, sizeof(text), "%s%s%s%s", !big && i == cursor && e[i].editable ? "< " : "", e[i].match ? "MATCH" : e[i].label,
                      e[i].host ? " *" : "", !big && i == cursor && e[i].editable ? " >" : "");
             textMeasure(&th, &lw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = right - lw;
+            if (!big && i == cursor && e[i].editable)
+            {
+                /* the row's own arrows, on a view too short for the big ones (over the row's place, noted later) */
+                s32 aw;
+
+                textMeasure(&th, &aw, "< ", ptrFontBankGothicChars, ptrFontBankGothic, 0);
+                frontPanelHit(FRONT_HIT_LEFT, x - 4, y, x + aw, y + bank + 1);
+                frontPanelHit(FRONT_HIT_RIGHT, right - aw, y, right + 4, y + bank + 1);
+            }
             DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
             x = left;
             y = top + (i - first) * (bank + 1);
@@ -7757,6 +8012,7 @@ Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, 
     room = caps[0] > caps[1] ? caps[0] : caps[1];
     if (room < 1) room = 1;
     bottom = vy + vh - frontPanelFooterHeight(vw, note, "A:OK  B:BACK");
+    frontPanelHitsBegin(slot);
     snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, TITLE_STR_88_SELECTTEAMS)));
     DL = frontPanelSheet(DL, vx, vy, vw, vh, frontPanelTitled(vy, bottom, zline + 1 + room * (bank + 1) + bank + 2) ? text : NULL, &top);
     if (room > (bottom - top - zline - 1 - bank - 2) / (bank + 1)) room = (bottom - top - zline - 1 - bank - 2) / (bank + 1);
@@ -7781,6 +8037,9 @@ Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, 
         s32 cx = vx + 3 + t * colw;
         s32 shown;
         s32 rows = room;
+
+        /* the side's column, its name to its last place, where the pointer picks it */
+        frontPanelHit(FRONT_HIT_TEAM + t, cx, top - 2, cx + colw - 1, top + zline + 1 + room * (bank + 1));
 
         snprintf(text, sizeof(text), "%s", langGet(getStringID(LTITLE, t == 0 ? TITLE_STR_89_RED : TITLE_STR_90_BLUE)));
         textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
@@ -7828,6 +8087,7 @@ Gfx *frontTeamSelectDraw(Gfx *DL, s32 slot, const FrontTeamEntry *e, s32 count, 
 
         y = top + zline + 1 + room * (bank + 1) + 2;
         x = left;
+        frontPanelHit(FRONT_HIT_TEAM + 2, vx + 3, y - 1, vx + vw - 3, bottom);   /* neither side */
         snprintf(text, sizeof(text), "%s:", "UNASSIGNED");
         textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
         DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000A0, viGetX(), viGetY(), 0, 0);
