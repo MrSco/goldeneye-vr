@@ -135,9 +135,13 @@ int gevrModGameLook(int hand)
     return gevrModGunHeld(hand) ? 3 : gevrFitLook(hand);
 }
 
+extern s32 gevrIsThrowable(s32 item);        /* input.c */
+
 int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3])
 {
     const GevrModMesh *mesh;
+    /* A thrown weapon leaves the hand by the throw, not a muzzle: refused, as a legacy file's fit is */
+    if (muzzle != NULL && gevrIsThrowable(item)) return 0;
     if (name != NULL) {
         int native;
         if (!gevrModAssetHasModel(name)) return 0;
@@ -183,7 +187,6 @@ static s32 nativeAutomatic(s32 item)
  * throwGuide; gun.c gevrThrowTrigger, gunfire.c gevrThrowGuideDraw): a speed
  * of 0 and no lift set are the game's own. Put back with the stats */
 #define GAME_THROW_LIFT 5.0f   /* gun.c's throws' own */
-extern s32 gevrIsThrowable(s32 item);        /* input.c */
 extern f32 gevrThrowBaseSpeed(s32 item);     /* gun.c */
 static f32 s_modThrowSpeed[ITEM_IDS_MAX], s_modThrowLift[ITEM_IDS_MAX];
 static s8 s_modThrowLiftSet[ITEM_IDS_MAX], s_modThrowGuide[ITEM_IDS_MAX];

@@ -166,6 +166,7 @@ int gevrModGameLook(int hand) { return s_look[hand]; }
 int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3])
 {
     printf("GUNMODEL %d %d %s\n", hand, item, name ? name : "-");
+    if (muzzle != NULL && (item == 3 || (item >= 26 && item <= 29))) return 0;   /* thrown: input.c gevrIsThrowable */
     if (frame != NULL) {
         printf("GUNFRAME %d %.1f %.1f %.1f %.1f %.1f\n", hand,
                frame[0][0], frame[1][2], frame[2][1], frame[3][1], frame[3][3]);

@@ -1547,6 +1547,7 @@ mod.on("mission_start", function()
   print("bad muzzle", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {muzzle={0, 0, 4001}})))
   print("nan muzzle", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {muzzle={0/0, 0, 1}})))
   print("short muzzle", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {muzzle={0, 1}})))
+  print("thrown muzzle", mod.weapon.model("right", "grenade", "pack-body.bin", {muzzle={0, 0, 100}}))
   print("legacy", mod.weapon.model("left", "ak47", "GtacAk74Z", {frame=frame}))
   print("clear with fit", (pcall(mod.weapon.model, "right", "ak47", nil, {frame=frame})))
   print("wrong shape", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {frame={{0,0,0}}})))
@@ -1555,12 +1556,12 @@ end)
 """
     out = run(exe, temp, "gunmodel_fit", lua, "start", "prepare", 9, "begin", 9)
     check(logs(out) == ["fit true", "muzzle only true", "bad muzzle false", "nan muzzle false", "short muzzle false",
-                        "legacy false", "clear with fit false", "wrong shape false", "unfitted true"],
+                        "thrown muzzle false", "legacy false", "clear with fit false", "wrong shape false", "unfitted true"],
           "fitted gun model results: " + str(logs(out)))
     check(answers(out, "GUNFRAME") == ["GUNFRAME 0 -1.0 1.0 1.0 12.0 1.0", "GUNFRAME 1 -1.0 1.0 1.0 12.0 1.0"],
           "only well-formed fit requests reach the game with the authored frame: " + str(answers(out, "GUNFRAME")))
     check(answers(out, "GUNMUZZLE") == ["GUNMUZZLE 0 0.0 3.0 350.0", "GUNMUZZLE 1 4.0 5.0 6.0"],
-          "only valid model-local muzzle points reach the game")
+          "only valid model-local muzzle points for a gun reach the game")
 
 
 def pack_names(exe, temp):
