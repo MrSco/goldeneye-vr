@@ -72,6 +72,7 @@ void netHordeRequestActionSlot(int slot,unsigned action,unsigned item) {(void)sl
 unsigned netGetRandomSeed(void) {return 123;}
 int netMpPlayerCount(int fallback) {return 1;}
 int netLobbySlotConnected(int slot) {return slot==0;}
+int gevrLocalViewCount(void) {return 1;}
 int netPlayerIsSpectator(int slot) {return 0;}
 /* gevr_arena.c gevrArenaTick (campaign Deathmatch only, never reached here) */
 s32 bossGetStageNum(void) {return -1;}
@@ -186,6 +187,28 @@ int main(void)
     local.prop=&player_prop;player_prop.stan=&tile;g_playerPointers[0]=&local;
     gevrHordeStageLoaded();
     assert(gevrHordeState()->credits[0]==HORDE_START_CREDITS);
+    /* The setup break (owner, 2026-11-24): the first wave waits for the host.
+     * Half a minute on, nothing has spawned and the run's clock has not moved;
+     * the line saying who starts it stays up (shown again each second). */
+    assert(hordeInSetup(gevrHordeState()));
+    for(int i=0;i<120;i++)gevrHordeTick(15);
+    assert(!announced && gevrHordeState()->phase==HORDE_PREPARE && !gevrHordeState()->remaining);
+    assert(gevrHordeState()->timer==HORDE_BREAK_TICKS && !gevrHordeState()->elapsed && live_shown>=25 && !shown);
+    char line[100];gevrHordeText(line,sizeof(line));assert(strstr(line,"START WAVE 1"));
+    host=0;gevrHordeText(line,sizeof(line));assert(strstr(line,"WAITING FOR HOST"));
+    assert(!gevrHordeStartRun(HORDE_START_TICKS) && !gevrHordeSetStartWave(3));   /* a client cannot */
+    /* A host migration in the break: the new host keeps it, and START WAVE is its own */
+    HordeState held=*gevrHordeState();held.revision+=5;gevrHordeApplyState(&held);
+    host=1;gevrHordeBecameHost();
+    assert(hordeInSetup(gevrHordeState()) && gevrHordeState()->revision>=held.revision+0x10000);
+    gevrHordeText(line,sizeof(line));assert(strstr(line,"START WAVE 1"));
+    /* the host's new first wave, before the start: its points with it, and back */
+    assert(gevrHordeSetStartWave(4) && gevrHordeState()->credits[0]==hordeStartCredits(4));
+    gevrHordeText(line,sizeof(line));assert(strstr(line,"START WAVE 4"));
+    assert(gevrHordeSetStartWave(1) && gevrHordeState()->credits[0]==HORDE_START_CREDITS && !gevrHordeState()->wave);
+    assert(gevrHordeStartRun(HORDE_BREAK_TICKS) && !hordeInSetup(gevrHordeState()));
+    assert(!gevrHordeStartRun(HORDE_BREAK_TICKS) && !gevrHordeSetStartWave(2));   /* once */
+    live_shown=0;
     for(int i=0;i<60;i++)gevrHordeTick(15);
     assert(announced==1 && supplies==0 && gevrHordeState()->remaining==5);
     /* the preparation countdown updates each second; the wave is announced once */
@@ -278,6 +301,7 @@ int main(void)
      * same actor storage and keep every live wave under its concurrent cap. */
     int previous_markers=marker_count;
     memset(actors,0,sizeof(actors));gevrHordeStageLoaded();
+    assert(hordeInSetup(gevrHordeState()) && gevrHordeStartRun(HORDE_START_TICKS));   /* the host's START WAVE */
     for(int frame=0;frame<45*60*4;frame++) {
         gevrHordeTick(15);
         assert(gevrHordeState()->alive<=hordeCapacity(1));
@@ -296,7 +320,7 @@ int main(void)
     for(unsigned i=0;i<HORDE_AMMO_DROPS;i++) assert(gevrHordeState()->ammo[i].ticks<=HORDE_AMMO_LIFETIME);
     /* A friendly companion has a network identity but no wave identity. It
      * cannot increase quotas/kills, keep a wave alive or survive all-down defeat. */
-    memset(actors,0,sizeof(actors));gevrHordeStageLoaded();
+    memset(actors,0,sizeof(actors));gevrHordeStageLoaded();gevrHordeStartRun(HORDE_BREAK_TICKS);
     actors[63].model=&models[63];actors[63].prop=&props[63];actors[63].actiontype=ACT_STAND;
     gevrHordeSetGuardId(&actors[63],GEVR_ALLY_HORDE_ID);
     assert(!gevrHordeGuardId(&actors[63]));
@@ -346,7 +370,7 @@ int main(void)
     g_CurrentSetup.intro=(void *)original;unreachable_x=4000;
     memset(actors,0,sizeof(actors));memset(&player_prop.pos,0,sizeof(player_prop.pos));
     int first_marker=marker_count, before_spawn=announced;path_clear=0;
-    gevrHordePrepareSetup();gevrHordeStageLoaded();
+    gevrHordePrepareSetup();gevrHordeStageLoaded();gevrHordeStartRun(HORDE_BREAK_TICKS);
     for(int i=0;i<80;i++)gevrHordeTick(15);
     assert(announced>before_spawn);
     for(int i=first_marker;i<marker_count;i++)assert(markers[i].prop->pos.x!=4000);
@@ -355,7 +379,7 @@ int main(void)
     }
     /* Open maps cannot wait forever for cover that does not exist. The
      * first attempts stay hidden; eventual visible spawns keep the distance rule. */
-    memset(actors,0,sizeof(actors));gevrHordeStageLoaded();path_clear=1;
+    memset(actors,0,sizeof(actors));gevrHordeStageLoaded();gevrHordeStartRun(HORDE_BREAK_TICKS);path_clear=1;
     before_spawn=announced;
     for(int i=0;i<60+16;i++)gevrHordeTick(15);
     assert(announced==before_spawn);
@@ -375,7 +399,7 @@ int main(void)
     }
     shop_setup.end.type=PROPDEF_END;g_CurrentSetup.propDefs=(void *)&shop_setup;
     g_CurrentSetup.pads=shops;g_CurrentSetup.intro=(void *)original;g_CurrentSetup.pathwaypoints=NULL;
-    unreachable_x=-1;player_prop.pos=(coord3d){0};gevrHordePrepareSetup();gevrHordeStageLoaded();gevrHordeTick(1);
+    unreachable_x=-1;player_prop.pos=(coord3d){0};gevrHordePrepareSetup();gevrHordeStageLoaded();gevrHordeStartRun(HORDE_BREAK_TICKS);gevrHordeTick(1);
     HordeState feedback=*gevrHordeState();feedback.revision++;feedback.credits[0]=20000;feedback.guns[0][1]=ITEM_M16;
     gevrHordeApplyState(&feedback);uint8_t before_guns[2];memcpy(before_guns,feedback.guns[0],2);
     player_prop.pos=markers[1+6].prop->pos;

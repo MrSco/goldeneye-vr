@@ -377,7 +377,9 @@ beside it, unpublished, for reading crash addresses. Builds need glibc 2.39+
 - `gevr-server --list` prints the values the ini's match lines take.
 - A first run writes a server's match (Facility, 8 players, bots fill).
 - Modes other than Deathmatch stop with a reason: co-op needs a host in the
-  menus, and Horde has not been tried on a server.
+  menus, and Horde has not been tried on a server. (When it is: a Horde run's
+  setup break, which waits for the host's START WAVE elsewhere, ends on a
+  server once a player is in; see [Horde](horde-mode.md#the-setup-break).)
 
 **Still to do for a self-hosting release:**
 - a run on real ARM hardware (the Oracle VM);

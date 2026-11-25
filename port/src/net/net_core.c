@@ -296,7 +296,7 @@ extern int VrMpHandicaps;
 extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers;
 extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty;
 extern int VrCoopFastReinforcements;
-extern int VrHordeFriendlyFire;
+extern int VrHordeFriendlyFire, VrHordeStage, VrHordeStartWave;
 extern unsigned long long VrMpFavStages;
 extern unsigned VrMpFavSets;
 extern void vrSettingsSave(void);
@@ -596,6 +596,7 @@ int netDamageAllowed(int attacker, int target) {
     if (!netIsActive()) return 1;
     if (target < 0 || target >= GEVR_MAX_PLAYERS || attacker >= GEVR_MAX_PLAYERS) return 0;
     if (netSlotChoosing(target)) return 0;
+    if (netHordeSetupBreak()) return 0;   /* Horde's setup break: nobody is hurt until START WAVE */
     if (attacker < 0) return 1; /* Environmental damage has no player attacker. */
     /* co-op: the guards are the enemy; a teammate hurts only with friendly fire on */
     if (netModePve(s_round.config.mode)) return attacker == target || s_round.config.friendly_fire;
@@ -2880,6 +2881,31 @@ void netHordeRetry(void) {
     if (!netIsHost() || !netHordeActive() || !gevrHordeDefeated() || s_round_reset_loading) return;
     netLatchRoundSettings(); netBeginRoundReset(true);
 }
+/*
+ * The setup break (owner, 2026-11-24: "the first wave waits for the host";
+ * horde_rules.h hordeHoldSetup). Every machine knows it from the Horde
+ * snapshot (protocol 29), so a late joiner arrives in it and a new host after
+ * a migration inherits it, with START WAVE now its own.
+ */
+int netHordeSetupBreak(void) {
+    return netHordeActive() && hordeInSetup(gevrHordeState());
+}
+/* The host's map (the LOBBY row, the photos) is not the run's: START restarts on it */
+int netHordeRestartPending(void) {
+    return netIsHost() && netHordeActive() && s_lobby_state.config.mode == NET_MODE_HORDE &&
+        s_lobby_state.config.stage != s_round.config.stage;
+}
+int netHordeHostCanStart(void) {
+    return netIsHost() && !s_dedicated && netHordeSetupBreak() && s_state == NET_STATE_INGAME &&
+        !s_round_reset_loading;
+}
+/* START WAVE: the first wave in a few seconds, or, with another map chosen,
+ * the run again on it (latched as a retry, so it arrives in a new setup break) */
+void netHordeHostStart(void) {
+    if (!netHordeHostCanStart()) return;
+    if (netHordeRestartPending()) { netLatchRoundSettings(); netBeginRoundReset(true); return; }
+    gevrHordeStartRun(HORDE_START_TICKS);
+}
 void netHordeAdmitPlayers(void) {
     if (!netIsHost() || !netHordeActive()) return;
     for (int i=0;i<NET_COOP_MAX_PLAYERS;i++) if(s_lobby_state.slots[i].connected && s_lobby_state.slots[i].loaded) {
@@ -3285,6 +3311,8 @@ int gevrNetConfigGet(int field) {
     case CFG_BOT_DIFFICULTY: return c->bot_difficulty;
     case CFG_MOVEMENT_SPEED: return c->movement_speed;
     case CFG_HANDICAPS: return c->handicaps;
+    case CFG_HORDE_STAGE: return c->mode == NET_MODE_HORDE ? c->stage : 0;
+    case CFG_HORDE_START_WAVE: return c->mode == NET_MODE_HORDE ? c->horde_start_wave : 0;
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
     }
 }
@@ -3323,6 +3351,13 @@ void gevrNetConfigSet(int field, int value) {
     case CFG_BOT_DIFFICULTY: if (!gevrNetBotRowsEditable()) return; c.bot_difficulty = value; break;
     case CFG_MOVEMENT_SPEED: c.movement_speed = value; break;
     case CFG_HANDICAPS: if (c.mode != NET_MODE_DEATHMATCH) return; c.handicaps = value; break;
+    /* Horde's map (the setter takes its list position, as CFG_STAGE) and first wave:
+     * the next run's; a new wave in the setup break applies at once (below) */
+    case CFG_HORDE_STAGE: if (c.mode != NET_MODE_HORDE || value >= netHordeStageCount()) return; c.stage = netStage(value)->level_id; break;
+    case CFG_HORDE_START_WAVE:
+        if (c.mode != NET_MODE_HORDE || value < 1 || value > NET_HORDE_MAX_START_WAVE) return;
+        c.horde_start_wave = (uint8_t)value;
+        break;
     default: if (field < CFG_CUSTOM0 || field > CFG_CUSTOM3) return; c.custom_set[field-CFG_CUSTOM0] = value; break;
     }
     if (!netValidConfig(&c)) return;
@@ -3337,6 +3372,15 @@ void gevrNetConfigSet(int field, int value) {
     if (c.mode == NET_MODE_DEATHMATCH) VrMpHandicaps=c.handicaps;
     VrMpVoiceMode=c.voice_mode;
     if(c.mode==NET_MODE_HORDE) VrHordeFriendlyFire=c.friendly_fire; else VrMpFriendlyFire=c.friendly_fire;
+    if (c.mode == NET_MODE_HORDE) {
+        VrHordeStage = c.stage; VrHordeStartWave = c.horde_start_wave;
+        /* nothing has started: the run takes the new first wave now (its points with it) */
+        if (field == CFG_HORDE_START_WAVE && c.horde_start_wave == value && netHordeSetupBreak() &&
+            s_round.config.mode == NET_MODE_HORDE) {
+            s_round.config.horde_start_wave = c.horde_start_wave;
+            gevrHordeSetStartWave(c.horde_start_wave);
+        }
+    }
     VrMpFunFlags=c.fun_flags & NET_FUN_MASK; VrMpGunSize=c.gun_size;
     VrMpMovementSpeed=c.movement_speed;
     if (c.mode == NET_MODE_COOP) VrCoopFastReinforcements = (c.fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;

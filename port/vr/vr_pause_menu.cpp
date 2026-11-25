@@ -222,6 +222,13 @@ extern "C" void gevrNativePauseRender(void) {
         uint32_t pts=(me>=0 && me<4)?s->credits[me]:s->credits[0];
         snprintf(view.hordeStats,sizeof(view.hordeStats),"Points: %u   Waves: %u   Time: %u:%02u   Kills: %u   Revives: %u",
             pts,s->completed,s->elapsed/3600,(s->elapsed/60)%60,s->kills,s->revives);
+        /* the setup break: the first wave waits for the host's START WAVE */
+        view.hordeSetup=netHordeSetupBreak()!=0;view.hordeCanStart=gevrPauseActionAvailable("START WAVE")!=0;
+        view.hordeRestart=netHordeRestartPending()!=0;view.hordeWave=(int)s->completed+1;
+        if(view.hordeSetup) {
+            if(view.host)snprintf(view.status,sizeof(view.status),"Setup: start wave %d when ready",view.hordeWave);
+            else snprintf(view.status,sizeof(view.status),"Setup: waiting for the host");
+        }
     }
     if(!view.coop && !view.horde && netGetPhase()==NET_PHASE_IN_PROGRESS) {
         const int left=gevrPauseMatchClock(view.clock,sizeof(view.clock));
@@ -273,6 +280,7 @@ extern "C" void gevrNativePauseRender(void) {
     if(panelAction==GEVR_PANEL_TOUCH_LAYOUT){vr_log("panel: touch layout editor");flatTouchEditBegin();}
 #endif
     if(action==GEVR_PAUSE_HORDE_RETRY){gevrNativePauseResume();netHordeRetry();}
+    if(action==GEVR_PAUSE_HORDE_START){gevrPauseAction("START WAVE");gevrNativePauseResume();}   /* while it is still the window's player's */
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
     /* the window closes on the game's Select Character screen (in stereo on the
      * head-locked HUD); choosing or B comes back here (the headset's Menu closes both, input.c) */

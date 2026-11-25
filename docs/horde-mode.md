@@ -15,7 +15,8 @@ waves would have paid (500 + 400 per skipped wave). The launcher disables
 multiplayer for other campaigns.
 
 - Friendly fire defaults off and has its own saved Horde preference.
-- Start with a PP7, 42 starting rounds and **500 points (credits)**. Preparation and each wave break last 15 seconds.
+- Start with a PP7, 42 starting rounds and **500 points (credits)**. Each wave break lasts 15 seconds.
+- **The run waits for the host (setup break).** See [The setup break](#the-setup-break).
 - Eliminate the whole wave, including enemies still queued to spawn, to advance.
 - Every door the level lets open is open and stays open; locked and padlocked
   doors stay shut. Wall buys and the box stand clear of doors.
@@ -88,22 +89,70 @@ multiplayer for other campaigns.
   The pause menu shows points, cleared waves, time, total kills and revives. Once the
   run ends, the host can select **Retry Horde**. **Leave party** returns to the
   launcher. Campaign saves, completion times and unlocks are not awarded.
-- Players in the launcher party enter the initial preparation together; its
-  countdown waits for their maps to load. Arrivals during preparation or a wave
-  break can play immediately after loading. A combat-time arrival watches until
+- Players in the launcher party enter the setup break together; a countdown
+  waits for their maps to load. Arrivals during the setup break, preparation or a
+  wave break can play immediately after loading. A combat-time arrival watches until
   the next break (including one whose load finishes during that break). The
   wave's player scaling is fixed when that wave begins. A player leaving does
   not reset the run.
 - A solo host's pause menu freezes gameplay. With teammates, gameplay continues
   while a player has their menu open. Defeat freezes gameplay for everyone.
 
-All participants must use this build: protocol **25** adds briefcase powers and
+All participants must use this build (protocol **29** adds the setup break); protocol **25** added briefcase powers and
 consumable grants to Horde snapshots, alongside the full map catalogue in Horde
 and Deathmatch. Older builds are incompatible. Shared ammo drops, guard generations and
 the optional AI ally remain supported. The companion
 follows the party without counting as a wave enemy or a human survivor; see
 [AI ally](ai-ally.md). The app release number has
 not been bumped or published by this change.
+
+## The setup break
+
+Owner decision, 2026-11-24: "the first wave waits for the host". Every fresh
+run (the launch, Retry Horde, a restart on another map) loads in a **setup
+break**: the preparation with its clock held.
+
+- Players spawn, walk around and can buy from the box and wall buys with their
+  starting points. No guard spawns, and nothing hurts anyone, friendly fire and
+  the world included (`net_core.c` `netDamageAllowed`). The run's time does not
+  count. A box roll still finishes.
+- The bottom line says who starts it, refreshed each second: the host's own
+  seat reads `HORDE SETUP - MENU: START WAVE n`, everyone else
+  `HORDE SETUP - WAITING FOR HOST`. A quarter split-screen view gets the short
+  forms (`MENU: START WAVE n`, `WAITING FOR HOST`), as the deathmatch notices
+  do (`horde_rules.h` `hordeSetupStatus`).
+- **START WAVE** (the host): the first wave comes after a 5 s countdown
+  (`HORDE_START_TICKS`). With another map chosen it reads **Restart on new
+  map** and reloads the run there, latched as a retry is, into a new setup break.
+- **Host settings, in the game.** The host sets the map (Horde's own 26 maps;
+  A on the row, or the window's Map photos, opens the Select Stage photos
+  filtered to them) and the starting wave (1-50). They are pending match config
+  (`CFG_HORDE_STAGE`, `CFG_HORDE_START_WAVE`) and saved as the launcher's
+  `HordeStage` and `HordeStartWave`. In the setup break a new wave applies at
+  once, its points with it (the skipped waves' 400 each, up or down, on top of
+  whatever the players spent or earned since); a new map applies at START
+  WAVE. During a run both wait for Retry Horde.
+- **Where.** The online pause window's Match tab (headset, PC VR, a PC window
+  and a phone): Horde map, Starting wave, Map photos and **Start wave n**
+  beside Resume (greyed for joiners: the host's choice). On a PC window, START
+  in Horde opens this window, as the headset's Menu does, instead of the
+  campaign watch; with a split screen the first player's START opens it over
+  every view until the Multiplayer Options folder draws in the player's own.
+  The rows are `mpmenu.c`'s `s_lobbyRows` entries HORDE MAP, STARTING WAVE and
+  START WAVE (host only), which the folder reuses.
+- **Late joiners** arrive in the setup break and play at once, as in any
+  break; the snapshot tells them it is held.
+- **Host migration.** The new host inherits the held break from the last
+  snapshot, its line changes to `MENU: START WAVE n`, and START WAVE is its own.
+- **Dedicated server.** Nobody plays on the server, so nobody can press START
+  WAVE: its break ends once a player is in and loaded, into the full 15 s
+  preparation (`net_horde.c` `netHordeTick`), as its deathmatch warmups start
+  by themselves. (`gevr-server` still refuses Horde: not yet tried on a server.)
+
+Protocol 29 (the version the per-player handicaps bumped, not yet released)
+carries it: one more byte, `HordeState.setup`, at the end of
+`NET_MSG_HORDE_STATE`. A snapshot holding the break outside the preparation, or
+with a value other than 0 or 1, is refused.
 
 ## Implementation
 

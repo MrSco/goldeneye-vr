@@ -66,7 +66,8 @@ def build_core():
     keep.update({"netInvalidateHitSlot","netClearHostHits","netSetHostEqualization","netGetHostEqualization","netHostBaseDelayMs","netGetSlotHostDelayMs","netHostEqualizationText","netTransitionRoundPhase","netBroadcastRoundPhase","netObserveHitMove","netHitReportAllowed","netProcessHitReport","netExecuteHostHit","netQueueHostHit","netDrainHostHits","netSlotOccupied","netSendHitReport"})
     keep.update({"netStartPad","netStartPadShare","netBroadcastVotes","netClearVotes","netTeamScore","netGetSlotTeam","netSetSlotTeam","netVoiceModeForPair"})
     keep.update({"netConfigSlots","netLobbyMinPlayers", "netCoopSession", "gevrCoopFastReinforcements"})
-    keep.update({"netJoinStartsSpectating", "netReceiveStageReady", "netLobbyHostLaunchMatch", "netSendMatchStartTo", "netHordeActive", "netHordeRunning", "netAllPlayersLoaded", "netHordeAdmitPlayers", "netMpPlayerCount", "netGetPlayingCount"})
+    keep.update({"netJoinStartsSpectating", "netReceiveStageReady", "netLobbyHostLaunchMatch", "netSendMatchStartTo", "netHordeActive", "netHordeRunning", "netAllPlayersLoaded", "netHordeAdmitPlayers", "netMpPlayerCount", "netGetPlayingCount",
+                 "netHordeSetupBreak", "netHordeRestartPending", "netHordeHostCanStart", "netHordeHostStart", "netHordeStartWave"})
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase","netHostRestartWarmup","netDedicatedSeat","netSetDedicated","netIsDedicated","netContentPart","netContentPartName","netContentWrite","netContentDiffers","netClientContentRefused","netTakeJoinRefusal"})
     keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netRoundNoticeTextFit","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
     keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar","netRoundLoadStage","netRoundFullMap","netRoundMatchesLoadedMap"})
@@ -334,6 +335,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_coop_load_grace_drops_unloaded_teammate(self): self.assertEqual(self.core.test_core_coop_load_grace(),0)
     def test_horde_solo_launch_and_coop_rules(self): self.assertEqual(self.core.test_core_horde_lobby(),0)
     def test_horde_initial_party_and_late_admission(self): self.assertEqual(self.core.test_core_horde_admission(),0)
+    def test_horde_setup_break_and_host_settings(self): self.assertEqual(self.core.test_core_horde_setup(),0)
     def test_coop_guard_drops_detach_and_activate(self): self.assertEqual(self.coop_drops.test_coop_guard_drops(),0)
     def test_coop_guard_hand_removal_and_replacement(self): self.assertEqual(self.coop_drops.test_coop_guard_hand_changes(),0)
     def test_coop_guard_pickups_remain_individual(self): self.assertEqual(self.coop_drops.test_coop_guard_pickups_are_local(),0)

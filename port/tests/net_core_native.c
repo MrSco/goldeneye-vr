@@ -35,7 +35,7 @@ f32 get_player_mp_handicap(s32 player) { return s_mp_damage[player_handicap[play
 int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
-int VrHordeFriendlyFire;
+int VrHordeFriendlyFire, VrHordeStage, VrHordeStartWave;
 int VrMpVrOnly,VrMpHandReloadOnly;
 unsigned long long VrMpFavStages;
 unsigned VrMpFavSets;
@@ -90,6 +90,10 @@ static int coop_joins, horde_snapshots;
 const HordeState *gevrHordeState(void) { return &fixture_horde; }
 void netCoopPlayerJoined(int slot, int returning) { (void)slot; (void)returning; coop_joins++; }
 void netHordeSend(int slot) { (void)slot; horde_snapshots++; }
+/* gevr_horde.c's setup break, as the director answers (horde_rules.h) */
+static unsigned horde_started_ticks, horde_set_wave;
+int gevrHordeStartRun(unsigned ticks) { if(!hordeStartRun(&fixture_horde,ticks)) return 0; horde_started_ticks=ticks; return 1; }
+int gevrHordeSetStartWave(unsigned wave) { if(!hordeSetStartWave(&fixture_horde,wave)) return 0; horde_set_wave=wave; return 1; }
 void randomSetSeed(u32 seed) { (void)seed; }
 void netSpectatorReset(void) {}
 void netPlayersTickedReset(void) {}
@@ -136,6 +140,65 @@ EXPORT int test_core_horde_lobby(void) {
     CHECK(netDamageAllowed(0,1) && VrHordeFriendlyFire==1);
     CHECK(VrMpStage==34 && VrMpMaxPlayers==8 && VrMpBotMode==NET_BOT_FILL);
     VrMpStage=stage;VrMpMaxPlayers=max;VrMpBotMode=bots;
+    return 0;
+}
+/* Horde's setup break (owner, 2026-11-24): the first wave waits for the host's
+ * START WAVE; nobody is hurt; the host's map and first wave from the game */
+EXPORT int test_core_horde_setup(void) {
+    fixture(SCENARIO_NORMAL);
+    for(int i=2;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
+    s_lobby_state.config.mode=NET_MODE_HORDE;s_lobby_state.config.stage=NET_HORDE_STAGE;
+    s_lobby_state.config.horde_start_wave=1;s_lobby_state.config.max_players=4;s_lobby_state.config.bot_mode=NET_BOT_OFF;
+    CHECK(netLobbyHostLaunchMatch());
+    fixture_horde=(HordeState){0};
+    hordeInit(&fixture_horde,123);hordeHoldSetup(&fixture_horde);
+    s_lobby_state.slots[1].loaded=1;netStageLoaded();
+    CHECK(netHordeRunning());
+    CHECK(netHordeSetupBreak() && netHordeHostCanStart());
+    /* nothing hurts anyone, friendly fire or the world, until the run starts */
+    gevrNetConfigSet(CFG_FRIENDLY_FIRE,1);
+    CHECK(!netDamageAllowed(0,1) && !netDamageAllowed(-1,1) && !netDamageAllowed(1,1));
+    /* the wave: range-checked, saved, applied at once while nothing has started */
+    int wave=VrHordeStartWave,stage=VrHordeStage;
+    horde_set_wave=0;
+    gevrNetConfigSet(CFG_HORDE_START_WAVE,0);gevrNetConfigSet(CFG_HORDE_START_WAVE,NET_HORDE_MAX_START_WAVE+1);
+    CHECK(s_lobby_state.config.horde_start_wave==1 && !horde_set_wave);
+    gevrNetConfigSet(CFG_HORDE_START_WAVE,7);
+    CHECK(s_lobby_state.config.horde_start_wave==7 && VrHordeStartWave==7 && gevrNetConfigGet(CFG_HORDE_START_WAVE)==7);
+    CHECK(s_round.config.horde_start_wave==7 && horde_set_wave==7 && fixture_horde.completed==6);
+    CHECK(fixture_horde.credits[1]==hordeStartCredits(7) && netHordeStartWave()==7);
+    /* the map: Horde's own list only, pending until START restarts the run on it */
+    gevrNetConfigSet(CFG_HORDE_STAGE,netHordeStageCount());
+    CHECK(s_lobby_state.config.stage==NET_HORDE_STAGE && !netHordeRestartPending());
+    gevrNetConfigSet(CFG_HORDE_STAGE,3);
+    CHECK(s_lobby_state.config.stage==netStage(3)->level_id && VrHordeStage==netStage(3)->level_id);
+    CHECK(gevrNetConfigGet(CFG_HORDE_STAGE)==netStage(3)->level_id && netHordeRestartPending());
+    CHECK(s_round.config.stage==NET_HORDE_STAGE);
+    uint32_t epoch=s_round.world_epoch;horde_started_ticks=0;
+    netHordeHostStart();   /* RESTART RUN: latched as a retry is, into a new setup break */
+    CHECK(s_round_reset_loading && s_round.world_epoch==epoch+1 && s_round.config.stage==netStage(3)->level_id);
+    CHECK(s_round.config.horde_start_wave==7 && !horde_started_ticks && !netHordeHostCanStart());
+    netReadyProgress();CHECK(s_round_reset_loading);   /* the players load the new map */
+    for(int i=0;i<2;i++)s_lobby_state.slots[i].loaded=1;
+    hordeInitAt(&fixture_horde,9,netHordeStartWave());hordeHoldSetup(&fixture_horde);netReadyProgress();
+    CHECK(!s_round_reset_loading && netHordeSetupBreak() && !netHordeRestartPending() && fixture_horde.completed==6);
+    /* START WAVE with nothing pending: the wave in a few seconds; a client cannot */
+    s_local_slot=1;netHordeHostStart();CHECK(!horde_started_ticks && netHordeSetupBreak());
+    s_local_slot=0;netHordeHostStart();
+    CHECK(horde_started_ticks==HORDE_START_TICKS && !netHordeSetupBreak() && !netHordeHostCanStart());
+    CHECK(netDamageAllowed(1,0) && netDamageAllowed(-1,0));   /* friendly fire on, the run under way */
+    /* after the start the wave is the next run's, and Deathmatch refuses both */
+    horde_set_wave=0;gevrNetConfigSet(CFG_HORDE_START_WAVE,9);
+    CHECK(s_lobby_state.config.horde_start_wave==9 && s_round.config.horde_start_wave==7 && !horde_set_wave);
+    s_lobby_state.config.mode=NET_MODE_DEATHMATCH;
+    gevrNetConfigSet(CFG_HORDE_START_WAVE,3);gevrNetConfigSet(CFG_HORDE_STAGE,1);
+    CHECK(s_lobby_state.config.horde_start_wave==9 && gevrNetConfigGet(CFG_HORDE_STAGE)==0);
+    /* a dedicated server has no START WAVE of its own (net_horde.c releases it) */
+    s_lobby_state.config.mode=NET_MODE_HORDE;hordeInit(&fixture_horde,5);hordeHoldSetup(&fixture_horde);
+    CHECK(netHordeHostCanStart());s_dedicated=true;CHECK(!netHordeHostCanStart());s_dedicated=false;
+    /* late joiners play at once in the setup break, as in any break */
+    CHECK(!netJoinStartsSpectating());
+    VrHordeStartWave=wave;VrHordeStage=stage;fixture_horde=(HordeState){0};
     return 0;
 }
 static void fixtureStageReady(ENetPeer *peer, size_t size) {

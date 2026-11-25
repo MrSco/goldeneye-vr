@@ -121,6 +121,7 @@ static s32 s_pickup_ticks[4];
 static f32 s_speed[HORDE_GUARD_SLOTS];   /* a guard's run-speed factor (host) */
 static s32 s_doors_opened;
 static s32 s_start_pad, s_spawn_failures;
+static s32 s_setup_refresh;   /* ticks to the setup break's line shown again */
 static void hordeOpenDoors(void);
 static void hordeFinalizePads(void);
 #define HORDE_HELD_DOORS 96
@@ -186,7 +187,27 @@ static s32 hordeActingLocalSlot(void)
 void gevrHordeText(char *text,unsigned size)
 {
     s32 me=hordeActingLocalSlot();
+    /* the setup break: the host's own seat has START WAVE, everyone else waits for it */
+    if (netHordeActive() && hordeInSetup(&s_state)) {
+        hordeSetupStatus(&s_state,netIsHost() && me==netGetLocalSlot(),gevrLocalViewCount()>=3,text,size);
+        return;
+    }
     hordePlayerStatus(&s_state,(me>=0 && me<4)?(unsigned)me:0,text,size);
+}
+/* START WAVE (net_core.c netHordeHostStart; a dedicated server's net_horde.c) */
+int gevrHordeStartRun(unsigned ticks)
+{
+    if (!netHordeActive() || !netIsHost() || !hordeStartRun(&s_state,ticks)) return 0;
+    netHordeSend(-1);
+    return 1;
+}
+/* The host's new first wave, before anything has started (net_core.c gevrNetConfigSet) */
+int gevrHordeSetStartWave(unsigned wave)
+{
+    if (!netHordeActive() || !netIsHost() || !hordeSetStartWave(&s_state,wave)) return 0;
+    s_shown_wave=~0u;   /* the setup line names the wave */
+    netHordeSend(-1);
+    return 1;
 }
 int gevrHordeDefeated(void) { return netHordeActive() && s_state.phase==HORDE_DEFEAT; }
 unsigned gevrHordeGuardId(const ChrRecord *chr)
@@ -331,6 +352,8 @@ void gevrHordeStageLoaded(void)
     hordeLaserStats(netHordeActive());
     hordeInitAt(&s_state,netGetRandomSeed(),netHordeActive()?netHordeStartWave():1);
     for (unsigned p=0;p<4;p++) s_state.guns[p][0]=ITEM_WPPK;   /* the intro's PP7 */
+    /* every fresh run waits in its setup break for the host (horde_rules.h hordeHoldSetup) */
+    if (netHordeActive()) hordeHoldSetup(&s_state);
     memset(s_speed,0,sizeof(s_speed));memset(s_boss,0,sizeof(s_boss));
     memset(s_purchase_hold,0,sizeof(s_purchase_hold));
     memset(s_applied_explosives,0,sizeof(s_applied_explosives));
@@ -1241,14 +1264,22 @@ void gevrHordeTick(int ticks)
     hordeUpdateAmmo(ticks);
     /* Announce each wave and the defeat once, and keep a break's countdown
      * on screen while it runs; the pause menu keeps the running stats. */
-    s32 counting=s_state.phase==HORDE_PREPARE || s_state.phase==HORDE_INTERMISSION;
+    s32 setup=hordeInSetup(&s_state);
+    s32 counting=!setup && (s_state.phase==HORDE_PREPARE || s_state.phase==HORDE_INTERMISSION);
     unsigned secs=counting?(s_state.timer+59)/60:0;
+    /* The setup break has no clock to move its line: shown again each second
+     * (it is live, and who reads START WAVE changes with a host migration). */
+    if (setup) {
+        s_setup_refresh-=ticks;
+        if (s_setup_refresh<=0) { s_setup_refresh=60; s_shown_secs=~0u; }
+        counting=TRUE;secs=0;
+    }
     hordeUpdateMarkers(ticks);
     /* A station's prompt owns the live line (with the countdown on it). */
     s32 prompting[4]={0,0,0,0};
     s32 any_prompting=FALSE;
     for (s32 me=0;me<4;me++) if (gevrNetSlotIsLocalHuman(me)) {
-        prompting[me]=hordeUpdateStationPrompt(me,ticks,counting?secs:0);
+        prompting[me]=hordeUpdateStationPrompt(me,ticks,counting?secs:0);   /* setup: no countdown */
         if (prompting[me]) any_prompting=TRUE;
     }
     if (s_shown_phase!=s_state.phase || s_shown_wave!=s_state.wave || (counting && s_shown_secs!=secs)) {

@@ -42,9 +42,13 @@ extern void netLobbySetReadySlot(int slot, bool ready);
 extern bool netRequestRemoveLocalGuest(int slot);
 extern void gevrNativePauseOpenPanel(void);
 extern int netSlotReady(int slot);
+extern int gevrNativePauseOpen(void);
+extern int netHordeActive(void);
 static s32 menuActingSlot(void)
 {
     s32 cur = get_cur_playernum();
+    /* Horde's split screen: the pause window over the views is the first player's (input.c) */
+    if (netHordeActive() && netLocalSlotCount() > 1 && gevrNativePauseOpen()) return netGetLocalSlot();
     return gevrNetSlotIsLocalHuman(cur) ? cur : netGetLocalSlot();
 }
 extern void netHostRoundEnded(void);
@@ -466,11 +470,41 @@ static void rowBotCountValue(char *b,s32 n) { snprintf(b,n,"%d",gevrNetConfigGet
 static void rowBotCountStep(s32 dir) { gevrNetConfigSet(CFG_BOT_COUNT,gevrCycled(gevrNetConfigGet(CFG_BOT_COUNT)-1,dir,MAX_PLAYER_COUNT-1)+1); }
 static void rowBotDiffValue(char *b,s32 n) { snprintf(b,n,"%s",netBotDifficultyName(gevrNetConfigGet(CFG_BOT_DIFFICULTY))); }
 static void rowBotDiffStep(s32 dir) { gevrNetConfigSet(CFG_BOT_DIFFICULTY,gevrCycled(gevrNetConfigGet(CFG_BOT_DIFFICULTY),dir,NET_BOT_DIFF_COUNT)); }
+/*
+ * Horde (owner, 2026-11-24): the run arrives in a setup break and its first
+ * wave waits for the host (net_core.c netHordeHostStart). The host's map
+ * (Horde's own list, the photos filtered to it) and first wave are pending
+ * config (CFG_HORDE_STAGE, CFG_HORDE_START_WAVE): a new wave applies at once
+ * while nothing has started, a new map when START WAVE restarts the run on
+ * it; during a run both wait for the retry. The folder reuses these rows.
+ */
+static s32 lobbyHorde(void) { return netHordeActive(); }
+static s32 lobbyHordeCanStart(void) { return netHordeHostCanStart(); }
+static void rowHordeMapValue(char *b, s32 n)
+{
+    s32 idx = netStageIndexOf((u8)gevrNetConfigGet(CFG_HORDE_STAGE));
+    snprintf(b, n, "%s", idx >= 0 && idx < netHordeStageCount() ? netStageName(idx) : "");
+}
+static void rowHordeMapStep(s32 dir)
+{
+    s32 idx = netStageIndexOf((u8)gevrNetConfigGet(CFG_HORDE_STAGE));
+    gevrNetConfigSet(CFG_HORDE_STAGE, gevrCycled(idx < 0 ? 0 : idx, dir, netHordeStageCount()));   /* the list position */
+}
+static void rowHordeWaveValue(char *b, s32 n) { snprintf(b, n, "%d", gevrNetConfigGet(CFG_HORDE_START_WAVE)); }
+static void rowHordeWaveStep(s32 dir)
+{
+    gevrNetConfigSet(CFG_HORDE_START_WAVE, gevrCycled(gevrNetConfigGet(CFG_HORDE_START_WAVE) - 1, dir, NET_HORDE_MAX_START_WAVE) + 1);
+}
+static void rowHordeStartValue(char *b, s32 n) { snprintf(b, n, "%s", netHordeRestartPending() ? "- RESTART ON NEW MAP" : ""); }
+static void rowHordeStartStep(s32 dir) { (void)dir; netHordeHostStart(); }
 static const GevrMenuRow s_lobbyRows[] = {
     { "FULL MENU / SETTINGS", GEVR_ROW_ACTION, 0, lobbySplitPrimary, rowFullMenuValue, rowFullMenuStep, "A:OPEN" },
     { "DROP OUT",        GEVR_ROW_ACTION, 0, lobbySplitGuest,   rowDropOutValue,    rowDropOutStep,     "A:LEAVE MATCH" },
     { "NEXT ROUND READY", GEVR_ROW_VALUE, 0, lobbyClient, rowReadyValue, rowReadyStep, "R-STICK:ON/OFF" },
     { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, friendlyFireTeams, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
+    { "START WAVE",      GEVR_ROW_ACTION, 1, lobbyHordeCanStart, rowHordeStartValue, rowHordeStartStep, "A:START" },
+    { "HORDE MAP",       GEVR_ROW_VALUE,  1, lobbyHorde,        rowHordeMapValue,   rowHordeMapStep,    "A/R-STICK:PICK" },
+    { "STARTING WAVE",   GEVR_ROW_VALUE,  1, lobbyHorde,        rowHordeWaveValue,  rowHordeWaveStep,   "R-STICK:PICK" },
     { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     rowStartValue,      rowStartStep,       "A:START" },
     { "RETURN TO LOBBY", GEVR_ROW_ACTION, 1, lobbyCanReturn,    rowReturnValue,     rowReturnStep,      "A:RETURN" },
     { "NEXT ROUND",      GEVR_ROW_VALUE,  1, NULL,              rowNextRoundValue,  rowNextRoundStep,   "R-STICK:PICK" },
@@ -893,9 +927,10 @@ static s32 gevrStageSelAllowed(s32 slot, s32 vote)
 /* The grid's tiles for slot, as its rows offer them; the count */
 static s32 gevrStageSelTiles(s32 slot, s32 vote, FrontStageTile *tiles)
 {
-    s32 count = netStageCount();
+    s32 horde = !vote && netHordeActive();   /* Horde's map: its own list, the first entries */
+    s32 count = horde ? netHordeStageCount() : netStageCount();
     s32 voting = lobbyVoting();
-    s32 mine = vote ? netGetVote(0, slot) : netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE));
+    s32 mine = vote ? netGetVote(0, slot) : netStageIndexOf((u8)gevrNetConfigGet(horde ? CFG_HORDE_STAGE : CFG_STAGE));
     s32 n = 0;
     s32 i;
     s32 k;
@@ -1005,7 +1040,7 @@ static s32 gevrStageSelTick(s32 player_num)
         s32 pick = frontStageSelectShown(player_num);
 
         if (vote) netSetVoteSlot(player_num, 0, pick - 1);   /* the first tile: no vote */
-        else gevrNetConfigSet(CFG_STAGE, pick);              /* the setter takes the list position */
+        else gevrNetConfigSet(netHordeActive() ? CFG_HORDE_STAGE : CFG_STAGE, pick);   /* the setter takes the list position */
         s_stageSelLeaving[player_num] = 1;
     }
     else if (result < 0)
@@ -1448,9 +1483,9 @@ static s32 gevrMenuPageAction(void)
             return 1;
         }
     }
-    if ((r->step == rowMapStep || r->step == rowNextMapStep) && gevrRowVisible(r) && gevrRowEditable(r))
+    if ((r->step == rowMapStep || r->step == rowNextMapStep || r->step == rowHordeMapStep) && gevrRowVisible(r) && gevrRowEditable(r))
     {
-        /* A on MAP (the host) or NEXT MAP (the vote): the photos (the stick still steps the row) */
+        /* A on MAP or HORDE MAP (the host) or NEXT MAP (the vote): the photos (the stick still steps the row) */
         gevrStageSelOpen(menuActingSlot(), r->step == rowNextMapStep);
         if (gevrStageSelIsOpen(menuActingSlot()))
         {
@@ -1564,15 +1599,23 @@ static int gevrPauseGroup(const GevrMenuRow *r)
 {
     const char *n=r->name;
     if (!strcmp(n,"NEXT ROUND") || !strcmp(n,"NEXT MAP") || !strcmp(n,"NEXT WEAPONS") || !strcmp(n,"MAP") || !strcmp(n,"WEAPONS") || !strcmp(n,"SCENARIO")) return GEVR_PAUSE_MATCH;
+    if (!strcmp(n,"HORDE MAP") || !strcmp(n,"STARTING WAVE")) return GEVR_PAUSE_MATCH;
     if (!strcmp(n,"NEXT ROUND READY") || !strcmp(n,"YOUR TEAM") || !strcmp(n,"YOUR HEALTH") || !strcmp(n,"CHARACTER") || !strncmp(n,"LOADOUT ",8) || !strcmp(n,"FAV MAP") || !strcmp(n,"FAV SET")) return GEVR_PAUSE_PLAYER;
     if (!strcmp(n,"MUSIC") || !strcmp(n,"SFX") || !strcmp(n,"VOICE") || !strcmp(n,"VOICE MODE") || !strcmp(n,"MIC")) return GEVR_PAUSE_AUDIO;
     return GEVR_PAUSE_RULES;
+}
+/* Horde's own rows (the host's): its map and first wave on Match */
+static int gevrPausePveRow(const GevrMenuRow *r)
+{
+    return r->step == rowHordeMapStep || r->step == rowHordeWaveStep;
 }
 /* field, choice count, and current index for the game's own named choices */
 static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
 {
     const char *n=r->name; int field=-1,count=0;
     if (!strcmp(n,"MAP")) { *selected=netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE)); return netStageCount(); }
+    if (!strcmp(n,"HORDE MAP")) { *selected=netStageIndexOf((u8)gevrNetConfigGet(CFG_HORDE_STAGE)); return netHordeStageCount(); }
+    if (!strcmp(n,"STARTING WAVE")) { *selected=gevrNetConfigGet(CFG_HORDE_START_WAVE)-1; return NET_HORDE_MAX_START_WAVE; }
     if (!strcmp(n,"NEXT MAP")) { *selected=netGetVote(0,netGetLocalSlot())+1; return netStageCount()+1; }
     if (!strcmp(n,"NEXT WEAPONS")) { *selected=netGetVote(1,netGetLocalSlot())+1; return netWeaponSetCount()+1; }
     if (!strcmp(n,"PLAYERS")) { *selected=gevrNetConfigGet(CFG_MAX_PLAYERS)-2; return 7; }
@@ -1607,7 +1650,7 @@ int gevrPauseReadField(int tab,int index,GevrPauseField *out)
     int seen=0;
     for(int id=0;id<200+(int)(sizeof(s_funRows)/sizeof(s_funRows[0]));id++) {
         const GevrMenuRow *r=gevrPauseRow(id);if(!r || r->kind==GEVR_ROW_ACTION || gevrPauseGroup(r)!=tab || !gevrRowVisible(r)) continue;
-        if(gevrCoopActive()) {
+        if(gevrCoopActive() && !gevrPausePveRow(r)) {
             /* Campaign rules come from the mission: no deathmatch ballots, teams or kits. */
             if(tab==GEVR_PAUSE_MATCH || (tab==GEVR_PAUSE_PLAYER && strcmp(r->name,"CHARACTER")) ||
                (tab==GEVR_PAUSE_RULES && id<100)) continue;
@@ -1636,7 +1679,8 @@ const char *gevrPauseChoice(int id,int index)
     if(!strcmp(n,"BOT COUNT")) { const char*names[]={"1","2","3","4","5","6","7"};return names[index]; }
     if(!strcmp(n,"BOTS"))return netBotModeName(index);
     if(!strcmp(n,"BOT DIFFICULTY"))return netBotDifficultyName(index);
-    if(!strcmp(n,"MAP"))return netStageName(index);
+    if(!strcmp(n,"MAP") || !strcmp(n,"HORDE MAP"))return netStageName(index);
+    if(!strcmp(n,"STARTING WAVE")) { static char wave[16];snprintf(wave,sizeof(wave),"%d",index+1);return wave; }
     if(!strcmp(n,"WEAPONS"))return netWeaponSetName(index);
     if(!strcmp(n,"SCENARIO"))return netScenarioName(index);
     if(!strcmp(n,"LENGTH"))return netGameLengthName(index);
@@ -1668,6 +1712,8 @@ void gevrPauseSelect(int id,int index)
     if(!strcmp(r->name,"NEXT MAP")) {if(index && !netStageEligible(index-1))return;netSetLocalVote(0,index-1);return;}
     if(!strcmp(r->name,"NEXT WEAPONS")) {netSetLocalVote(1,index-1);return;}
     if(!strcmp(r->name,"SCENARIO"))gevrNetConfigSet(CFG_SCENARIO,index);
+    else if(!strcmp(r->name,"HORDE MAP"))gevrNetConfigSet(CFG_HORDE_STAGE,index);
+    else if(!strcmp(r->name,"STARTING WAVE"))gevrNetConfigSet(CFG_HORDE_START_WAVE,index+1);
     else if(!strcmp(r->name,"PLAYERS"))gevrNetConfigSet(CFG_MAX_PLAYERS,index+2);
     else if(!strcmp(r->name,"BOTS"))gevrNetConfigSet(CFG_BOT_MODE,index);
     else if(!strcmp(r->name,"BOT COUNT"))gevrNetConfigSet(CFG_BOT_COUNT,index+1);

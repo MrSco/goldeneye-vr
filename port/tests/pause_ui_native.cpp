@@ -167,5 +167,13 @@ int main(){
     // Cancel and verify that no disconnect action is produced.
     click(modal->Pos.x+100,modal->Pos.y+modal->Size.y-40);check(action==0,"cancel keeps session");
     click(100,912);check(action==GEVR_PAUSE_RESUME,"pointer resumes gameplay");
-    ImGui::DestroyContext();puts("PASS: original header arcs and fill on all tabs, pause-only HUD visibility, pointer controls, scores, co-op and trigger release");
+    /* Horde's setup break: the host's Start wave beside Resume; no mission objectives */
+    action=0;view.horde=true;view.coop=true;view.host=true;view.hordeSetup=true;view.hordeCanStart=true;view.hordeWave=4;ui.tab=GEVR_PAUSE_MATCH;frame();frame();
+    { bool objectives=false;for(ImGuiWindow*x:ImGui::GetCurrentContext()->Windows)if(strstr(x->Name,"objectives")&&x->Active&&x->LastFrameActive==ImGui::GetFrameCount())objectives=true;
+      check(!objectives,"Horde's Match tab has no mission objectives"); }
+    click(430,912);check(action==GEVR_PAUSE_HORDE_START,"the host's Start wave in the setup break");action=0;
+    view.hordeCanStart=false;frame();click(430,912);check(action==0,"Start wave is greyed outside the setup break");
+    view.host=false;view.hordeCanStart=true;frame();click(430,912);check(action==0,"a joiner has no Start wave");
+    view.horde=view.coop=view.hordeSetup=false;view.host=true;
+    ImGui::DestroyContext();puts("PASS: original header arcs and fill on all tabs, pause-only HUD visibility, pointer controls, scores, co-op, Horde's Start wave and trigger release");
 }

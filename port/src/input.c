@@ -2663,6 +2663,28 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
                 LOGI("input: panel opened%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
             }
+            /*
+             * Horde online: this window's first player's START is the pause
+             * window, as the headset's Menu is (its Match tab: the setup break's
+             * START WAVE, the host's map and wave, Retry Horde), not the campaign
+             * watch, which has nothing for a Horde run; with a split screen too,
+             * over every view, until the Multiplayer Options folder draws in the
+             * player's own (docs/horde-mode.md). Co-op keeps its watch.
+             */
+            {
+                static int hordeStartWas;
+                const int start = (npad->button & START_BUTTON) != 0;
+                const int ls = netGetLocalSlot();
+                if (netIsActive() && netHordeActive() && ls >= 0 && ls < MAX_PLAYER_COUNT
+                        && g_playerPointers[ls] && !s_gevrPanel) {
+                    if (start && !hordeStartWas) {
+                        if (gevrMenuPanelCancel(ls)) g_playerPointers[ls]->mpmenuon = 0;
+                        else g_playerPointers[ls]->mpmenuon = !g_playerPointers[ls]->mpmenuon;
+                    }
+                    npad->button &= ~START_BUTTON;
+                }
+                hordeStartWas = start;
+            }
             if (gevrNativePauseOpen()) {   /* the panel, or the online pause, has the input */
                 npad->button = 0;
                 npad->stick_x = npad->stick_y = 0;
@@ -5600,8 +5622,10 @@ int gevrNativePauseOpen(void) {
     if (netIsActive()) {
         extern int netLocalSlotCount(void);
         /* Online split-screen: START opens GoldenEye's per-viewport translucent
-         * watch menu inside only that player's viewport, not the full-screen panel. */
-        if (netLocalSlotCount() > 1) return 0;
+         * watch menu inside only that player's viewport, not the full-screen panel.
+         * Horde has no such page (its players have the campaign watch): the first
+         * player's START opens this window over the views (input.c above). */
+        if (netLocalSlotCount() > 1 && !netHordeActive()) return 0;
     }
     int slot=netIsActive()?netGetLocalSlot():-1;
     /* the game's own screen is up instead, Select Character or Select Stage (mpmenu.c) */

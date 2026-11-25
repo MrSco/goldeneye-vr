@@ -17,6 +17,10 @@ struct GevrPausePlayerView {
 };
 struct GevrPauseView {
     bool horde=false,hordeDefeated=false;
+    /* Horde's setup break (net_core.c netHordeHostStart): the host's START WAVE, which
+     * restarts the run when another map is chosen; the first wave it starts */
+    bool hordeSetup=false,hordeCanStart=false,hordeRestart=false;
+    int hordeWave=1;
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
     bool startRequested=false,rosterReady=false,voting=false,warmup=true;
     int count=0,capacity=8,countdown=0;
@@ -41,7 +45,7 @@ struct GevrPauseUi {
 };
 /* HD textures is the Mods/Fun section's row now, and Reset sound gone with #229 (owner, 2026-11-23) */
 enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,
-       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_HANDICAP,GEVR_PAUSE_TEAMSEL,GEVR_PAUSE_KICK_BASE=100 };
+       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_HANDICAP,GEVR_PAUSE_TEAMSEL,GEVR_PAUSE_HORDE_START,GEVR_PAUSE_KICK_BASE=100 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -246,9 +250,28 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             ImGui::TextWrapped("%s",model.hordeDefeated?"Everyone is down. The host can retry, or leave to choose another mode.":"Clear every guard to finish the wave. Ammo is supplied between waves. Stay beside a downed teammate to revive them.");
         }
         if(model.coop) {
-            ImGui::SetCursorPos(ImVec2(18,206));ImGui::TextColored(gold,model.horde?"HORDE":"CO-OP MISSION");
-            ImGui::SameLine();ImGui::TextUnformatted(model.session);
-        } else {
+            ImGui::SetCursorPos(ImVec2(18,206+7));ImGui::TextColored(gold,model.horde?"HORDE":"CO-OP MISSION");
+            if(!model.horde){ImGui::SameLine();ImGui::TextUnformatted(model.session);}
+        }
+        if(model.horde) {
+            /* the host's map and first wave (mpmenu.c's HORDE MAP, STARTING WAVE): a new wave
+             * takes effect at once in the setup break, a new map at START WAVE (a restart) */
+            int ids[16];
+            const int n=rows.sectionRows(GEVR_PAUSE_MATCH,GEVR_SET_INGAME,ids,16);
+            for(int i=0;i<n && i<16;i++) {
+                const GevrPauseField *field=gevrPauseFieldOf(ids[i]);
+                if(!field)continue;
+                if(!strcmp(field->label,"HORDE MAP"))gevrPauseRowAt(rows,ids[i],140,206,520);
+                else if(!strcmp(field->label,"STARTING WAVE"))gevrPauseRowAt(rows,ids[i],700,206,400);
+            }
+            if(model.portraits && model.host) {
+                ImGui::SetCursorPos(ImVec2(18,772));
+                if(ImGui::Button("Map photos",ImVec2(220,38)))action=GEVR_PAUSE_STAGESEL;
+            }
+            ImGui::SetCursorPos(ImVec2(model.portraits && model.host?254:18,782));
+            ImGui::TextDisabled("%s",!model.host?"The host chooses the map and the first wave.":
+                model.hordeSetup?"A new wave applies now, a new map at Start.":"Changes apply at the next retry.");
+        } else if(!model.coop) {
             int ids[16];
             const int n=rows.sectionRows(GEVR_PAUSE_MATCH,GEVR_SET_INGAME,ids,16);
             for(int i=0;i<n && i<16;i++) {
@@ -331,7 +354,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             }
             ImGui::EndTable();
         }
-        if(model.coop) {
+        if(model.coop && !model.horde) {
             ImGui::SetCursorPos(ImVec2(18,574));ImGui::TextColored(gold,"MISSION OBJECTIVES");
             ImGui::SetCursorPos(ImVec2(18,618));ImGui::BeginChild("objectives",ImVec2(1244,222));
             int shown=0;
@@ -390,6 +413,11 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         ImGui::SetCursorPos(ImVec2(600,886));ImGui::BeginDisabled(!model.canReturn);
         if(ImGui::Button(model.countdown>0 || model.startRequested?"Cancel start":"Return to lobby",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
     } else if(model.horde && model.host) {
+        /* the setup break's START WAVE (the first wave waits for the host) */
+        ImGui::SetCursorPos(ImVec2(282,886));ImGui::BeginDisabled(!model.hordeCanStart);
+        char start[48];snprintf(start,sizeof(start),model.hordeRestart?"Restart on new map":"Start wave %d",model.hordeWave);
+        if(ImGui::Button(start,ImVec2(300,52)))action=GEVR_PAUSE_HORDE_START;
+        ImGui::EndDisabled();
         ImGui::SetCursorPos(ImVec2(600,886));
         ImGui::BeginDisabled(!model.hordeDefeated);
         if(ImGui::Button("Retry Horde",ImVec2(330,52)))action=GEVR_PAUSE_HORDE_RETRY;

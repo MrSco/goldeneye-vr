@@ -109,6 +109,38 @@ int main(void)
     }
     assert(!hordeCanSpawn(&swarm) && swarm.alive==12 && hordeStateValid(&swarm));   /* 8 + 4 at once */
     puts("PASS: Horde special rounds, enemy kinds, speed/health scaling and starting wave");
+    /* The setup break (owner, 2026-11-24): held until START WAVE, then a short countdown */
+    {
+        HordeState s;hordeInitAt(&s,5,1);hordeHoldSetup(&s);
+        assert(hordeInSetup(&s) && hordeStateValid(&s));
+        for(int i=0;i<600;i++)assert(!hordeAdvance(&s,15,4));
+        assert(s.phase==HORDE_PREPARE && s.timer==HORDE_BREAK_TICKS && !s.elapsed && !hordeCanSpawn(&s));
+        /* a box roll still finishes in it */
+        hordeAddCredits(&s,0,HORDE_BOX_COST);assert(hordeUseBox(&s,0,20,0)==1);
+        for(int i=0;i<20;i++)hordeAdvance(&s,15,1);
+        assert(s.box_state!=HORDE_BOX_ROLLING);
+        /* a new first wave: the skipped waves' points, both ways, over what was spent */
+        uint32_t spent=s.credits[0];
+        assert(hordeSetStartWave(&s,10) && s.wave==9 && s.completed==9);
+        assert(s.credits[0]==spent+hordeStartCredits(10)-HORDE_START_CREDITS && s.credits[1]==hordeStartCredits(10));
+        assert(!hordeSetStartWave(&s,10) && hordeSetStartWave(&s,HORDE_MAX_START_WAVE+9) && s.completed==HORDE_MAX_START_WAVE-1);
+        s.credits[2]=100;assert(hordeSetStartWave(&s,0) && s.completed==0 && s.credits[2]==0 && s.credits[1]==HORDE_START_CREDITS);
+        char text[100];
+        hordeSetupStatus(&s,1,0,text,sizeof(text));assert(strstr(text,"START WAVE 1") && strstr(text,"MENU"));
+        hordeSetupStatus(&s,1,1,text,sizeof(text));assert(strlen(text)<=18);
+        hordeSetupStatus(&s,0,0,text,sizeof(text));assert(strstr(text,"WAITING FOR HOST"));
+        hordeSetupStatus(&s,0,1,text,sizeof(text));assert(strlen(text)<=18);
+        hordePlayerStatus(&s,0,text,sizeof(text));assert(strstr(text,"SETUP"));
+        assert(hordeStartRun(&s,HORDE_START_TICKS) && !s.setup && s.timer==HORDE_START_TICKS);
+        assert(!hordeStartRun(&s,HORDE_START_TICKS) && !hordeSetStartWave(&s,4));
+        for(int i=0;i<HORDE_START_TICKS/15-1;i++)assert(!hordeAdvance(&s,15,1));
+        assert(hordeAdvance(&s,15,1) && s.phase==HORDE_WAVE && s.wave==1);
+        hordeHoldSetup(&s);assert(!s.setup);   /* only a run's preparation holds */
+        s.setup=1;assert(!hordeStateValid(&s));
+        HordeState t;hordeInit(&t,1);t.setup=2;assert(!hordeStateValid(&t));
+        assert(hordeStartRun(&(HordeState){.setup=1},0)==1);   /* 0 ticks: the full break */
+        puts("PASS: Horde setup break, START WAVE countdown, starting-wave points and setup lines");
+    }
 
     /* Two guns (the PP7 one): a third replaces the one asked, else the oldest. */
     HordeState guns;hordeInit(&guns,9);guns.guns[0][0]=2;   /* the PP7 */
