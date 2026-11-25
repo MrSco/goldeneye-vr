@@ -16,6 +16,8 @@
 #ifndef GEVR_MODASSETS_H
 #define GEVR_MODASSETS_H
 
+#include <stdio.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,10 +36,12 @@ unsigned int gevrModAssetModel(const char *name, unsigned char *dst, unsigned in
  * was the one loaded (else the cartridge's was). */
 extern const char *gevrModAssetPendingName;
 extern int gevrModAssetPendingUsed;
-/* A name a pack's model can have (a cartridge file's: letters, digits, _) */
+/* A flat pack model name: letters, digits, _ or -, with an optional .bin suffix. */
 int gevrModAssetNameOk(const char *name);
 /* The run's mod has assets/models/<name> */
 int gevrModAssetHasModel(const char *name);
+/* Open a validated model in the active pack; the caller closes it. */
+FILE *gevrModAssetOpenModel(const char *name);
 /* The last model file loaded was the mod's (objecthandler_2.c): the patches
  * made for the cartridge's meshes (VR hands, magazines, the hat, Bean) leave
  * it alone. Cleared as each load starts. */

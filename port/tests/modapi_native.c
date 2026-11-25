@@ -166,7 +166,7 @@ int gevrModGameLook(int hand) { return s_look[hand]; }
 int gevrModGameGunModel(int hand, int item, const char *name)
 {
     printf("GUNMODEL %d %d %s\n", hand, item, name ? name : "-");
-    return name == NULL || strncmp(name, "Gtac", 4) == 0;
+    return name == NULL || strncmp(name, "Gtac", 4) == 0 || strcmp(name, "pack-body.bin") == 0;
 }
 void gevrModGameGunModelReset(void) { printf("GUNMODEL reset\n"); }
 /* gevr_modattach.c: models starting Gno won't load, nor a file past the
@@ -186,8 +186,9 @@ static int attachFileLoads(const char *model)
 }
 int gevrModGameAttach(const GevrModAttach *a)
 {
-    /* guard 99 isn't there */
-    int id = strncmp(a->model, "Gno", 3) == 0 || (a->on == GEVR_MODATTACH_GUARD && a->where == 99) ? 0
+    /* Only the fake pack mesh can load without a cartridge header. Guard 99 isn't there. */
+    int id = (!a->like[0] && strcmp(a->model, "pack-part.bin"))
+           || strncmp(a->model, "Gno", 3) == 0 || (a->on == GEVR_MODATTACH_GUARD && a->where == 99) ? 0
            : s_attached >= GEVR_MODAPI_ATTACH_MAX ? -1
            : !attachFileLoads(a->model) ? 0 : s_attachNext++;
     int i;

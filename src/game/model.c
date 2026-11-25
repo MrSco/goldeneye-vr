@@ -5613,7 +5613,28 @@ void gevrModelTraceNextDraw(void)
 }
 #endif
 
-void subdraw(ModelRenderData *mrData, Model *mdl)
+#ifdef GEVR
+/* Switch 35 follows hand visibility but holds gun geometry on the retail PP7.
+ * Bean can replace it with its cuff; an unpatched node must not draw the tube. */
+static int modelInGunHand(const ModelFileHeader *obj, ModelNode *node, int pp7Carrier)
+{
+    if (obj->Switches == NULL) return FALSE;
+    ModelNode *draw = node;
+    for (; node != NULL; node = node->Parent) {
+        s32 i;
+        for (i = 8; i <= 13 && i < obj->numSwitches; ++i) {
+            if (node == obj->Switches[i]) return TRUE;
+        }
+        if (obj->numSwitches >= 36 && node == obj->Switches[35]) {
+            Gfx *stock = draw->Data->DisplayList.Primary;
+            return !pp7Carrier || gevrBeanShownGdl(draw, stock) != stock;
+        }
+    }
+    return FALSE;
+}
+#endif
+
+static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly, int pp7Carrier)
 {
     ModelNode *root = mdl->obj->RootNode;
 #ifdef GEVR
@@ -5645,7 +5666,7 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
     #endif
     gSPSegment(mrData->gdl++, 3, osVirtualToPhysical(mdl->render_pos));
 #ifdef GEVR
-    if(mrData->unk18==0 && (mrData->flags&1))
+    if(!gunHandOnly && mrData->unk18==0 && (mrData->flags&1))
         modelDrawBeanBody(mrData,gevrBeanWholeModelGdl(mdl));
 #endif
 
@@ -5660,6 +5681,11 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
                 (void *)root, (void *)rw, (s32)rw->visible,
                 (void *)root->Data->Switch.Controls);
         }
+#endif
+#ifdef GEVR
+        const u32 op = root->Opcode & 0xff;
+        if (!gunHandOnly || op == MODELNODE_OPCODE_SWITCH || op == MODELNODE_OPCODE_LOD
+            || op == MODELNODE_OPCODE_BSP || (op == MODELNODE_OPCODE_DL && modelInGunHand(mdl->obj, root, pp7Carrier)))
 #endif
         sub_GAME_7F074534(mrData, mdl, root);
 #ifdef GEVR
@@ -5698,6 +5724,18 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
 #endif
 }
 
+
+void subdraw(ModelRenderData *mrData, Model *mdl)
+{
+    subdrawFiltered(mrData, mdl, 0, 0);
+}
+
+#ifdef GEVR
+void modelDrawGunHand(ModelRenderData *mrData, Model *mdl, int pp7Carrier)
+{
+    subdrawFiltered(mrData, mdl, 1, pp7Carrier);
+}
+#endif
 
 // unreferenced
 void sub_GAME_7F074790(ModelRenderData* arg0, Model* arg1)
