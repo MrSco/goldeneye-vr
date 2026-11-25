@@ -4,6 +4,7 @@
 #include "gevr_romlayout.h"
 #include "gevr_bean.h"
 #include "gevr_icloud.h"
+#include "gevr_sync.h"
 #include "gevr_bean_ce.h"
 #include "gevr_oddjobhat.h"
 /*
@@ -4361,6 +4362,19 @@ extern "C" void gevrLauncherRun(void)
                 s_cloudNote = cloud;
                 s_cloudNoteUntil = SDL_GetTicks() + 8000;
                 scan();   // a ROM that came down
+            }
+            // the cross-platform sync (port/pc/gevr_sync.cpp): what the launch brought
+            // from the other devices, or a save conflict, once, a little longer
+            static bool s_syncTold = false;
+            if (!s_syncTold) {
+                s_syncTold = true;
+                char sync[512];
+                const bool note = gevrSyncTakeMessage(sync, sizeof(sync)) != 0;
+                if (!note) gevrSyncStatus(sync, sizeof(sync));
+                if (note || (sync[0] && !strstr(sync, "up to date"))) {
+                    s_cloudNote = sync;
+                    s_cloudNoteUntil = SDL_GetTicks() + (note ? 15000 : 8000);
+                }
             }
             if (footerNote.empty() && !s_cloudNote.empty() && SDL_GetTicks() < s_cloudNoteUntil) footerNote = s_cloudNote;
         }

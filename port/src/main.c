@@ -88,6 +88,7 @@ extern void bossEntry(void);
 #include "input.h"
 #include "fs.h"
 #include "gevr_icloud.h"
+#include "gevr_sync.h"
 #include "romdata.h"
 #include "config.h"
 #include "mod.h"
@@ -503,6 +504,9 @@ int main(int argc, const char **argv)
     /* Apple builds: the other devices' settings and saves into the files
      * before they are read, and the ROM/pack sync started (port/ios/ios_icloud.mm) */
     gevrCloudLaunch();
+    /* then the cross-platform sync, once a store is linked (port/pc/gevr_sync.cpp):
+     * after iCloud, so what iCloud brought goes on to the other devices */
+    gevrSyncLaunch();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "configInit starting");
     configInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "SDL2 init starting");

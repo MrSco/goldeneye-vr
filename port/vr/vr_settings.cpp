@@ -1,6 +1,7 @@
 #include "gevr_gexweapon.h"
 #include "gevr_romlayout.h"
 #include "gevr_icloud.h"
+#include "gevr_sync.h"
 
 extern "C" int VrICloudSync, VrICloudPacks;   // gevr_settings.c
 #include <stdio.h>
@@ -255,6 +256,7 @@ static void vrSettingsWrite(const std::string &text)
 #endif
     }
     gevrCloudFileSaved(VR_INI_PATH);   // iCloud on the Apple builds (port/ios/ios_icloud.mm)
+    gevrSyncFileSaved(VR_INI_PATH);    // the cross-platform sync (port/pc/gevr_sync.cpp)
 }
 
 // A multiplayer name for a player who hasn't chosen one. The Meta account name

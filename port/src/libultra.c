@@ -15,6 +15,7 @@
 #include "fs.h"
 #include "gevr_romlayout.h"
 #include "gevr_icloud.h"
+#include "gevr_sync.h"
 
 #define EEPROM_SIZE (EEP16K_MAXBLOCKS * 8)
 #define EEPROM_FNAME "eeprom.bin"
@@ -493,6 +494,7 @@ static inline void osEeepromSave(const char *fname)
 		ok = fclose(fp) == 0 && ok;
 		if (ok && rename(tmp, path) == 0) {
 			gevrCloudFileSaved(path);   /* iCloud on the Apple builds (port/ios/ios_icloud.mm) */
+			gevrSyncFileSaved(path);    /* the cross-platform sync (port/pc/gevr_sync.cpp) */
 			return;
 		}
 		sysLogPrintf(LOG_WARNING, "could not replace EEPROM `%s`: %s", path, strerror(errno));
@@ -504,6 +506,7 @@ static inline void osEeepromSave(const char *fname)
 		fwrite(eeprom, 1, EEPROM_SIZE, fp);
 		fclose(fp);
 		gevrCloudFileSaved(path);
+		gevrSyncFileSaved(path);
 	} else {
 		sysLogPrintf(LOG_ERROR, "could not save EEPROM to `%s`: %s", path, strerror(errno));
 	}
