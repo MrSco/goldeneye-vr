@@ -181,7 +181,21 @@ static long __stdcall crashHandler(PEXCEPTION_POINTERS exinfo)
 	return EXCEPTION_CONTINUE_EXECUTION;
 }
 
-#elif defined(PLATFORM_LINUX)
+#elif defined(PLATFORM_LINUX) || (defined(GEVR_PC) && defined(__linux__) && !defined(ANDROID))
+
+/*
+ * The PC game on Linux. The build never defined PLATFORM_LINUX (a Perfect
+ * Dark leftover), so until v0.5.28 this handler was compiled out there: a
+ * crash ended the game with no FATAL line, no gevr_crash.txt and no trace,
+ * and the launcher could at most offer the marker's "ended unexpectedly"
+ * report (a Linux player's mine-and-knife crashes, 2026-11-25, sent none).
+ *
+ * A crash on Linux is often glibc's own abort on a damaged heap (free():
+ * invalid pointer), with malloc's lock held, so this handler allocates
+ * nothing: no backtrace_symbols (its malloc), no message box. It writes
+ * gevr_crash.txt first (pcCrashRecord, plain write()), then the log line,
+ * then lets the signal end the process as it would have.
+ */
 
 #include <ucontext.h>
 #include <signal.h>
@@ -189,9 +203,16 @@ static long __stdcall crashHandler(PEXCEPTION_POINTERS exinfo)
 #include <unistd.h>
 #include <ctype.h>
 #include <dlfcn.h>
-#include <sys/fcntl.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include <fcntl.h>
 
-static struct sigaction prevSigAction;
+static struct sigaction prevSigAction[5];
+static const int s_crashSignals[5] = { SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE };
+static char s_crashMsg[CRASH_MAX_MSG + 1];   /* static: the alternate stack is small */
+static volatile sig_atomic_t s_crashEntered;
+static volatile sig_atomic_t s_crashInContext;
+static sigjmp_buf s_crashContextJump;
 
 static s32 crashIsDebuggerPresent(void)
 {
@@ -247,102 +268,113 @@ static void *crashGetModuleBase(const void *addr)
 	return NULL;
 }
 
-static void crashStackTrace(char *msg, s32 sig, void *pc)
+/* "#NN: 0x... file+0xoffset (symbol+0xoffset)": the offset is what
+ * llvm-addr2line takes with the release's .debug file */
+static u32 crashFrameLine(char *msg, u32 msglen, s32 i, void *addr)
+{
+	Dl_info info;
+	memset(&info, 0, sizeof(info));
+	CRASH_MSG("#%02d: %p", i, addr);
+	if (addr && dladdr(addr, &info) && info.dli_fbase) {
+		const char *file = info.dli_fname ? strrchr(info.dli_fname, '/') : NULL;
+		file = file ? file + 1 : (info.dli_fname ? info.dli_fname : "?");
+		CRASH_MSG(" %s+0x%llx", file, (unsigned long long)((uintptr_t)addr - (uintptr_t)info.dli_fbase));
+		if (info.dli_sname && info.dli_saddr) {
+			CRASH_MSG(" (%s+0x%llx)", info.dli_sname, (unsigned long long)((uintptr_t)addr - (uintptr_t)info.dli_saddr));
+		}
+	}
+	CRASH_MSG("\n");
+	return msglen;
+}
+
+static void crashStackTrace(char *msg, s32 sig, void *pc, void *fault)
 {
 	u32 msglen = 0;
-#ifdef ANDROID
-	CRASH_MSG("SIGNAL: %d\n", sig);
-	CRASH_MSG("PC: %p\n", pc);
-	CRASH_MSG("Stack trace not available on Android\n");
-	return;
-#else
 	void *frames[CRASH_MAX_FRAMES] = { NULL };
-
 	const s32 nframes = backtrace(frames, CRASH_MAX_FRAMES);
-	if (nframes <= 0) {
-		CRASH_MSG("no information\n");
-		return;
-	}
-
-	char **strings = backtrace_symbols(frames, nframes);
 
 	CRASH_MSG("SIGNAL: %d\n", sig);
-	CRASH_MSG("PC: ");
-	if (pc) {
-		CRASH_MSG("%p\n", pc);
-	} else if (strings) {
-		CRASH_MSG("%s\n", strings[0]);
-	} else {
-		CRASH_MSG("%p\n", frames[0]);
-	}
-
-	CRASH_MSG("MODULE: %p\n", crashGetModuleBase(frames[0]));
-	CRASH_MSG("MAIN MODULE: %p\n", crashGetModuleBase(crashInit));
+	CRASH_MSG("FAULT ADDRESS: %p\n", fault);
+	msglen = crashFrameLine(msg, msglen, -1, pc);
+	CRASH_MSG("MAIN MODULE: %p\n", crashGetModuleBase((void *)crashInit));
 	CRASH_MSG("\nBACKTRACE:\n");
 
 	s32 i;
 	for (i = 0; i < nframes; ++i) {
-		CRASH_MSG("#%02d: ", i);
-		if (strings && strings[i]) {
-			CRASH_MSG("%s\n", strings[i]);
-		} else {
-			CRASH_MSG("%p\n", frames[i]);
-		}
+		msglen = crashFrameLine(msg, msglen, i, frames[i]);
 	}
 
-	if (i == CRASH_MAX_FRAMES) {
-		CRASH_MSG("...\n");
-	} else if (i <= 1) {
+	if (nframes <= 0) {
 		CRASH_MSG("no information\n");
+	} else if (nframes == CRASH_MAX_FRAMES) {
+		CRASH_MSG("...\n");
 	}
+}
 
-	free(strings);
-#endif
+/* the signal's own ending: the default action, as without this handler */
+static void crashEndWithSignal(s32 sig)
+{
+	signal(sig, SIG_DFL);
+	raise(sig);
+	_exit(128 + sig);
 }
 
 static void crashHandler(s32 sig, siginfo_t *siginfo, void *ctx)
 {
-	char msg[CRASH_MAX_MSG + 1] = { 0 };
-
-	if (crashIsDebuggerPresent()) {
-		return;
+	if (s_crashInContext) {
+		siglongjmp(s_crashContextJump, 1);   /* the renderer's context log faulted */
+	}
+	if (s_crashEntered++ || crashIsDebuggerPresent()) {
+		crashEndWithSignal(sig);   /* a fault in this handler, or a debugger's to see */
 	}
 
 	void *pc = NULL;
+	void *fault = siginfo ? siginfo->si_addr : NULL;
 	if (ctx) {
 		ucontext_t *ucontext = (ucontext_t *)ctx;
-#ifdef PLATFORM_X86
-		pc = (void *)ucontext->uc_mcontext.gregs[REG_EIP];
-#elif defined(PLATFORM_X86_64)
+#if defined(__x86_64__)
 		pc = (void *)ucontext->uc_mcontext.gregs[REG_RIP];
-#elif defined(PLATFORM_ARM) && defined(PLATFORM_64BIT)
+#elif defined(__i386__)
+		pc = (void *)ucontext->uc_mcontext.gregs[REG_EIP];
+#elif defined(__aarch64__)
 		pc = (void *)ucontext->uc_mcontext.pc;
-#elif defined(PLATFORM_ARM)
+#elif defined(__arm__)
 		pc = (void *)ucontext->uc_mcontext.arm_pc;
 #endif
 	}
 
-	sysLogPrintf(LOG_ERROR, "FATAL: Crashed: PC=%p SIGNAL=%d", pc, sig);
+	crashStackTrace(s_crashMsg, sig, pc, fault);
+
+#ifdef GEVR_PC
+	{
+		/* what the launcher offers to report on the next start, written before
+		 * anything that could hang on a lock the crash left held */
+		void pcCrashRecord(const char *summary, const char *trace);
+		static char summary[256];
+		Dl_info info;
+		memset(&info, 0, sizeof(info));
+		const uintptr_t base = (pc && dladdr(pc, &info)) ? (uintptr_t)info.dli_fbase : 0;
+		snprintf(summary, sizeof(summary), "SIGNAL %d at %p (module %p + 0x%llx), fault address %p", (int)sig, pc,
+			(void *)base, (unsigned long long)(base ? (uintptr_t)pc - base : 0), fault);
+		pcCrashRecord(summary, s_crashMsg);
+	}
+#endif
+
+	sysLogPrintf(LOG_ERROR, "FATAL: Crashed: PC=%p SIGNAL=%d ADDR=%p", pc, sig, fault);
+	/* the display list the renderer was running, if it crashed drawing (gfx_pc.cpp) */
+	if (siginfo && siginfo->si_code > 0) {
+		s_crashInContext = 1;
+		if (sigsetjmp(s_crashContextJump, 1) == 0) {
+			gevrGfxCrashContext(fault);
+		}
+		s_crashInContext = 0;
+	}
+	sysLogPrintf(LOG_ERROR, "Crash!\n\n%s", s_crashMsg);
 
 	fflush(stderr);
 	fflush(stdout);
 
-	crashStackTrace(msg, sig, pc);
-
-#ifdef GEVR_PC
-	{
-		/* the PC game on Linux: what the launcher offers to report on the next start */
-		void pcCrashRecord(const char *summary, const char *trace);
-		char summary[160];
-		Dl_info info;
-		const uintptr_t base = (pc && dladdr(pc, &info)) ? (uintptr_t)info.dli_fbase : 0;
-		snprintf(summary, sizeof(summary), "SIGNAL %d at %p (module %p + 0x%llx)", (int)sig, pc, (void *)base,
-			(unsigned long long)(base ? (uintptr_t)pc - base : 0));
-		pcCrashRecord(summary, msg);
-	}
-#endif
-
-	sysFatalError("Crash!\n\n%s", msg);
+	crashEndWithSignal(sig);
 }
 
 #elif defined(ANDROID)
@@ -439,14 +471,30 @@ void crashInit(void)
 	SetErrorMode(SEM_FAILCRITICALERRORS);
 	prevExFilter = SetUnhandledExceptionFilter(crashHandler);
 	g_CrashEnabled = 1;
-#elif defined(PLATFORM_LINUX)
-	struct sigaction sigact = { 0 };
-	sigact.sa_flags = SA_SIGINFO | SA_ONSTACK;
+#elif defined(PLATFORM_LINUX) || (defined(GEVR_PC) && defined(__linux__) && !defined(ANDROID))
+	{
+		/* a stack of its own for this thread's crash (a stack overflow has none
+		 * left), and backtrace() loaded now: its first call loads libgcc_s */
+		void *frames[2];
+		stack_t altstack;
+		memset(&altstack, 0, sizeof(altstack));
+		altstack.ss_size = 64 * 1024;
+		altstack.ss_sp = malloc(altstack.ss_size);
+		if (altstack.ss_sp) {
+			sigaltstack(&altstack, NULL);
+		}
+		backtrace(frames, 2);
+	}
+	struct sigaction sigact;
+	memset(&sigact, 0, sizeof(sigact));
+	sigemptyset(&sigact.sa_mask);
+	/* NODEFER: a fault in the handler comes back to it (it then ends the process) */
+	sigact.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
 	sigact.sa_sigaction = crashHandler;
-	sigaction(SIGSEGV, &sigact, &prevSigAction);
-	sigaction(SIGABRT, &sigact, &prevSigAction);
-	sigaction(SIGBUS,  &sigact, &prevSigAction);
-	sigaction(SIGILL,  &sigact, &prevSigAction);
+	for (int i = 0; i < 5; i++) {
+		sigaction(s_crashSignals[i], &sigact, &prevSigAction[i]);
+	}
+	sysLogPrintf(LOG_NOTE, "crash: handler on (gevr_crash.txt)");
 	g_CrashEnabled = 1;
 #elif defined(ANDROID)
 	static int installed;
@@ -486,11 +534,10 @@ void crashShutdown(void)
 	if (prevExFilter) {
 		SetUnhandledExceptionFilter(prevExFilter);
 	}
-#elif defined(PLATFORM_LINUX)
-	sigaction(SIGSEGV, &prevSigAction, NULL);
-	sigaction(SIGABRT, &prevSigAction, NULL);
-	sigaction(SIGBUS,  &prevSigAction, NULL);
-	sigaction(SIGILL,  &prevSigAction, NULL);
+#elif defined(PLATFORM_LINUX) || (defined(GEVR_PC) && defined(__linux__) && !defined(ANDROID))
+	for (int i = 0; i < 5; i++) {
+		sigaction(s_crashSignals[i], &prevSigAction[i], NULL);
+	}
 #elif defined(ANDROID)
 	if (s_prevSegv.sa_sigaction || s_prevSegv.sa_handler) {
 		sigaction(SIGSEGV, &s_prevSegv, NULL);

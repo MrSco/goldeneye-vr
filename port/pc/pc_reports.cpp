@@ -42,7 +42,8 @@
 #include <windows.h>
 #include <process.h>
 #else
-#include <unistd.h>         // getpid, readlink
+#include <unistd.h>         // getpid, readlink, write
+#include <fcntl.h>          // open, for the crash record from a signal handler
 #include <sys/utsname.h>    // the kernel for the report's device line
 #endif
 
@@ -481,6 +482,29 @@ void pcReportStartup(void)
 void pcCrashRecord(const char *summary, const char *trace)
 {
     if (s_recorded.exchange(true)) return;
+#if !defined(_WIN32) && !defined(ANDROID)
+    /* Linux and Apple: from the signal handler (crash.c), maybe on glibc's
+     * abort over a damaged heap with malloc's lock held, so nothing here
+     * allocates: a static line, then write() of the trace as given. */
+    {
+        static char line[600];
+        int n = snprintf(line, sizeof(line), "%lld %s", wallMs(), summary ? summary : "");
+        if (n < 0) n = 0;
+        if (n > (int)sizeof(line) - 2) n = (int)sizeof(line) - 2;
+        for (int i = 0; i < n; i++) if (line[i] == '\n' || line[i] == '\r') line[i] = ' ';
+        line[n++] = '\n';
+        const int fd = open(kCrashFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);   // beside the log, the working folder
+        if (fd < 0) return;
+        bool ok = write(fd, line, (size_t)n) == n;
+        if (ok && trace) {
+            const size_t len = strlen(trace);
+            ok = write(fd, trace, len) == (ssize_t)len;
+        }
+        (void)ok;
+        close(fd);
+        return;
+    }
+#endif
     FILE *f = openFile(kCrashFile, "wb");   // beside the log (pc_files.cpp: Android's services folder)
     if (!f) return;
     std::string one = summary ? summary : "";
