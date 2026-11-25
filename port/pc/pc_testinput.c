@@ -6,7 +6,11 @@
  * runs while someone uses the computer: the game never grabs the real mouse
  * or raises its window.
  *
- *   GoldenEyeVR.exe --boot-stage 33 --input-script test.txt
+ *   GoldenEyeVR.exe --boot-stage 33 --input-script test.txt [--hidden]
+ *
+ * --hidden: the window is never shown (flat_window.cpp), for a run beside
+ * someone at the desktop; the shots still read its frame. A scripted run
+ * plays its own virtual pads only (pcTestInputPadAllowed).
  *
  * One command a line, at a time in milliseconds from the first game frame:
  *

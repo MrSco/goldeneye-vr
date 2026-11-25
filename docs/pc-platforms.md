@@ -302,7 +302,10 @@ the window: the front end's pointer) and typed text into the game, `pick PATH` a
 picker (a scripted run never opens the Open dialog; with no pick waiting the
 picker is cancelled), and `shot NAME` writes the window to
 `shots/NAME.bmp`. The game never grabs the real mouse
-or raises its window, so a test runs while someone uses the computer.
+or raises its window, so a test runs while someone uses the computer; with
+`--hidden` the window is never shown at all (the shots still read its frame),
+and a scripted run takes only its own virtual pads, never a real pad someone
+is using in another window.
 
 What it took:
 
