@@ -23188,6 +23188,40 @@ static s32 gevrNetHitCounts(void)
     immunity = netHitImmunity(netActiveFunFlags());
     return immunity == 0 || (immunity == 1 && g_CurrentPlayer->damageshowtime >= NET_HIT_SHORT_TICKS);
 }
+
+/*
+ * A hit's push (record_damage_kills: bondshotspeed += 2 * the vector). The
+ * game hands it a unit vector from every hit: the shot's path, the blast's
+ * xdist/zdist (normalised in explosion.c), the guard's sinf/cosf. So a push
+ * is at most 2 units, gone in 30 ticks (it loses 1/15 a tick). Longer, it
+ * runs the walk animation that much faster (bondhead.c
+ * bheadAdjustAnimation) for that much longer: online punches that missed the
+ * on-screen list sent the distance to the target (up to 100 units, chrprop.c
+ * gevrPunchDir) through v0.5.27, and a flat player slapped beside a wall was
+ * thrown hundreds of units a tick, far beyond what the wall collision's
+ * slides and end hops are made for, into the wall (Slappers only,
+ * 2026-11-25; stereo players have No knockback). Those builds still play
+ * online, so the victim limits whatever arrives to unit length.
+ */
+static void gevrHitPushDir(f32 *x, f32 *z)
+{
+    f32 len2 = *x * *x + *z * *z;
+
+    if (len2 <= 1.0f)
+    {
+        return;
+    }
+    if (len2 < 1.0e30f)
+    {
+        f32 scale = 1.0f / sqrtf(len2);
+
+        *x *= scale;
+        *z *= scale;
+        return;
+    }
+    *x = 0.0f;   /* not a number, or past any level */
+    *z = 0.0f;
+}
 #endif
 
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
@@ -23386,6 +23420,9 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
 #endif
                     )
                 {
+#ifdef GEVR
+                    gevrHitPushDir(&vectorx, &vectorz);
+#endif
                     g_CurrentPlayer->bondshotspeed.x = g_CurrentPlayer->bondshotspeed.x + 2.0f * vectorx;
                     g_CurrentPlayer->bondshotspeed.z = g_CurrentPlayer->bondshotspeed.z + 2.0f * vectorz;
                 }
