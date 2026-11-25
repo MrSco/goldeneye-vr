@@ -70,6 +70,7 @@ extern int flatTouchTakeLookDeg(float *yaw, float *pitch);
  */
 extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
 extern s32 gevrMenuPanelCancel(s32 slot);   /* mpmenu.c: leaves a game screen in a match (Select Character...) */
+extern s32 gevrMpOptionsStartPressed(s32 slot);   /* mpmenu.c: a deathmatch warmup's START opens the Multiplayer Options folder */
 extern s32 gevrScopeZoomStick(void);  /* bondview2.c: aiming the sniper, this stick zooms */
 extern s32 gevrTeleportTakesStick(void);   /* gevr_teleport.c: the move stick aims a jump */
 extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator, the watch gadgets (#31) */
@@ -3800,8 +3801,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if(netIsActive() && !inMenus && idx==localSlot) {
             const int start=(npad->button & START_BUTTON)!=0;
             if(start && !startHeld && g_playerPointers[localSlot]) {
-                /* a game screen up (mpmenu.c): Menu leaves it unchanged and closes the menu */
+                /* a game screen up (mpmenu.c): Menu leaves it unchanged and closes the menu; in a
+                 * deathmatch's warmup it opens the Multiplayer Options folder, as a pad's START does */
                 if(gevrMenuPanelCancel(localSlot))g_playerPointers[localSlot]->mpmenuon=0;
+                else if(!g_playerPointers[localSlot]->mpmenuon && gevrMpOptionsStartPressed(localSlot)) {}
                 else g_playerPointers[localSlot]->mpmenuon=!g_playerPointers[localSlot]->mpmenuon;
                 g_gevrWatchGesturePending=0;
             }

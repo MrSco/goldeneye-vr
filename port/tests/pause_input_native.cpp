@@ -15,6 +15,12 @@ static int netCoopActive() { return coop; }
 /* mpmenu.c: a game screen (Select Character, Select Stage) up in place of the window */
 static int panelOpen,panelCancels;
 static int gevrMenuPanelCancel(int slot) { if(!panelOpen || slot!=localSlot)return 0; panelOpen=0; panelCancels++; return 1; }
+/* mpmenu.c: in a deathmatch warmup Menu opens the Multiplayer Options folder, itself a game screen */
+static int warmup,folderOpens;
+static int gevrMpOptionsStartPressed(int slot) {
+    if(!warmup || coop || slot!=localSlot)return 0;
+    players[slot].mpmenuon=1;panelOpen=1;folderOpens++;return 1;
+}
 static int gevrNativePauseOpen() { return online && !inMenus && players[localSlot].mpmenuon && !panelOpen; }
 static int get_button_state(int,const char*) { return trigger; }
 static TestPad poll(int start) {
@@ -65,6 +71,16 @@ int main() {
         poll(1);check(!players[0].mpmenuon && panelCancels==1,"held Start does nothing more");
         poll(0);pad=poll(1);check(players[0].mpmenuon && panelCancels==1,"the next Start opens the window as before");
         poll(0);poll(1);poll(0);
+    }
+    /* a deathmatch warmup: Menu opens the folder (a game screen), the next Menu leaves it and closes the menu */
+    online=1;coop=0;inMenus=0;trigger=0;localSlot=idx=0;players[0].mpmenuon=0;panelOpen=0;panelCancels=0;warmup=1;folderOpens=0;poll(0);
+    {
+        auto pad=poll(1);
+        check(folderOpens==1 && players[0].mpmenuon && panelOpen,"warmup Start opens the folder");
+        check(!gevrNativePauseOpen() && !(pad.button&START_BUTTON),"the folder, not the window, and Start is consumed");
+        poll(1);check(folderOpens==1 && panelOpen,"held Start opens it once");
+        poll(0);poll(1);check(panelCancels==1 && !panelOpen && !players[0].mpmenuon,"the next Start leaves the folder and closes the menu");
+        poll(0);warmup=0;
     }
     online=0;check(poll(1).button&START_BUTTON,"solo Start still reaches the watch");
     online=1;inMenus=1;check(poll(1).button&START_BUTTON,"title Start keeps its normal behavior");
