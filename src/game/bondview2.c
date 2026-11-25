@@ -14503,7 +14503,8 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     bondviewProcessInput(stick_x, stick_y, buttons, oldbuttons);
 
 #ifdef GEVR
-    if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
+    extern int gevrNetSlotIsLocalHuman(int slot);   /* net_core.c: a guest's menu stands them too */
+    if (netIsActive() && gevrNetSlotIsLocalHuman(get_cur_playernum()) &&
         (g_CurrentPlayer->mpmenuon ||
          /* co-op (#94): the watch is up and the mission goes on: this player stands */
          (gevrCoopActive() && g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x0)))
@@ -24355,9 +24356,97 @@ void bondviewUpperTextWindowTimerTick(void)
 }
 
 
+#ifdef GEVR
+/*
+ * The top message on a flat screen beside a multiplayer radar (owner,
+ * 2026-11-24: it ran across the radar and its rings, stretched, and the band
+ * behind it spanned the whole screen, over the other players' views). Laid
+ * out in the 4:3 canvas's own proportions, as the solo HUD is (hudaspect.h):
+ * from the view's left edge to the radar's, wrapped onto more lines when it
+ * is longer, in whichever aspect anchor (left, centre, right) reaches that
+ * stretch of the screen. Returns the anchor, or -1 for the cartridge's place
+ * (solo: no radar, one view). The radar itself is drawn stretched (radar.c).
+ */
+extern s32 gevrRadarClearX(void);   /* radar.c */
+extern int gevrLocalViewCount(void);   /* net_core.c */
+static s32 gevrTopMessageLayout(TopMessageLocals *msg, char **text, char *wrapped)
+{
+    const f32 nat = portNativeAspect();
+    const f32 r = nat > 1.3334f ? (4.0f / 3.0f) / nat : 1.0f;   /* a canvas unit's share of a stretched one */
+    const f32 cw = (f32)viGetX();
+    const s32 radar = gevrRadarClearX();
+    f32 s0, s1, avail, tw, a;
+    s32 mode;
+
+    if (radar < 0 && gevrLocalViewCount() <= 1)
+    {
+        return -1;
+    }
+    /* the stretch of the screen it may use, 0..1 across */
+    s0 = ((f32)viGetViewLeft() + 10.0f) / cw;
+    s1 = (radar >= 0 ? (f32)radar : (f32)(viGetViewLeft() + viGetViewWidth() - 10)) / cw;
+    avail = (s1 - s0) * cw / r;
+    if (avail < 60.0f)
+    {
+        avail = 60.0f;
+    }
+    if ((f32)msg->textwidth > avail)
+    {
+        /* a " - " is where it breaks first ("WARMUP 1:45" / "HOST CAN START EARLY") */
+        char split[BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH];
+        const char *in = *text;
+        s32 n = 0;
+        while (*in != '\0' && n < (s32)sizeof(split) - 1)
+        {
+            if (in[0] == ' ' && in[1] == '-' && in[2] == ' ')
+            {
+                split[n++] = '\n';
+                in += 3;
+            }
+            else
+            {
+                split[n++] = *in++;
+            }
+        }
+        split[n] = '\0';
+        textWrap((s32)avail, split, wrapped, ptrFontZurichBoldChars, ptrFontZurichBold);
+        *text = wrapped;
+        textMeasure(&msg->textheight, &msg->textwidth, wrapped, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    }
+    tw = (f32)msg->textwidth * r / cw;
+    if (s0 + tw <= r)
+    {
+        mode = GE_HUD_ASPECT_LEFT;
+        a = 0.0f;
+    }
+    else if (s0 >= 0.5f - 0.5f * r && s0 + tw <= 0.5f + 0.5f * r)
+    {
+        mode = GE_HUD_ASPECT_CENTER;
+        a = 0.5f - 0.5f * r;
+    }
+    else
+    {
+        mode = GE_HUD_ASPECT_RIGHT;
+        a = 1.0f - r;
+        if (s0 < a)
+        {
+            s0 = a;
+        }
+    }
+    msg->x = (s32)((s0 - a) * cw / r);
+    msg->y = viGetViewTop() + 0xd;
+    return mode;
+}
+#endif
+
 Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
 {
     TopMessageLocals msg;
+#ifdef GEVR
+    char *gevrTopText;
+    char gevrTopWrapped[BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH * 2];
+    s32 gevrTopMode = -1;
+#endif
     DebugTextBuffers debugtext;
     s32 debug_x;
     s32 debug_y;
@@ -24431,10 +24520,42 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                         msg.y = viGetViewTop() + (viGetViewHeight() * 55) / 100;
                         gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
                     }
+                    gevrTopText = stringbuffer_top[upper_text_buffer_index];
+                    if (!g_gevrStereo && cameraBufferToggle == 0)
+                    {
+                        gevrTopMode = gevrTopMessageLayout(&msg, &gevrTopText, gevrTopWrapped);
+                        if (gevrTopMode >= 0 && portNativeAspect() > 1.3334f)
+                        {
+                            gSPHudAspectEXT(gdl++, gevrTopMode);
+                        }
+                    }
+#endif
+#ifdef GEVR
+                    {
+                        /*
+                         * textMeasure counts a line at its newline, and the
+                         * cartridge's messages end with one; the port's own
+                         * (the warmup and countdown notices, a guest's join,
+                         * Horde's buys) don't, so the band behind them was
+                         * two pixels high, a dark line through the text
+                         * (owner, 2026-11-24). Their last line counts too.
+                         */
+                        const char *top = gevrTopText;
+                        size_t len = strlen(top);
+                        if (len != 0 && top[len - 1] != '\n')
+                        {
+                            s32 line = ptrFontZurichBoldChars['['].baseline + ptrFontZurichBoldChars['['].height;
+                            if (j_text_trigger && line < 14)
+                            {
+                                line = 14;
+                            }
+                            msg.textheight += line;
+                        }
+                    }
 #endif
                     msg.bottom = msg.y + msg.textheight;
 #ifdef GEVR
-                    if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
+                    if (!cameraBufferToggle && (g_gevrStereo || gevrTopMode >= 0 || getPlayerCount() == 1 || netIsActive()))
                     {
                         /* the band only behind the text, as the bottom message's box */
                         gdl = microcode_constructor_related_to_menus(gdl, msg.x - 4, msg.y - 2, msg.x + msg.textwidth + 4, msg.bottom, 0x64);
@@ -24442,7 +24563,10 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                     else
 #endif
                     gdl = microcode_constructor_related_to_menus(gdl, 0, msg.y - 2, viGetX(), msg.bottom, 0x64);
-#ifdef VERSION_US
+#if defined(VERSION_US) && defined(GEVR)
+                    sw.screenwidth = viGetX();
+                    gdl = textRender(gdl, &msg.x, &msg.y, gevrTopText, ptrFontZurichBoldChars, ptrFontZurichBold, -1, sw.screenwidth, viGetY(), 0, 0);
+#elif defined(VERSION_US)
                     sw.screenwidth = viGetX();
                     gdl = textRender(gdl, &msg.x, &msg.y, stringbuffer_top[upper_text_buffer_index], ptrFontZurichBoldChars, ptrFontZurichBold, -1, sw.screenwidth, viGetY(), 0, 0);
 #else
@@ -24469,6 +24593,11 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                     if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
                     {
                         gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+                    }
+                    if (gevrTopMode >= 0 && portNativeAspect() > 1.3334f)
+                    {
+                        /* back to the anchor the callers set (PORT_HUD_ASPECT) */
+                        gSPHudAspectEXT(gdl++, gevrLocalViewCount() < 2 ? GE_HUD_ASPECT_CENTER : GE_HUD_ASPECT_NONE);
                     }
 #endif
                     gdl = combiner_bayer_lod_perspective(gdl);

@@ -905,6 +905,7 @@ static s32 s_ownSeated;                                     /* they joined: slot
 static s32 s_joinDev[INPUT_MAX_CONTROLLERS];                /* the join page's list: JOIN_OWN or a pad's SDL_JoystickID */
 static s32 s_joinCount;
 static s32 s_lastDevice = JOIN_NONE;                        /* the device that pressed something last */
+static u32 s_ownPresses;                                    /* the own controls' presses (online seats: inputOnlineTickDropIn) */
 static s32 s_ownTap;                                        /* a finger came down since the join page looked */
 static s32 s_soloPadSlot;                                   /* solo: the slot of the pad played last (its rumble) */
 #endif
@@ -1395,64 +1396,179 @@ s32 inputPlayerSlot(s32 player)
 }
 
 #ifdef GEVR_FLAT
-/* Online split-screen seat -> physical device slot (0..3) and mid-match drop-in state. */
-static s32 s_onlineSeatDev[INPUT_MAX_CONTROLLERS] = { 0, 1, 2, 3 };
-static u8 s_onlinePadDropHeld[INPUT_MAX_CONTROLLERS];
-static s32 s_onlineWasActive = 0;
+/*
+ * Online split screen (docs/online-split-screen.md): a seat for each device
+ * that joins. Alone, this machine's player reads slot 0 (the keyboard and
+ * mouse, and the first pad) as ever. A pad that drives no one presses START
+ * during the match to join: the match adds a local guest
+ * (netRequestAddLocalGuest), and the seats are the offline join's
+ * (inputSeatsCommit), player 1's device and each guest's pad in the match's
+ * seat order, so the split grows as players join. The first pad joins too
+ * when player 1 has been on the keyboard and mouse this stage (otherwise its
+ * START is player 1's pause). A guest leaving (Drop Out, Remove) frees its
+ * pad; alone again, the seats clear. (Owner, 2026-11-24: guests chosen up
+ * front with no controller stood still, and the screen should split as
+ * players 3 and 4 join.)
+ */
+static s32 s_onlineSlotDev[MAX_PLAYER_COUNT];   /* a local seat's device, by match slot: JOIN_OWN, a pad's id, JOIN_NONE */
+static s32 s_onlinePending = JOIN_NONE;           /* a pad that asked to join, until the match answers */
+static u32 s_onlinePendingUntil;
+static s32 s_onlineSeats;                          /* the seats this set up (s_seated is then theirs) */
+static s32 s_onlineP1Dev = JOIN_NONE;              /* player 1's device while alone: JOIN_OWN or slot 0's pad */
+static u32 s_onlineOwnBase;                        /* s_ownPresses when the stage began */
+static s32 s_onlineStage = -1;
+static s32 s_onlineWasActive;
+static u8 s_onlinePadHeld[INPUT_MAX_CONTROLLERS];
 
+/* A seat's device slot online: player 1's slot 0 alone; -1 for a seat whose pad is gone */
 static s32 inputOnlineDevForSeat(s32 seat)
 {
     if (seat < 0 || seat >= INPUT_MAX_CONTROLLERS) return -1;
-    if (s_seated) return s_seatSlot[seat];
-    return s_onlineSeatDev[seat];
+    if (!s_onlineSeats || !s_seated) return seat == 0 ? 0 : -1;
+    if (seat >= s_joinCount) return -1;
+    if (s_joinDev[seat] != JOIN_OWN && inputJoinSlotOf(s_joinDev[seat]) < 0) return -1;
+    return s_seatSlot[seat];
+}
+
+static s32 inputOnlineDevSeated(s32 id)
+{
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) {
+        if (s_onlineSlotDev[i] == id && gevrNetSlotIsLocalHuman(i)) return 1;
+    }
+    return 0;
+}
+
+static void inputOnlineReset(void)
+{
+    if (s_onlineSeats) {
+        inputSeatsClear();
+        s_onlineSeats = 0;
+    }
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) s_onlineSlotDev[i] = JOIN_NONE;
+    for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_onlinePadHeld[k] = 0;
+    s_onlinePending = JOIN_NONE;
+    s_onlineP1Dev = JOIN_NONE;
+    s_onlineStage = -1;
+}
+
+/* The seats from the match's local players (and a pad waiting to join) */
+static void inputOnlineSeatsSync(void)
+{
+    extern int netLocalSlotCount(void);
+    extern int netSlotOfLocalSeat(int seat);
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    const s32 count = netLocalSlotCount();
+    s32 devs[INPUT_MAX_CONTROLLERS];
+    s32 n = 0;
+
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) {
+        if (!gevrNetSlotIsLocalHuman(i)) s_onlineSlotDev[i] = JOIN_NONE;
+    }
+    if (s_onlinePending != JOIN_NONE) {
+        for (s32 seat = 1; seat < count; ++seat) {
+            const s32 slot = netSlotOfLocalSeat(seat);
+            if (slot >= 0 && slot < MAX_PLAYER_COUNT && s_onlineSlotDev[slot] == JOIN_NONE) {
+                s_onlineSlotDev[slot] = s_onlinePending;   /* the match took it */
+                s_onlinePending = JOIN_NONE;
+                break;
+            }
+        }
+    }
+    if (s_onlinePending != JOIN_NONE && SDL_TICKS_PASSED(SDL_GetTicks(), s_onlinePendingUntil)) {
+        s_onlinePending = JOIN_NONE;   /* refused (full, a team full): its notice says so */
+    }
+    if (count >= 2 || s_onlinePending != JOIN_NONE) {
+        for (s32 seat = 0; seat < count && n < INPUT_MAX_CONTROLLERS; ++seat) {
+            const s32 slot = netSlotOfLocalSeat(seat);
+            s32 d = slot >= 0 && slot < MAX_PLAYER_COUNT ? s_onlineSlotDev[slot] : JOIN_NONE;
+            if (seat == 0 && d == JOIN_NONE) d = JOIN_OWN;
+            devs[n++] = d;
+        }
+        if (s_onlinePending != JOIN_NONE && n < INPUT_MAX_CONTROLLERS) devs[n++] = s_onlinePending;
+    }
+    if (n == 0) {
+        if (s_onlineSeats) {
+            inputSeatsClear();
+            s_onlineSeats = 0;
+            sysLogPrintf(LOG_NOTE, "input: online seats cleared (one local player)");
+        }
+        return;
+    }
+    s32 same = s_onlineSeats == n && s_seated == n;
+    for (s32 i = 0; same && i < n; ++i) same = s_joinDev[i] == devs[i];
+    if (same) return;
+    s_joinCount = n;
+    for (s32 i = 0; i < n; ++i) s_joinDev[i] = devs[i];
+    inputSeatsCommit();
+    s_onlineSeats = n;
 }
 
 static void inputOnlineTickDropIn(void)
 {
     extern int netLocalSlotCount(void);
+    extern int netGetLocalSlot(void);
     extern int netRequestAddLocalGuest(const char *name, u8 chr_id, u8 input_class, const u8 loadout[4]);
     extern int gevrNativePauseOpen(void);
-    const s32 active = netIsActive() ? 1 : 0;
-    if (!active) {
+    if (!netIsActive() || g_gevrStereo) {
         if (s_onlineWasActive) {
-            for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
-                s_onlineSeatDev[i] = i;
-                s_onlinePadDropHeld[i] = 0;
-            }
+            inputOnlineReset();
             s_onlineWasActive = 0;
         }
         return;
     }
     s_onlineWasActive = 1;
-    if (g_gevrStereo || bossGetStageNum() == LEVELID_TITLE || gevrNativePauseOpen()) {
-        for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_onlinePadDropHeld[k] = 0;
-        return;
+    const s32 stage = bossGetStageNum();
+    if (stage != s_onlineStage) {
+        s_onlineStage = stage;
+        s_onlineOwnBase = s_ownPresses;
     }
-    const s32 seatedNow = netLocalSlotCount();
-    for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
-        SDL_GameController *pad = pads[k];
-        if (!pad) {
-            s_onlinePadDropHeld[k] = 0;
-            continue;
-        }
-        bool bound = false;
-        for (s32 s = 0; s < seatedNow && s < INPUT_MAX_CONTROLLERS; ++s) {
-            if (inputOnlineDevForSeat(s) == k) {
-                bound = true;
-                break;
+    inputOnlineSeatsSync();
+    const s32 count = netLocalSlotCount();
+    const s32 ownUsed = s_ownPresses != s_onlineOwnBase;
+    s32 joined = 0;
+    if (stage == LEVELID_TITLE || gevrNativePauseOpen()) {
+        for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_onlinePadHeld[k] = 0;
+    } else {
+        for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
+            SDL_GameController *pad = pads[k];
+            if (!pad || !inputJoinablePad(pad)) {
+                s_onlinePadHeld[k] = 0;
+                continue;
             }
+            const s32 id = (s32)inputControllerGetId(pad);
+            const s32 pressed = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START) != 0;
+            const s32 fresh = pressed && !s_onlinePadHeld[k];
+            s_onlinePadHeld[k] = pressed ? 1 : 0;
+            if (!fresh || joined || s_onlinePending != JOIN_NONE || inputOnlineDevSeated(id)) continue;
+            s32 p1 = JOIN_NONE;
+            if (count <= 1) {
+                const s32 p1own = s_onlineP1Dev == JOIN_OWN && ownUsed;
+                if (k == 0 && !p1own) continue;   /* player 1's pad: its START is player 1's */
+                p1 = p1own || k == 0 || !pads[0] ? JOIN_OWN : (s32)inputControllerGetId(pads[0]);
+            }
+            if (count >= INPUT_MAX_CONTROLLERS) continue;
+            if (p1 != JOIN_NONE) {
+                const s32 me = netGetLocalSlot();
+                if (me >= 0 && me < MAX_PLAYER_COUNT) s_onlineSlotDev[me] = p1;
+            }
+            s_onlinePending = id;
+            s_onlinePendingUntil = SDL_GetTicks() + 4000;
+            joined = 1;
+            sysLogPrintf(LOG_NOTE, "input: '%s' asks to join as player %d", SDL_GameControllerName(pad), count + 1);
+            if (netRequestAddLocalGuest(NULL, 0xFF, 2 /* NET_INPUT_PAD */, NULL) < 0) {
+                s_onlinePending = JOIN_NONE;
+            }
+            inputOnlineSeatsSync();   /* the pad leaves player 1's slot now, before the game reads it */
         }
-        if (bound) {
-            s_onlinePadDropHeld[k] = 0;
-            continue;
+    }
+    /* player 1's device while alone: the keyboard and mouse, or slot 0's pad */
+    if (!joined && count <= 1 && s_onlinePending == JOIN_NONE) {
+        if (s_lastDevice == JOIN_OWN) {
+            s_onlineP1Dev = JOIN_OWN;
+        } else if (pads[0] && s_lastDevice == (s32)inputControllerGetId(pads[0])) {
+            s_onlineP1Dev = s_lastDevice;
         }
-        const bool pressed = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START)
-            || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A);
-        if (pressed && !s_onlinePadDropHeld[k] && seatedNow < INPUT_MAX_CONTROLLERS) {
-            if (!s_seated) s_onlineSeatDev[seatedNow] = k;
-            netRequestAddLocalGuest(NULL, 0xFF, 2 /* NET_INPUT_PAD */, NULL);
-        }
-        s_onlinePadDropHeld[k] = pressed ? 1 : 0;
     }
 }
 #endif
@@ -1707,6 +1823,7 @@ static int inputEventFilter(void *data, SDL_Event *event)
             }
 #ifdef GEVR_FLAT
             s_lastDevice = JOIN_OWN;
+            s_ownPresses++;
 #endif
             break;
 
@@ -1721,12 +1838,14 @@ static int inputEventFilter(void *data, SDL_Event *event)
             }
 #ifdef GEVR_FLAT
             s_lastDevice = JOIN_OWN;   /* the join page's player 1, if it chose Multiplayer */
+            if (!event->key.repeat) s_ownPresses++;
 #endif
             break;
 
 #ifdef GEVR_FLAT
         case SDL_FINGERDOWN:
             s_lastDevice = JOIN_OWN;
+            s_ownPresses++;
             s_ownTap = 1;
             break;
 #endif
@@ -2226,7 +2345,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         idx = devSlot;
     } else if (isLocalOnline) {
         devSlot = inputOnlineDevForSeat(localSeat);
-        if (devSlot < 0 || devSlot >= INPUT_MAX_CONTROLLERS) devSlot = 0;
+        if (devSlot < 0 || devSlot >= INPUT_MAX_CONTROLLERS) {
+            memset(npad, 0, sizeof(*npad));
+            return 0;
+        }
     } else {
         devSlot = 0;
     }

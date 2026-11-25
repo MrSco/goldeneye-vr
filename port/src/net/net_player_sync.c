@@ -699,6 +699,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
         extern s32 gevrHandChopSwinging(s32 ctrl);
         extern int gevrVrTriggerDown[2];
         extern s32 gevrStereoShotWorld(s32 handnum, coord3d *origin, coord3d *dir);
+        extern s32 lvlGetControlsLockedFlag(void);   /* lv.c */
         bool vr_self = (g_gevrStereo != 0) && (playernum == local_slot);
         for (int hand = GUNRIGHT; hand <= GUNLEFT; hand++) {
             int item = getCurrentPlayerWeaponId(hand);

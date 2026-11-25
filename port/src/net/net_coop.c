@@ -2588,6 +2588,8 @@ static void coopWriteRemove(struct netbuf *buf, s32 slot)
     netbufWriteU8(buf, 1);    /* a roster's: a setup guard gone on the host */
 }
 
+static int coopBesideWhom(int joiner);   /* below */
+
 /* The host: a player loaded the mission (fresh, or back after a host change) */
 void netCoopPlayerJoined(int slot, int returning)
 {

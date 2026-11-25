@@ -2220,70 +2220,61 @@ static bool gevrLauncherHostIdleTick(uint64_t nowMs, bool hosting, bool act)
 }
 
 #ifdef GEVR_FLAT
-static int s_localDesired = 1;
+extern "C" int inputJoinDeviceCount(void);   // input.c: pads and the own controls
+/*
+ * Online split screen: no count chosen up front. Player 1 joins or hosts;
+ * another controller presses START once the match is on and the screen
+ * splits for it (input.c inputOnlineTickDropIn), as offline Multiplayer
+ * shows only with two devices. Guests chosen up front with no controller
+ * stood still (owner, 2026-11-24). Here: the guests' names and characters,
+ * kept for when they join, and in a lobby the ones already in.
+ */
+static const int s_localDesired = 1;
 
 static void gevrLocalSplitScreenStrip(const ImVec4 &gold, const char *idSuffix) {
+    const int devices = inputJoinDeviceCount();
+    const int lc = netIsActive() ? netLocalSlotCount() : 1;
+    if (devices < 2 && lc < 2) return;
     ImGui::PushID(idSuffix);
     ImGui::Separator();
     ImGui::TextColored(gold, "LOCAL PLAYERS (SPLIT SCREEN)");
+    ImGui::TextWrapped("Another controller joins by pressing START in the match, up to 4 on this screen. "
+                       "A player leaves from their own pause menu (Drop out).");
     if (!netIsActive()) {
-        ImGui::TextUnformatted("Seats:");
-        for (int n = 1; n <= GEVR_MAX_LOCAL_PLAYERS; n++) {
-            ImGui::SameLine();
-            char lbl[16];
-            snprintf(lbl, sizeof(lbl), "%dP##lcnt%d", n, n);
-            if (ImGui::RadioButton(lbl, s_localDesired == n)) {
-                s_localDesired = n;
-                vrSyncGuestSeatConfigs();
-                netSetLocalDesiredCount(s_localDesired);
-            }
-        }
-        if (s_localDesired > 1) {
-            if (ImGui::BeginTable("##guest-pre", 3, ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn("Seat", ImGuiTableColumnFlags_WidthFixed, 34.0f);
-                ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-                ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-                for (int s = 1; s < s_localDesired; s++) {
-                    int g = s - 1;
-                    char ph[32];
-                    snprintf(ph, sizeof(ph), "%s (%d)", VrPlayerName[0] ? VrPlayerName : "Player", s + 1);
-                    ImGui::PushID(s);
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::AlignTextToFramePadding();
-                    ImGui::Text("P%d", s + 1);
-                    ImGui::TableNextColumn();
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::InputTextWithHint("##gname", ph, VrGuestName[g], sizeof(VrGuestName[g]),
-                                             ImGuiInputTextFlags_CallbackCharFilter, nameCharFilter);
-                    if (ImGui::IsItemDeactivatedAfterEdit()) {
-                        vrSettingsSave();
-                        vrSyncGuestSeatConfigs();
-                    }
-                    ImGui::TableNextColumn();
-                    ImGui::SetNextItemWidth(-1);
-                    if (namedCombo("##gchr", netCharacterCount(), netCharacterName, &VrGuestChr[g], true)) {
-                        vrSettingsSave();
-                        vrSyncGuestSeatConfigs();
-                    }
-                    ImGui::PopID();
+        const int rows = devices - 1 < 1 ? 1 : devices - 1 > 3 ? 3 : devices - 1;
+        if (ImGui::BeginTable("##guest-pre", 3, ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("Seat", ImGuiTableColumnFlags_WidthFixed, 34.0f);
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            for (int g = 0; g < rows; g++) {
+                char ph[32];
+                snprintf(ph, sizeof(ph), "%s (%d)", VrPlayerName[0] ? VrPlayerName : "Player", g + 2);
+                ImGui::PushID(g);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("P%d", g + 2);
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1);
+                ImGui::InputTextWithHint("##gname", ph, VrGuestName[g], sizeof(VrGuestName[g]),
+                                         ImGuiInputTextFlags_CallbackCharFilter, nameCharFilter);
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    vrSettingsSave();
+                    vrSyncGuestSeatConfigs();
                 }
-                ImGui::EndTable();
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1);
+                if (namedCombo("##gchr", netCharacterCount(), netCharacterName, &VrGuestChr[g], true)) {
+                    vrSettingsSave();
+                    vrSyncGuestSeatConfigs();
+                }
+                ImGui::PopID();
             }
+            ImGui::EndTable();
         }
-    } else {
-        const int lc = netLocalSlotCount();
-        const int connected = netGetConnectedPlayerCount();
-        const int maxp = netGetMaxPlayers();
+    } else if (lc > 1) {
         const bool teams = gevrLobbyHasTeams(netGetMatchConfig());
-        ImGui::SameLine();
-        ImGui::BeginDisabled(lc >= GEVR_MAX_LOCAL_PLAYERS || connected >= maxp);
-        if (ImGui::SmallButton("+ Add Local Player")) {
-            vrSyncGuestSeatConfigs();
-            netRequestAddLocalGuest(NULL, 0xFF, NET_INPUT_PAD, NULL);
-        }
-        ImGui::EndDisabled();
-        if (lc > 1 && ImGui::BeginTable("##guest-live", teams ? 4 : 3, ImGuiTableFlags_SizingStretchProp)) {
+        if (ImGui::BeginTable("##guest-live", teams ? 4 : 3, ImGuiTableFlags_SizingStretchProp)) {
             for (int s = 1; s < lc; s++) {
                 int sl = netSlotOfLocalSeat(s);
                 if (sl < 0) continue;

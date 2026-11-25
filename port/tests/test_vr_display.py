@@ -156,10 +156,10 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
                           ("BodySlotChest=1 2", 1), ("BodySlotChestX=1 2 3", 1)):
             ini.write_text(row + "\n", encoding="utf-8")
             subprocess.run([str(exe), "slots_invalid", str(size)], cwd=temp, check=True)
-        for flags in (0, 7, 16, 17, 23, 32, 55, 64, 87):   # 32: GoldenEye's hit immunity, 64: the short one
+        for flags in (0, 7, 16, 17, 23, 32, 55, 64, 87, 128, 215):   # 32: GoldenEye's hit immunity, 64: the short one, 128: No Teleport
             subprocess.run([str(exe), "fun_write", str(flags)], cwd=temp, check=True)
             subprocess.run([str(exe), "fun_read", str(flags)], cwd=temp, check=True)
-        for invalid in ("8", "24", "128", "255", "-1"):
+        for invalid in ("8", "24", "256", "255", "-1"):
             ini.write_text("MpFunFlags=" + invalid + "\n", encoding="utf-8")
             subprocess.run([str(exe), "fun_read", "0"], cwd=temp, check=True)
         ini.unlink(missing_ok=True)
