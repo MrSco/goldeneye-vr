@@ -88,10 +88,13 @@ unless co-op asks for solo's layout.
 
 ## Couch co-op (flat builds, 2026-11-25)
 
-The campaign for the players at one screen. The title's mode select has a
-**Co-op** row on flat builds (front.c, below Multiplayer; Cheat Options moves
-a row down). It opens the join page headed CO-OP, where one player is
-enough: START plays. That starts this party on this machine only
+The campaign for the players at one screen. On flat builds, offline,
+Multiplayer opens a first screen in its folder: **1. Versus** (the
+deathmatch options, as before) or **2. Co-op** (front.c gevrModePickDraw;
+owner, 2026-11-25: both are multiplayer modes, and the title's mode select
+keeps the game's rows). Multiplayer can be chosen with one device; Versus
+asks for a second. Co-op opens the join page headed CO-OP, where one
+player is enough: START plays; B goes back to Versus or Co-op. That starts this party on this machine only
 (net_core.c `netCouchCoopStart`): the ENet host listens on the loopback at a
 port the system picks, and nothing lists it (no LAN beacon, lobby service,
 ICE; friends presence says "local", never joinable; vr_launcher.cpp skips the

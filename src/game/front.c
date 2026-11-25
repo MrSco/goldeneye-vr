@@ -1113,6 +1113,18 @@ extern void netDisconnect(void);
 static s32 gevrJoinOpen = FALSE;
 /* couch co-op (2026-11-25): the mode select's Co-op, then the join page for it, then the party's menus */
 static s32 gevrJoinCoop = FALSE;
+/* Multiplayer's first screen offline: 1. Versus (the deathmatch options), 2. Co-op (the missions) */
+static s32 gevrModePickOpen = FALSE;
+#define GEVR_PICK_ROW_VERSUS 0x79
+#define GEVR_PICK_ROW_COOP   0x99
+
+static void gevrModePickShow(s32 coop)
+{
+    gevrModePickOpen = TRUE;
+    gevrJoinOpen = FALSE;
+    cursor_h_pos = 0x60;
+    cursor_v_pos = (f32)((coop ? GEVR_PICK_ROW_COOP : GEVR_PICK_ROW_VERSUS) + 6);
+}
 
 /* Out of a couch co-op party's menus (to the folders or the mode select): the party ends here */
 static void gevrCouchCoopLeave(void)
@@ -1127,29 +1139,11 @@ static void gevrCouchCoopLeave(void)
     }
 }
 #define GEVR_MP_PADS() (inputSeated() ? inputSeated() : joyGetControllerCount())
-#define GEVR_MP_SELECTABLE() (netIsActive() ? (joyGetControllerCount() >= 2) : (inputJoinDeviceCount() >= 2))
-#define GEVR_COOP_ROW() (!netIsActive() && inputJoinDeviceCount() >= 1)
+/* offline, one device is enough: Multiplayer's Co-op starts alone (Versus asks for two on its join page) */
+#define GEVR_MP_SELECTABLE() (netIsActive() ? (joyGetControllerCount() >= 2) : (inputJoinDeviceCount() >= 1))
 #else
-#define GEVR_COOP_ROW() 0
 #define GEVR_MP_PADS() joyGetControllerCount()
 #define GEVR_MP_SELECTABLE() (joyGetControllerCount() >= 2)
-#endif
-#ifdef GEVR
-/*
- * The mode select's rows (0 Select Mission, 1 Multiplayer, 2 Co-op or Cheat
- * Options, 3 Cheat Options below Co-op): the game's 32 apart from 220, but 24
- * apart when all four show, so the fourth is above the cursor's lowest reach
- * (20 above the frame's foot) and inside the folder. A row takes the cursor
- * from 9 above its text, as the game's 243 and 275 did.
- */
-static s32 gevrModeRowY(s32 row)
-{
-    extern s32 is_cheat_menu_available;
-    const s32 four = GEVR_COOP_ROW() && is_cheat_menu_available;
-
-    return 0xDC + row * (four ? 0x18 : 0x20);
-}
-#define GEVR_MODE_ROW_FROM(row) ((f32)(gevrModeRowY(row) - 9))
 #endif
 
 Gfx* frontAddPreviousTabText(Gfx* DL);
@@ -3142,6 +3136,7 @@ void init_menu06_modeselect(void)
     /* out of Multiplayer: every device is player 1's again (a join's seats) */
     gevrJoinOpen = FALSE;
     gevrJoinCoop = FALSE;
+    gevrModePickOpen = FALSE;
     /* out of a couch co-op party's menus: the party ends (net_core.c netCouchCoopStart) */
     gevrCouchCoopLeave();
     inputSeatsClear();
@@ -3200,7 +3195,7 @@ void interface_menu06_modesel(void)
             sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, 0);
         }
     }
-    else if ((is_cheat_menu_available) && (GEVR_MODE_ROW_FROM(GEVR_COOP_ROW() ? 3 : 2) <= cursor_v_pos))
+    else if ((is_cheat_menu_available) && (275.0f <= cursor_v_pos))
     {
         mission_difficulty_highlighted = DIFFICULTY_00;
         if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
@@ -3209,28 +3204,12 @@ void interface_menu06_modesel(void)
             sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, 0);
         }
     }
-#ifdef GEVR_FLAT
-    else if (GEVR_COOP_ROW() && (GEVR_MODE_ROW_FROM(2) <= cursor_v_pos))
-    {
-        /* couch co-op: the campaign for the players at this screen (its join page next) */
-        mission_difficulty_highlighted = DIFFICULTY_007;
-        if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
-        {
-            gamemode = GAMEMODE_MULTI;
-            gevrJoinCoop = TRUE;
-            sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, 0);
-        }
-    }
-#endif
-    else if ((GEVR_MODE_ROW_FROM(1) <= cursor_v_pos) && GEVR_MP_SELECTABLE())
+    else if ((243.0f <= cursor_v_pos) && GEVR_MP_SELECTABLE())
     {
         mission_difficulty_highlighted = DIFFICULTY_SECRET;
         if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
         {
             gamemode = GAMEMODE_MULTI;
-#ifdef GEVR_FLAT
-            gevrJoinCoop = FALSE;
-#endif
             sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, 0);
         }
     }
@@ -3261,9 +3240,7 @@ void interface_menu06_modesel(void)
 #ifdef GEVR_FLAT
         if (!netIsActive())
         {
-            gevrJoinOpen = TRUE;
-            inputJoinSetMinimum(gevrJoinCoop ? 1 : 2);   /* a co-op party may start alone: others drop in */
-            inputJoinBegin();
+            gevrModePickShow(FALSE);   /* Versus or Co-op first, then the join page */
         }
 #endif
         frontChangeMenu(MENU_MP_OPTIONS, FALSE);
@@ -3418,7 +3395,7 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
     DL = microcode_constructor(DL);
 
     x = 0x96;
-    y = gevrModeRowY(0);
+    y = 0xdc;
     DL = frontPrintText(DL, &x, &y, "1.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
 
     textstring = langGet((g_AppendCheatSinglePlayer != 0) ? getStringID(LTITLE, TITLE_STR_117_CHEATSELECTMISSION) : getStringID(LTITLE, TITLE_STR_29_SELECTMISSION));
@@ -3426,16 +3403,16 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
     textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
     x = 0xAA;
-    y = gevrModeRowY(0);
+    y = 0xdc;
     if (mission_difficulty_highlighted == 0)
     {
-        DL = microcode_constructor_related_to_menus(DL, 0x94, gevrModeRowY(0) - 2, y2 + 0xAF, gevrModeRowY(0) + 14, 0x32);
+        DL = microcode_constructor_related_to_menus(DL, 0x94, 0xDA, y2 + 0xAF, 0xEA, 0x32);
     }
 
     DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
 
     x = 0x96;
-    y = gevrModeRowY(1);
+    y = 0xFC;
     if (GEVR_MP_SELECTABLE())
     {
         text_color = 0xFF;
@@ -3451,47 +3428,27 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
     textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
     x = 0xAA;
-    y = gevrModeRowY(1);
+    y = 0xFC;
     if (mission_difficulty_highlighted == 1)
     {
-        DL = microcode_constructor_related_to_menus(DL, 0x94, gevrModeRowY(1) - 2, y2 + 0xAF, gevrModeRowY(1) + 14, 0x32);
+        DL = microcode_constructor_related_to_menus(DL, 0x94, 0xFA, y2 + 0xAF, 0x10A, 0x32);
     }
     DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, text_color, viGetX(), viGetY(), 0, 0);
 
-#ifdef GEVR_FLAT
-    if (GEVR_COOP_ROW())
-    {
-        /* couch co-op: below Multiplayer, Cheat Options a row further down */
-        x = 0x96;
-        y = gevrModeRowY(2);
-        DL = frontPrintText(DL, &x, &y, "3.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
-        textstring = "CO-OP";
-        textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
-        x = 0xAA;
-        y = gevrModeRowY(2);
-        if (mission_difficulty_highlighted == DIFFICULTY_007)
-        {
-            DL = microcode_constructor_related_to_menus(DL, 0x94, gevrModeRowY(2) - 2, y2 + 0xAF, gevrModeRowY(2) + 14, 0x32);
-        }
-        DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
-    }
-#endif
     if (is_cheat_menu_available != 0)
     {
-        const s32 rowy = gevrModeRowY(GEVR_COOP_ROW() ? 3 : 2);   /* below a couch co-op row */
-
         x = 0x96;
-        y = rowy;
-        DL = frontPrintText(DL, &x, &y, GEVR_COOP_ROW() ? "4.\n" : "3.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+        y = 0x11C;
+        DL = frontPrintText(DL, &x, &y, "3.\n", ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
         textstring = langGet(getStringID(LTITLE, TITLE_STR_31_CHEATOPTIONS));
 
         textMeasure(&x2, &y2, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
         x = 0xAA;
-        y = rowy;
+        y = 0x11C;
         if (mission_difficulty_highlighted == 2)
         {
-            DL = microcode_constructor_related_to_menus(DL, 0x94, rowy - 2, y2 + 0xAF, rowy + 14, 0x32);
+            DL = microcode_constructor_related_to_menus(DL, 0x94, 0x11A, y2 + 0xAF, 0x12A, 0x32);
         }
         DL = frontPrintText(DL, &x, &y, textstring, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
     }
@@ -4885,6 +4842,38 @@ void interface_menu0E_mpoptions(void)
     viSetUseZBuf(0);
 
 #ifdef GEVR_FLAT
+    if (gevrModePickOpen)
+    {
+        const s32 versus_ok = inputJoinDeviceCount() >= 2;
+        const s32 on_coop = cursor_v_pos >= (f32)(GEVR_PICK_ROW_COOP - 9);
+
+        tab_prev_highlight = frontCheckCursorOnPreviousTab();
+        disable_all_switches(walletinst[0]);
+        set_item_visibility_in_objinstance(walletinst[0], SW_TABS, 1);
+        set_item_visibility_in_objinstance(walletinst[0], SW_PAPER, 1);
+        set_item_visibility_in_objinstance(walletinst[0], SW_OHMSS, 1);
+        set_item_visibility_in_objinstance(walletinst[0], SW_CONFIDENTIAL2, 1);
+        frontUpdateControlStickPosition();
+        if ((tab_prev_highlight && joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
+            || joyGetButtonsPressedThisFrame(PLAYER_1, B_BUTTON))
+        {
+            gevrModePickOpen = FALSE;
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+            frontChangeMenu(MENU_MODE_SELECT, 0);
+            setCursorPOSforMode(gamemode);
+        }
+        else if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON) && (on_coop || versus_ok))
+        {
+            /* the join page next: Versus needs two players, Co-op one (others drop in) */
+            gevrModePickOpen = FALSE;
+            gevrJoinCoop = on_coop;
+            gevrJoinOpen = TRUE;
+            inputJoinSetMinimum(on_coop ? 1 : 2);
+            inputJoinBegin();
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, NULL);
+        }
+        return;
+    }
     if (gevrJoinOpen)
     {
         s32 r;
@@ -4900,10 +4889,10 @@ void interface_menu0E_mpoptions(void)
         frontUpdateControlStickPosition();
         if (r < 0)
         {
-            gevrJoinOpen = FALSE;
+            /* back to Versus or Co-op */
+            inputSeatsClear();
+            gevrModePickShow(gevrJoinCoop);
             sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
-            frontChangeMenu(MENU_MODE_SELECT, 0);
-            setCursorPOSforMode(gamemode);
         }
         else if (r == 1 && gevrJoinCoop)
         {
@@ -5172,6 +5161,54 @@ void interface_menu0E_mpoptions(void)
 
 #ifdef GEVR_FLAT
 /* The join page (interface_menu0E_mpoptions): who plays, in the order they joined */
+/* Multiplayer's first screen offline: Versus or Co-op (the tick: interface_menu0E_mpoptions) */
+static Gfx *gevrModePickDraw(Gfx *DL)
+{
+    static const struct { s32 y; const char *num; const char *label; const char *line; } rows[2] = {
+        { GEVR_PICK_ROW_VERSUS, "1.", "Versus", "Against each other." },
+        { GEVR_PICK_ROW_COOP,   "2.", "Co-op",  "The missions, together." },
+    };
+    const s32 on_coop = cursor_v_pos >= (f32)(GEVR_PICK_ROW_COOP - 9);
+    const s32 versus_ok = inputJoinDeviceCount() >= 2;
+    s32 x;
+    s32 y;
+    s32 i;
+
+    x = 0x37;
+    y = 0x5f;
+    DL = frontPrintText(DL, &x, &y, (s8 *)"MULTIPLAYER:", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+    for (i = 0; i < 2; i++)
+    {
+        const s32 colour = (i == 0 && !versus_ok) ? 0x70 : 0xff;
+        s32 h;
+        s32 w;
+
+        textMeasure(&h, &w, (char *)rows[i].label, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        if (on_coop == i && !tab_prev_highlight)
+        {
+            DL = microcode_constructor_related_to_menus(DL, 0x37, rows[i].y - 2, w + 0x4e, rows[i].y + 14, 0x32);
+        }
+        x = 0x39;
+        y = rows[i].y;
+        DL = frontPrintText(DL, &x, &y, (s8 *)rows[i].num, ptrFontZurichBoldChars, ptrFontZurichBold, colour, viGetX(), viGetY(), 0, 0);
+        x = 0x4b;
+        y = rows[i].y;
+        DL = frontPrintText(DL, &x, &y, (s8 *)rows[i].label, ptrFontZurichBoldChars, ptrFontZurichBold, colour, viGetX(), viGetY(), 0, 0);
+        x = 0x4b;
+        y = rows[i].y + 0x10;
+        DL = frontPrintText(DL, &x, &y, (s8 *)rows[i].line, ptrFontZurichBoldChars, ptrFontZurichBold, 0x70, viGetX(), viGetY(), 0, 0);
+    }
+    if (!versus_ok)
+    {
+        x = 0x39;
+        y = 0xd1;
+        DL = frontPrintText(DL, &x, &y, (s8 *)"Versus needs a second controller.", ptrFontZurichBoldChars, ptrFontZurichBold, 0x70, viGetX(), viGetY(), 0, 0);
+    }
+    DL = frontAddPreviousTabText(DL);
+    DL = frontDrawCursor(DL);
+    return DL;
+}
+
 static Gfx *gevrJoinPageDraw(Gfx *DL)
 {
     char line[48];
@@ -5259,6 +5296,9 @@ Gfx * constructor_menu0E_mpoptions(Gfx *DL)
   DL = frontSetupMenuBackground(DL);
   DL = microcode_constructor(DL);
 #ifdef GEVR_FLAT
+  if (gevrModePickOpen) {
+    return gevrModePickDraw(DL);
+  }
   if (gevrJoinOpen) {
     return gevrJoinPageDraw(DL);
   }
