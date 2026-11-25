@@ -3433,6 +3433,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         extern void gevrBeanSetMagazine(int state);
         extern s32 gevrBeanMagShown(s32 hand);
         gevrBeanSetMagazine(gevrBeanMagShown(handnum));
+        {
+            /* a headset-free optic check (gevr_modoptic.c): the eye behind the first lens */
+            extern void gevrModOpticPreviewAlign(s32 hand, Model *gun);
+            gevrModOpticPreviewAlign(handnum, &handptr->weaponModel);
+        }
         /* issue #31: the watch items' arm is the tracked watch arm (bondview2.c gevrStereoWatchItem) */
         {
             const GevrModMesh *mesh = gevrModGunMesh(handnum);

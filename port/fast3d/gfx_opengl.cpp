@@ -2580,6 +2580,10 @@ static float s_scopeVP[2][16], s_scopeHeadP[2][2];
 static GLuint s_scopeFbo[2], s_scopeTex[2], s_scopeDepth[2];
 static GLuint s_scopeMvTex[2], s_scopeMvDepth[2], s_scopeReadFbo[2], s_scopeDrawFbo[2];
 static bool s_scopeMultiview[2];
+/* gevr_modoptic_render.inc.h: the slot a pack optic's lens took this frame
+ * (its camera is set as the lens is drawn), and whether it set one */
+static int s_opticScopeSlot = -1;
+static bool s_opticScopeReady;
 
 static bool gevr_scope_any_taken(void)
 {
@@ -2597,6 +2601,8 @@ void gfx_vr_scope_record(bool on, bool invert_y)
     s_scopeMeshes.clear();
     s_scopeVolBatches.clear();
     s_scopeTaken[0] = s_scopeTaken[1] = false;
+    s_opticScopeSlot = -1;
+    s_opticScopeReady = false;
     // needs the mapped ring: without it every draw overwrites the last one's vertices
     if (!gevrScopeOn || s_pmPtr == NULL || gVrFlatPass) {
         return;
@@ -2614,11 +2620,27 @@ void gfx_vr_scope_record(bool on, bool invert_y)
     s_scopeRec = gevr_scope_any_taken();
 }
 
+// gfx_pc.cpp GEVR_OPTIC_SCOPE_RECORD (lv.c): the game's scopes as usual, and a
+// free slot kept for a pack optic's lens, flat or in VR; its camera is only
+// known when the lens is drawn, so the slot keeps every draw of the world
+void gfx_mod_optic_scope_record(const float* projection, bool invert_y)
+{
+    gfx_vr_scope_record(true, invert_y);
+    if (!s_pmPtr || fabsf(projection[0]) < 1e-6f || fabsf(projection[5]) < 1e-6f) return;
+    const int slot = s_scopeTaken[0] ? 1 : 0;
+    if (s_scopeTaken[slot]) return;
+    s_opticScopeSlot = slot;
+    s_scopeTaken[slot] = s_scopeRec = true;
+    s_scopeHeadP[slot][0] = projection[0];
+    s_scopeHeadP[slot][1] = invert_y ? -projection[5] : projection[5];
+}
+
 // Whether any of a batch can show through a hand's scope: not when all its
 // vertices lie outside one side of the scope's view (each side is a plane in
 // clip space, so this holds for the whole triangle), or all behind it.
 static bool gevr_scope_sees(int hand, const float* v, size_t len, size_t tris)
 {
+    if (hand == s_opticScopeSlot) return true;
     const size_t n = 3 * tris;
     if (n == 0) {
         return false;
@@ -2651,6 +2673,10 @@ static uint8_t gevr_scope_mesh_mask(const float* mp, const float* lo, const floa
     uint8_t mask = 0;
     for (int h = 0; h < 2; h++) {
         if (!s_scopeTaken[h]) continue;
+        if (h == s_opticScopeSlot) {
+            mask |= 1 << h;
+            continue;
+        }
         float scopeMP[16];
         const float* vp = s_scopeVP[h];
         for (int c = 0; c < 4; c++) {
@@ -2862,6 +2888,9 @@ void gfx_vr_scope_render(void)
     GevrProfileSection profile(GEVR_TIME_SCOPE);
     s_scopeRec = false;
     s_scopeOnlyMask = 0;
+    if (s_opticScopeSlot >= 0 && !s_opticScopeReady) {
+        s_scopeTaken[s_opticScopeSlot] = false;
+    }
     if (!gevr_scope_any_taken()) {
         return;
     }
@@ -3102,7 +3131,9 @@ void gfx_vr_scope_render(void)
 // vr_openxr.cpp: this game frame's scope image for a hand, or 0 when there is none
 GLuint gfx_vr_scope_texture(int hand)
 {
-    return (hand == 0 || hand == 1) && s_scopeDrawn[hand] ? s_scopeTex[hand] : 0;
+    /* a pack optic's lens is composited on its housing in the eye pass;
+     * only the game's own scopes use the OpenXR quad layers */
+    return (hand == 0 || hand == 1) && hand != s_opticScopeSlot && s_scopeDrawn[hand] ? s_scopeTex[hand] : 0;
 }
 
 static void gevr_eye_present_draw(void) {
@@ -3544,6 +3575,7 @@ struct GevrEyeDraw {
     uint32_t volumetric; // a volumetric smoke/explosion batch: 1 + s_eyeVolBatches entry
     uint8_t faded;     // 255 minus gevrFadeDepthAlpha: 0 a draw that does not fade
     bool clearDepthBefore;   // G_CLEAR_DEPTH_EXT before this draw (flat viewmodels on their own depth)
+    uint32_t optic;    // a pack optic's lens: 1 + its s_eyeOptics entry (gevr_modoptic_render.inc.h)
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
@@ -3555,6 +3587,9 @@ struct GevrEyeMesh {
     struct GfxMeshDrawParams params;
 };
 static std::vector<GevrEyeMesh> s_eyeMeshes;
+#include "gevr_modoptic.h"
+struct GevrEyeOptic { GevrOpticSurface surface; GLuint scene; };
+static std::vector<GevrEyeOptic> s_eyeOptics;   // pack optics' lenses this frame (gevr_modoptic_render.inc.h)
 static uint32_t s_eyeKeepMesh;   // gfx_opengl_draw_mesh: the draw gevr_eye_keep keeps
 static void gevr_eye_proj_times(const float* delta, float M[16]);
 
@@ -3564,6 +3599,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
     gevr_mesh_settle();
     if (on) {
         s_eyeDraws.clear();
+        s_eyeOptics.clear();
         s_eyeMeshes.clear();
         s_eyeVolBatches.clear();
         s_eyeReady = false;
@@ -3629,6 +3665,7 @@ void gfx_flat_record(bool on, const float* proj, bool invert_y, const float* pre
     gevr_mesh_settle();
     if (on) {
         s_eyeDraws.clear();
+        s_eyeOptics.clear();
         s_eyeMeshes.clear();
         s_eyeVolBatches.clear();
         s_eyeReady = false;
@@ -3690,7 +3727,7 @@ void gfx_vr_eye_record_only(bool on)
  */
 static bool gevr_eye_draw_joins(const GevrEyeDraw& a, const GevrEyeDraw& b)
 {
-    if (a.volumetric || b.volumetric || a.lineMode || b.lineMode || b.clearDepthBefore || a.first + a.count != b.first || a.prg != b.prg
+    if (a.optic || b.optic || a.volumetric || b.volumetric || a.lineMode || b.lineMode || b.clearDepthBefore || a.first + a.count != b.first || a.prg != b.prg
         || a.prg->opaque_depth_pass_location >= 0
         || a.decalZ || b.decalZ || a.decalDepth || b.decalDepth
         || a.gunDecal != b.gunDecal || a.decalPull != b.decalPull
@@ -3736,7 +3773,7 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
         s_eyeSeg = s_pmSeg;
         s_eyeNeed = s_pmOff - gevr_pm_base();
     }
-    GevrEyeDraw d;
+    GevrEyeDraw d = {};
     d.prg = s_curPrg;
     d.first = first;
     d.count = count;
@@ -3801,6 +3838,8 @@ static void gevr_eye_proj_times(const float* delta, float M[16])
         }
     }
 }
+
+#include "gevr_modoptic_render.inc.h"
 
 /*
  * Into the eye buffers already bound and cleared (gfx_pc.cpp
@@ -4010,6 +4049,15 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     GevrReplayBindings bindings;
     bindings.ring = ringVbo;
     for (const GevrEyeDraw& d : s_eyeDraws) {
+        if (d.optic) {
+            glViewport(d.viewport[0], d.viewport[1], d.viewport[2], d.viewport[3]);
+            glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
+            if (d.clearDepthBefore) gevr_replay_clear_depth();
+            drawModLens(s_eyeOptics[d.optic - 1], Ms[d.hand + 1], false);
+            haveTexture[0] = haveTexture[1] = false;
+            last = NULL;
+            continue;
+        }
         if (d.volumetric) {
             if (last == NULL || memcmp(d.viewport, last->viewport, sizeof(d.viewport)) != 0) {
                 glViewport(d.viewport[0], d.viewport[1], d.viewport[2], d.viewport[3]);
@@ -4465,7 +4513,7 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
         const GevrEyeMesh* mesh = d.mesh ? &s_eyeMeshes[d.mesh - 1] : NULL;
         // decals keep the motion of the surface they lie on (see above);
         // volumetric smoke/fire is transparent and never writes motion vectors
-        if (d.volumetric || d.isMenu || d.decalZ || d.decalDepth) {
+        if (d.optic || d.volumetric || d.isMenu || d.decalZ || d.decalDepth) {
             skipped++;
             continue;
         }

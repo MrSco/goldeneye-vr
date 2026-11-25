@@ -3330,7 +3330,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         reloadGameplay = !menu && !fitting && !gevrWeaponPanelOpen
             && !lvlGetControlsLockedFlag();
         const bool lclick = get_button_state(0, "thumbstick_click");
-        const bool rclick = get_button_state(1, "thumbstick_click");
+        /* a pack optic in focus takes the right stick: a click changes its mode,
+         * held it zooms with the stick (gevr_modoptic.c); then the game has neither */
+        extern int gevrModOpticInput(int enabled, int click, float y);
+        const bool rclickRaw = get_button_state(1, "thumbstick_click");
+        const bool opticControl = gevrModOpticInput(!menu && !fitting && !lclick, rclickRaw, right.y);
+        const bool rclick = rclickRaw && !opticControl;
         const u32 now = SDL_GetTicks();
         // Left stick click toggles crouch (bondview2.c reads gevrCrouchToggled). It acts on
         // release so that a click of both sticks (recentre) or a long hold (bring the

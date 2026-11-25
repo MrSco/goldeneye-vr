@@ -211,6 +211,31 @@ int gevrModGameAttach(const GevrModAttach *a)
 }
 int gevrModGameDetach(int id) { printf("DETACH %d\n", id); s_attached--; return 1; }
 int gevrModGameAttachShow(int id, int shown) { printf("ATTACHSHOW %d %d\n", id, shown); return 1; }
+/* gevr_modoptic.c: profiles named Gno won't load; two modes, the second folded */
+static int s_opticMode[256];
+int gevrModGameOpticBind(int id, const char *profile, const char *folded)
+{
+    printf("OPTIC %d %s %s\n", id, profile ? profile : "-", folded ? folded : "-");
+    if (profile != NULL && !strncmp(profile, "Gno", 3)) return 0;
+    if (id >= 0 && id < 256) s_opticMode[id] = 0;
+    return 1;
+}
+int gevrModGameOpticGet(int id, int *mode, float *zoom, int *count, int *kind, int *folded)
+{
+    if (id < 0 || id >= 256) return 0;
+    *mode = s_opticMode[id];
+    *zoom = *mode ? 1.0f : 3.0f;
+    *count = 2;
+    *kind = *mode ? 1 : 2;
+    *folded = *mode;
+    return 1;
+}
+int gevrModGameOpticSet(int id, int mode, float zoom)
+{
+    printf("OPTICSET %d %d %.1f\n", id, mode, zoom);
+    if (id >= 0 && id < 256) s_opticMode[id] = mode;
+    return 1;
+}
 int gevrModGameAttachPlace(int id, const float offset[4][4])
 {
     int i;
