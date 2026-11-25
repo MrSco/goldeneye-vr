@@ -124,7 +124,7 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 }
 
 extern s32 gevrModGunHeld(s32 hand);                                        /* gun.c */
-extern void gevrModGunModelSet(s32 hand, s32 item, const char *name);
+extern void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4]);
 extern void gevrModGunModelReset(void);
 #include "gevr_modassets.h"
 #include "gevr_modmesh.h"
@@ -135,16 +135,16 @@ int gevrModGameLook(int hand)
     return gevrModGunHeld(hand) ? 3 : gevrFitLook(hand);
 }
 
-int gevrModGameGunModel(int hand, int item, const char *name)
+int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4])
 {
     const GevrModMesh *mesh;
     if (name != NULL) {
         int native;
         if (!gevrModAssetHasModel(name)) return 0;
         native = gevrModMeshLoad(name, &mesh);
-        if (native < 0) return 0;
+        if (native < 0 || (frame != NULL && native != 1)) return 0;
     }
-    gevrModGunModelSet(hand, item, name);
+    gevrModGunModelSet(hand, item, name, frame);
     return 1;
 }
 

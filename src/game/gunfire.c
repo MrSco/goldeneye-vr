@@ -19,6 +19,7 @@
 #include "gun.h"
 #ifdef GEVR
 #include "gevr_modmesh.h"
+#include "gevr_modattach.h"
 #endif
 #include "chrobjdata.h"
 #include "game/propobj.h"
@@ -3147,6 +3148,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     renderdata.zbufferenabled = TRUE;
     renderdata.flags = 3;
 #ifdef GEVR
+    gevrModAttachBeginGunDraw();
     /*
      * The right fist first (issue #19): a gadget held in it does not write
      * depth, so a fist drawn after it painted over the gadget wherever the two
@@ -3416,7 +3418,14 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             const GevrModMesh *mesh = gevrModGunMesh(handnum);
             if (!gevrStereoWatchItem(item)) {
                 if (mesh != NULL) {
-                    renderdata.gdl = gevrModMeshDraw(renderdata.gdl, (Mtxf *)handptr->weaponModel.render_pos, mesh);
+                    Mtxf *root = (Mtxf *)handptr->weaponModel.render_pos;
+                    const Mtxf *fit = gevrModGunFrame(handnum);
+                    Mtxf fitted;
+                    if (fit != NULL) {
+                        Mtxf offset = *fit;
+                        matrix_4x4_multiply(root, &offset, &fitted);
+                    }
+                    renderdata.gdl = gevrModMeshDraw(renderdata.gdl, fit != NULL ? &fitted : root, mesh);
                     /* the stock hand, less the gun pieces some models file under it
                      * (model.c modelGunHandList), known by the item's cartridge file */
                     modelDrawGunHand(&renderdata, &handptr->weaponModel,

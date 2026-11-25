@@ -10,4 +10,6 @@ int gevrModMeshLoad(const char *name, const GevrModMesh **out);
 void gevrModMeshReset(void);
 Gfx *gevrModMeshDraw(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh);
 const GevrModMesh *gevrModGunMesh(s32 hand);
+/* Optional pack body fit for the mesh the hand is actually drawing. */
+const Mtxf *gevrModGunFrame(s32 hand);
 #endif

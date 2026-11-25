@@ -44,7 +44,9 @@
 #include "model.h"
 #include "objecthandler.h"
 #include "player.h"
+#include "sched.h"
 #include "gevr_modapi.h"
+#include "gevr_modattach.h"
 #include "gevr_modassets.h"
 #include "gevr_modmesh.h"
 #include "gevr_modscript.h"
@@ -87,6 +89,12 @@ typedef struct
     ModelFileHeader *partOf;     /* and the body the part's matrix was found in */
     s32 partMtx;
     Mtxf offset;
+    Mtxf drawnPose;
+    u32 drawnFrame;
+    ITEM_IDS drawnItem;
+    s32 drawnMirrored;
+    const ModelFileHeader *drawnGun;  /* NULL until this attachment emits a draw */
+    const GevrModMesh *drawnGunMesh;
     Model model;
     ModelFileHeader *modelOf;    /* the header model was set up for */
     u32 rw[ATT_RW];
@@ -366,6 +374,7 @@ int gevrModGameAttachShow(int id, int shown)
     if (a != NULL)
     {
         a->shown = shown != 0;
+        if (!a->shown) a->drawnGun = NULL;
     }
     return a != NULL;
 }
@@ -392,7 +401,7 @@ void gevrModGameAttachReset(void)
 /* one attachment at its anchor's frame: the offset laid in it, the model's
  * node matrices from there as the game's props get theirs (instcalcmatrices),
  * or every one the pose for a model with animated joints (attachHasJoints) */
-static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *anchor)
+static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *anchor, Mtxf *drawnPose)
 {
     ModelFileHeader *h = &a->file->header;
     ModelRenderData rd = *templ;
@@ -401,7 +410,9 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
 
     if (a->file->mesh != NULL) {
         matrix_4x4_multiply(anchor, &a->offset, &pose);
-        return gevrModMeshDraw(gdl, &pose, a->file->mesh);
+        Gfx *end = gevrModMeshDraw(gdl, &pose, a->file->mesh);
+        if (drawnPose != NULL && end != gdl) *drawnPose = pose;
+        return end;
     }
 
     /* its matrices, and its commands (a few a node, as subdraw lays them,
@@ -441,7 +452,42 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     rd.gdl = gdl;
     subdraw(&rd, &a->model);
     bondviewTransformManyPosToViewMatrix(a->model.render_pos, h->numMatrices);
+    if (drawnPose != NULL && rd.gdl != gdl) *drawnPose = pose;
     return rd.gdl;
+}
+
+/* Clear an earlier view's results even if the gun will be skipped in this one. */
+void gevrModAttachBeginGunDraw(void)
+{
+    s32 i;
+    if (!attachLocal()) return;
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++) s_attach[i].drawnGun = NULL;
+}
+
+int gevrModAttachGunFrame(int id, Mtxf *pose, s32 *mirrored)
+{
+    Attachment *a = attachFind(id);
+    /* Input runs after the counter advances but before the next gun draw.
+     * BeginGunDraw clears every old entry when that draw starts, even if the
+     * part is then skipped, so only the latest view can answer. */
+    if (a == NULL || !a->shown || a->drawnGun == NULL
+        || (u32)os_scheduler.frameCount - a->drawnFrame > 1u || !attachLocal()) return 0;
+    if (g_CurrentPlayer->hands[a->where].weaponModel.obj != a->drawnGun
+        || a->node >= a->drawnGun->numMatrices
+        || get_item_in_hand_or_watch_menu(a->where) != a->drawnItem
+        || gevrModGunMesh(a->where) != a->drawnGunMesh) return 0;
+    if (pose != NULL) *pose = a->drawnPose;
+    if (mirrored != NULL) *mirrored = a->drawnMirrored;
+    return 1;
+}
+
+static s32 attachMirrored(const Mtxf *pose)
+{
+    const f32 (*m)[4] = pose->m;
+    const f32 determinant = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                          - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                          + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    return determinant < 0.0f;
 }
 
 /* gunfire.c, as the hand's gun is drawn: what sits on that gun, on the matrix
@@ -463,7 +509,15 @@ Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun
         if (a->id != 0 && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand && a->node < gun->obj->numMatrices)
         {
             node = ((Mtxf *) gun->render_pos)[a->node];
-            gdl = attachDraw(gdl, templ, a, &node);
+            Gfx *end = attachDraw(gdl, templ, a, &node, &a->drawnPose);
+            if (end != gdl) {
+                a->drawnFrame = os_scheduler.frameCount;
+                a->drawnItem = get_item_in_hand_or_watch_menu(hand);
+                a->drawnMirrored = attachMirrored(&a->drawnPose);
+                a->drawnGun = gun->obj;
+                a->drawnGunMesh = gevrModGunMesh(hand);
+            }
+            gdl = end;
         }
     }
     return gdl;
@@ -506,7 +560,7 @@ Gfx *gevrModAttachDrawGuard(ChrRecord *chr, ModelRenderData *body, s32 fadealpha
         }
         node = ((Mtxf *) chr->model->render_pos)[a->partMtx];
         objdata.gdl = gdl;
-        gdl = attachDraw(gdl, &objdata, a, &node);
+        gdl = attachDraw(gdl, &objdata, a, &node, NULL);
     }
     return gdl;
 }
@@ -568,7 +622,7 @@ Gfx *gevrModAttachDrawBody(Gfx *gdl)
          * off hand, 2 the gun hand, as gunfire.c gevrHandTag), the body's the body (3) */
         gDPNoOpTag(gdl++, 0x565F0000 | (u32) (a->on == GEVR_MODATTACH_HAND ? (a->where == GUNRIGHT ? 2 : 1) : 3));
         matrix_4x4_7F058C64();
-        gdl = attachDraw(gdl, &rd, a, &frame);
+        gdl = attachDraw(gdl, &rd, a, &frame, NULL);
         matrix_4x4_7F058C88();
         gDPNoOpTag(gdl++, 0x565F0000);   /* the world again */
     }

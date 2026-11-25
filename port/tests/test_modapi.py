@@ -1537,6 +1537,25 @@ end)
     check(answers(out, "GUNMODEL") == ["GUNMODEL reset", "GUNMODEL 0 8 GtacAk74Z", "GUNMODEL 1 8 GnoneZ", "GUNMODEL 0 8 -"],
           "the game side: a mission's reset, then each call: " + str(answers(out, "GUNMODEL")))
 
+def gunmodel_fit(exe, temp):
+    """A fitted body keeps the same affine rows as an attachment and requires a mesh."""
+    lua = r"""
+mod.on("mission_start", function()
+  local frame = {{-1,0,0},{0,0,1},{0,1,0},{4,12,-8}}
+  print("fit", mod.weapon.model("right", "ak47", "pack-body.bin", {frame=frame}))
+  print("legacy", mod.weapon.model("left", "ak47", "GtacAk74Z", {frame=frame}))
+  print("clear with fit", (pcall(mod.weapon.model, "right", "ak47", nil, {frame=frame})))
+  print("wrong shape", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {frame={{0,0,0}}})))
+  print("unfitted", mod.weapon.model("right", "ak47", "pack-body.bin"))
+end)
+"""
+    out = run(exe, temp, "gunmodel_fit", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["fit true", "legacy false", "clear with fit false", "wrong shape false", "unfitted true"],
+          "fitted gun model results: " + str(logs(out)))
+    check(answers(out, "GUNFRAME") == ["GUNFRAME 0 -1.0 1.0 1.0 12.0 1.0", "GUNFRAME 1 -1.0 1.0 1.0 12.0 1.0"],
+          "only well-formed fit requests reach the game with the authored frame: " + str(answers(out, "GUNFRAME")))
+
+
 def pack_names(exe, temp):
     """The Lua binding forwards flat pack filenames and an omitted legacy header."""
     lua = r"""
@@ -1659,6 +1678,33 @@ end)
     room = function(dyn, "s32 gevrDynRoom(Gfx *gdl, s32 gfx, s32 bytes)")
     check("(end - pos) / sizeof(Gfx) < (uintptr_t)gfx" in room and "vtxEnd - vtx >= (uintptr_t)bytes" in room,
           "the room: the master list's commands after gdl and dynAllocate's bytes")
+
+
+def attach_authored_frame(exe, temp):
+    """An authored mirrored frame survives both placement calls with the node intact."""
+    lua = r"""
+mod.on("mission_start", function()
+  local frame = {{0, 0, 2}, {0, 1, 0}, {1, 0, 0}, {9, 11, 13}}
+  local id = assert(mod.attach.add{on="gun", hand="right", node=7, model="pack-part.bin", frame=frame})
+  frame[4] = {-2, -3, -5}
+  assert(mod.attach.place(id, {frame=frame}))
+  local invalid = {
+    {frame=frame, at={0, 0, 0}}, {frame=frame, turn={0, 0, 0}}, {frame=frame, scale=1},
+    {frame={{1,0,0},{1,0,0},{0,0,1},{0,0,0}}},
+    {frame={{1,0,0},{0,1,0},{0,0,1},{0,0,4001}}},
+    {frame={{0/0,0,0},{0,1,0},{0,0,1},{0,0,0}}},
+    {frame={{1,0,0},{0,1},{0,0,1},{0,0,0}}},
+  }
+  for _, placement in ipairs(invalid) do assert(not pcall(mod.attach.place, id, placement)) end
+  mod.log("authored frame accepted; invalid frames rejected")
+end)
+"""
+    out = run(exe, temp, "attach_authored_frame", lua, "start", "prepare", 9, "begin", 9)
+    check("authored frame accepted; invalid frames rejected" in logs(out), "authored frame validation: " + out)
+    check(answers(out, "ATTACH 1", "ATTACHPLACE") == [
+          "ATTACH 1 0 0 7 pack-part.bin  |0 0 2 0 |0 1 0 0 |1 0 0 0 |9 11 13 1",
+          "ATTACHPLACE 1 |0 0 2 0 |0 1 0 0 |1 0 0 0 |-2 -3 -5 1"],
+          "authored and moved frames reach the game unchanged: " + str(answers(out, "ATTACH")))
 
 
 def attach(exe, temp):
@@ -2070,7 +2116,9 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         ui(exe, temp)
         scope(exe, temp)
         gunmodel(exe, temp)
+        gunmodel_fit(exe, temp)
         attach(exe, temp)
+        attach_authored_frame(exe, temp)
         pack_names(exe, temp)
         attach_loadout(exe, temp)
         guards_told(temp)
