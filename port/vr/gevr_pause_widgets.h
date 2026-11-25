@@ -27,7 +27,7 @@ struct GevrPauseView {
     char clock[32]="";   /* time left or played, while a round runs; empty otherwise */
     bool clockEnding=false;   /* the last minute of a timed match */
     GevrSettingsApi settings;   /* the Settings tab: the settings table (gevr_settings.c), or a test's rows */
-    bool portraits=false;   /* a flat screen: the Player tab offers the game's Select Character screen */
+    bool portraits=false;   /* a flat screen: the Player tab offers the game's Select Character screen, Match its Select Stage grid */
 };
 struct GevrPauseUi {
     int tab=0;
@@ -39,7 +39,7 @@ struct GevrPauseUi {
 };
 /* HD textures is the Mods/Fun section's row now, and Reset sound gone with #229 (owner, 2026-11-23) */
 enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,
-       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_KICK_BASE=100 };
+       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_KICK_BASE=100 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -265,7 +265,23 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 if(ImGui::Button("Request votes",ImVec2(350,48)))action=GEVR_PAUSE_REQUEST_VOTES;
                 ImGui::EndDisabled();
             }
-            ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("%s",model.host?"Map, weapon and scenario changes apply next round: press the button beside Resume.":"The host's map, weapon and scenario changes apply next round, once players ready up.");
+            if(model.portraits && (model.host || model.voting)) {
+                /* GoldenEye's own Select Stage photos, in the game's view (mpmenu.c): the host's map, everyone's vote */
+                float x=18;
+                if(model.host) {
+                    ImGui::SetCursorPos(ImVec2(x,822));
+                    if(ImGui::Button("Map photos",ImVec2(220,38)))action=GEVR_PAUSE_STAGESEL;
+                    x+=236;
+                }
+                if(model.voting) {
+                    ImGui::SetCursorPos(ImVec2(x,822));
+                    if(ImGui::Button("Vote with photos",ImVec2(260,38)))action=GEVR_PAUSE_STAGEVOTE;
+                    x+=276;
+                }
+                ImGui::SetCursorPos(ImVec2(x,832));ImGui::TextDisabled("%s",model.host?"Changes apply next round.":"The host's changes apply next round.");
+            } else {
+                ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("%s",model.host?"Map, weapon and scenario changes apply next round: press the button beside Resume.":"The host's map, weapon and scenario changes apply next round, once players ready up.");
+            }
         }
         ImGui::SetCursorPos(ImVec2(18,276));ImGui::TextColored(gold,"%s  (%d / %d)",model.coop?"PARTY":"PLAYERS & SCORES",model.count,model.capacity);
         ImGui::SetCursorPos(ImVec2(18,320));

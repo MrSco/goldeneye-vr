@@ -358,6 +358,26 @@ void frontCharSelectBegin(s32 slot, s32 chr, s32 count);
 s32 frontCharSelectTick(s32 slot, s32 count);
 s32 frontCharSelectShown(s32 slot);
 Gfx *frontCharSelectDraw(Gfx *DL, s32 slot, s32 count, s32 vx, s32 vy, s32 vw, s32 vh);
+/* The Select Stage photo grid for one match slot (online, mpmenu.c): a tile
+ * per stage the caller offers, filled each frame. level: the LEVELID, -1 the
+ * No vote tile (the screen's Random photo); full: a "(Full)" stage; mine: the
+ * player's own (their vote, the host's map); votes: how many vote for it. */
+typedef struct {
+    s32 level;
+    const char *name;
+    u8 eligible;
+    u8 full;
+    u8 mine;
+    u8 votes;
+} FrontStageTile;
+s32 frontStageSelectPhoto(s32 level);
+void frontStageSelectLayout(s32 vw, s32 gridh, s32 count, f32 *scale, s32 *cols, s32 *rows);
+s32 frontStageSelectStep(const FrontStageTile *tiles, s32 count, s32 cols, s32 cur, s32 dx, s32 dy);
+void frontStageSelectBegin(s32 slot, const FrontStageTile *tiles, s32 count, s32 cursor);
+s32 frontStageSelectTick(s32 slot, const FrontStageTile *tiles, s32 count);
+s32 frontStageSelectShown(s32 slot);
+Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 count, const char *title,
+                          const char *verb, s32 vx, s32 vy, s32 vw, s32 vh);
 #endif
 
 #endif

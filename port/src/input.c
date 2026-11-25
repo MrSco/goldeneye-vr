@@ -5597,10 +5597,11 @@ int gevrNativePauseOpen(void) {
         if (netLocalSlotCount() > 1) return 0;
     }
     int slot=netIsActive()?netGetLocalSlot():-1;
-    /* the Select Character panel is in the view, the game's (mpmenu.c) */
+    /* the Select Character panel or the Select Stage grid is in the view, the game's (mpmenu.c) */
     extern s32 gevrCharSelIsOpen(s32 slot);
+    extern s32 gevrStageSelIsOpen(s32 slot);
     return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon
-        && !gevrCharSelIsOpen(slot);
+        && !gevrCharSelIsOpen(slot) && !gevrStageSelIsOpen(slot);
 }
 void gevrNativePauseOpenPanel(void) {
     s_gevrPanel = 1;

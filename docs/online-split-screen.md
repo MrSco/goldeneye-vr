@@ -115,6 +115,16 @@ Files: `src/game/front.c`, `src/game/mpmenu.c`, `src/game/bondview2.c`, `src/bos
 - **Applying it:** the choice goes out through `netLobbySetCharacterSlot` (a guest's is also saved as its seat's `GuestNChr`). Every machine rebuilds that player's body from the lobby character once the choice has held half a second and the player is alive (`gevrNetBodyFollowsCharacter`, the third-person rebuild), so it shows at once rather than at the next load; with under half a megabyte of stage heap for a body not yet loaded, it waits for the next load.
 - **Flat screens only:** VR keeps the pause window's Character choice.
 
+### Select Stage (the map and the vote)
+Files: `src/game/front.c`, `src/game/mpmenu.c`, `port/src/input.c`, `port/vr/gevr_pause_widgets.h`, `port/vr/vr_pause_menu.cpp`.
+
+- **The game's own screen:** the N64 multiplayer stage select's look (front.c: a dark band behind each row of photos, the photos tinted grey, the highlighted one lit, the names on them) runs for one match slot inside that player's view, as Select Character does. A on the LOBBY page's MAP row (the host's own seat) picks the map with it; A on NEXT MAP (anyone, while the next round is voted) casts that seat's vote. The right stick still steps both rows. The solo online player opens it from the pause window's Match tab ("Map photos", "Vote with photos"); a choice returns to the window.
+- **Every online stage has a tile** (net_match.c, more than the screen's eleven). The photo is the screen's own where its table has one (Dam, Runway, Frigate, Statue, Cradle, Aztec and Depot are in it but were cut from its menu), otherwise that level's own picture from the same set (the ROM keeps one for every mission level, `level/siloicon` and the rest, the same 68 x 44 size), and a "(Full)" stage shows its map's photo marked FULL. A stage whose picture the ROM lacks gets a card of the same size with its name. A Bean game shows XBLA's pictures of the same set (gevr_bean_images.c). A stage the party cannot play is dimmed and passed over, as the rows pass over it.
+- **The vote grid** starts with the screen's Random photo as **No vote**. Each photo shows how many players vote for it, the player's own vote (or, in the host's grid, the current map) is framed in green, and the line under the grid names the highlighted stage and its votes. Nothing on the wire changes: the choice goes out as the rows' steps do (`CFG_STAGE` by list position, `netSetVoteSlot`).
+- **Layout:** four photos across at the screen's size in a full view; a short split-screen view shrinks them to fit two rows and takes more columns where it is wide; the rest scroll, with arrows at the side. Names go on the photos only where they fit.
+- **Pad:** the stick moves the highlight and repeats while held; the d-pad and the C buttons step once a press (the d-pad is also the stick in menus, input.c `inputFlatPadSticks`). A, Z or START chooses, B backs out unchanged. The grid stays until the button is let go, so the press does not reach the page or window behind it.
+- **Flat screens only:** VR keeps the rows.
+
 ### Phase 5 — Dedicated server & automated tests
 Files: `port/server/server_host.c`, `port/tests/net_core_native.c`, `port/tests/multiplayer_native.c`, PC `--input-script` integration tests.
 

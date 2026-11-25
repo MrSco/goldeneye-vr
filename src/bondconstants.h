@@ -1941,6 +1941,7 @@ typedef enum MPMENU
     MENU_FINISHED
 #ifdef GEVR
     ,MENU_CHARSEL   /* online: the Select Character panel in the player's view (mpmenu.c) */
+    ,MENU_STAGESEL  /* online: the Select Stage photo grid in the player's view (mpmenu.c) */
 #endif
 } MPMENU;
 

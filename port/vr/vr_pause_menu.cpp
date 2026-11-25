@@ -39,6 +39,7 @@ extern "C" int flatTouchSeenAny(void);     // flat_touch.cpp: a finger has touch
 extern "C" void flatTouchEditBegin(void);  // the touch layout editor, over the paused game
 extern "C" int inputIsBindingCapture(void);
 extern "C" void gevrCharSelOpen(int slot, int dropin);   // mpmenu.c: the Select Character panel in the view
+extern "C" void gevrStageSelOpen(int slot, int vote);     // mpmenu.c: the Select Stage photo grid in the view
 #endif
 // vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
 void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
@@ -272,6 +273,7 @@ extern "C" void gevrNativePauseRender(void) {
 #ifdef GEVR_FLAT
     /* the window closes on the game's Select Character screen; choosing comes back here */
     if(action==GEVR_PAUSE_CHARSEL){gevrNativePauseResume();gevrCharSelOpen(netGetLocalSlot(),0);}
+    if(action==GEVR_PAUSE_STAGESEL||action==GEVR_PAUSE_STAGEVOTE){gevrNativePauseResume();gevrStageSelOpen(netGetLocalSlot(),action==GEVR_PAUSE_STAGEVOTE);}
 #endif
     if(action==GEVR_PAUSE_LEAVE)leaveToLauncher();
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}

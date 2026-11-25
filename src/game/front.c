@@ -6052,6 +6052,8 @@ Gfx *frontCharSelectDraw(Gfx *DL, s32 slot, s32 count, s32 vx, s32 vy, s32 vw, s
     DL = frontCharSelectPanel(DL, slot, 0, 0, panel_width, count);
     DL = combiner_bayer_lod_perspective(DL);
     gDPPipeSync(DL++);
+    /* depth back on for the next view, as bondview2.c gevrRenderRadarGauges: the frame sets it once (lv.c) */
+    gSPSetGeometryMode(DL++, G_ZBUFFER);
     gSPMatrix(DL++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
     gSPViewport(DL++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
     gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
@@ -6799,6 +6801,505 @@ Gfx * constructor_menu12_mpstage(Gfx *DL)
 }
 
 
+
+
+#ifdef GEVR
+/*
+ * The Select Stage photo grid in a match (online, mpmenu.c): the screen
+ * above (the dark band behind each row of photos, the photos tinted grey,
+ * the highlighted one lit, the names on them) for one match slot, inside
+ * that player's own view and driven by their pad, while the others play
+ * on. Online offers every gameplay stage (net_match.c), not the screen's
+ * eleven: a stage the multiplayer screen has no photo of in its menu shows
+ * its level's picture from the same set (the ROM keeps one for every
+ * mission level, level/damicon, level/siloicon ..., all 68 x 44 like the
+ * screen's), a "(Full)" stage its map's photo marked FULL, and a stage with
+ * no picture at all (a texture the ROM lacks) a card of the same size with
+ * its name.
+ * It is the same texture set the screen's table (oddtextures.c
+ * s_mpstageselimages) points into, so a Bean game shows XBLA's pictures
+ * (gevr_bean_images.c "the stage pictures").
+ *
+ * The caller (mpmenu.c) fills the tiles each frame: the host's MAP grid
+ * has a tile per stage, the NEXT MAP vote grid the screen's Random photo
+ * first, as No vote. The state is the slot's cursor and scroll here.
+ */
+static const struct { u8 level; u16 image; } s_stageSelPhotos[] = {
+    /* the eleven the screen's menu offers (multi_stage_setups' photos) */
+    { LEVELID_TEMPLE, IMAGE_MP_TEMPLE },     { LEVELID_COMPLEX, IMAGE_MP_COMPLEX },
+    { LEVELID_CAVES, IMAGE_MP_CAVES },       { LEVELID_LIBRARY, IMAGE_MP_BASEMENT },
+    { LEVELID_BASEMENT, IMAGE_MP_BASEMENT }, { LEVELID_STACK, IMAGE_MP_BASEMENT },
+    { LEVELID_FACILITY, IMAGE_MP_FACILITY }, { LEVELID_BUNKER2, IMAGE_MP_BUNKER2 },
+    { LEVELID_ARCHIVES, IMAGE_MP_ARCHIVES }, { LEVELID_CAVERNS, IMAGE_MP_CAVERNS },
+    { LEVELID_EGYPT, IMAGE_MP_EGYPT },
+    /* in the screen's table, cut from its menu */
+    { LEVELID_DAM, IMAGE_MP_DAM },           { LEVELID_RUNWAY, IMAGE_MP_RUNWAY },
+    { LEVELID_FRIGATE, IMAGE_MP_FRIGATE },   { LEVELID_STATUE, IMAGE_MP_STATUE },
+    { LEVELID_CRADLE, IMAGE_MP_CRADLE },     { LEVELID_AZTEC, IMAGE_MP_AZTEC },
+    { LEVELID_DEPOT, IMAGE_MP_DEPOT },
+    /* the other mission levels' pictures, never in the screen's table */
+    { LEVELID_SURFACE, IMAGE_MP_SURFACE },   { LEVELID_SURFACE2, IMAGE_MP_SURFACE2 },
+    { LEVELID_BUNKER1, IMAGE_MP_BUNKER },    { LEVELID_SILO, IMAGE_MP_SILO },
+    { LEVELID_STREETS, IMAGE_MP_STREETS },   { LEVELID_TRAIN, IMAGE_MP_TRAIN },
+    { LEVELID_JUNGLE, IMAGE_MP_JUNGLE },     { LEVELID_CONTROL, IMAGE_MP_CONTROL },
+};
+
+/* A stage's picture, a texture id; -1 none. The No vote tile (level -1) is the screen's Random. */
+s32 frontStageSelectPhoto(s32 level)
+{
+    s32 i;
+
+    if (level < 0) return IMAGE_MP_RANDOM;
+    for (i = 0; i < (s32)(sizeof(s_stageSelPhotos) / sizeof(s_stageSelPhotos[0])); i++)
+    {
+        if (s_stageSelPhotos[i].level == level) return s_stageSelPhotos[i].image;
+    }
+    return -1;
+}
+
+/* The tile pitch and the dark band's height, in the screen's pixels at scale 1 */
+#define STAGESEL_PITCH_X 76
+#define STAGESEL_PITCH_Y 58
+#define STAGESEL_BAND    52
+#define STAGESEL_PHOTO_W 68
+#define STAGESEL_PHOTO_H 44
+
+/*
+ * The grid for a view vw wide with gridh for its rows: four photos across as
+ * the screen has them, at least two rows tall, at most twice the screen's
+ * size; a view with width to spare (a wide half of a split screen) takes
+ * more columns. The rows past those shown scroll.
+ */
+void frontStageSelectLayout(s32 vw, s32 gridh, s32 count, f32 *scale, s32 *cols, s32 *rows)
+{
+    f32 s = (f32)(vw - 8) / (f32)(4 * STAGESEL_PITCH_X);
+    f32 sh = (f32)gridh / (f32)(STAGESEL_PITCH_Y + STAGESEL_BAND);   /* two rows: a pitch and a band */
+    s32 c;
+    s32 r;
+    s32 total;
+
+    if (s > sh) s = sh;
+    if (s > 2.0f) s = 2.0f;
+    if (s < 0.25f) s = 0.25f;
+    c = (s32)((f32)(vw - 8) / (STAGESEL_PITCH_X * s) + 0.001f);
+    if (c > 8) c = 8;
+    if (c < 1) c = 1;
+    if (count > 0 && c > count) c = count;
+    total = count > 0 ? (count + c - 1) / c : 1;
+    r = 1 + (s32)(((f32)gridh - STAGESEL_BAND * s) / (STAGESEL_PITCH_Y * s) + 0.001f);
+    if (r > total) r = total;
+    if (r < 1) r = 1;
+    *scale = s;
+    *cols = c;
+    *rows = r;
+}
+
+/*
+ * The cursor moved dx along or dy rows down a grid cols wide, onto the next
+ * tile that may be chosen that way; at an edge it stays. Down onto a short
+ * last row it takes that row's last tile.
+ */
+s32 frontStageSelectStep(const FrontStageTile *tiles, s32 count, s32 cols, s32 cur, s32 dx, s32 dy)
+{
+    s32 next;
+
+    if (count <= 0) return 0;
+    if (cur < 0 || cur >= count) cur = 0;
+    if (cols < 1) cols = 1;
+    if (dx != 0)
+    {
+        for (next = cur + dx; next >= 0 && next < count; next += dx)
+        {
+            if (tiles[next].eligible) return next;
+        }
+        return cur;
+    }
+    if (dy != 0)
+    {
+        next = cur + dy * cols;
+        if (dy > 0 && next >= count && cur / cols < (count - 1) / cols) next = count - 1;
+        while (next >= 0 && next < count)
+        {
+            s32 k;
+
+            if (tiles[next].eligible) return next;
+            /* the nearest along that row, then the next row */
+            for (k = 1; k < cols; k++)
+            {
+                if (next - k >= 0 && (next - k) / cols == next / cols && tiles[next - k].eligible) return next - k;
+                if (next + k < count && (next + k) / cols == next / cols && tiles[next + k].eligible) return next + k;
+            }
+            next += dy * cols;
+        }
+    }
+    return cur;
+}
+
+static s32 s_stageSelCursor[MAX_PLAYER_COUNT];
+static s32 s_stageSelScroll[MAX_PLAYER_COUNT];
+static s32 s_stageSelCols[MAX_PLAYER_COUNT];
+static s32 s_stageSelStick[MAX_PLAYER_COUNT];
+static s32 s_stageSelHeld[MAX_PLAYER_COUNT];
+
+void frontStageSelectBegin(s32 slot, const FrontStageTile *tiles, s32 count, s32 cursor)
+{
+    s32 i;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    /* the pictures now, not a stall at the first frame drawn */
+    for (i = 0; i < count; i++)
+    {
+        s32 image = frontStageSelectPhoto(tiles[i].level);
+
+        if (image >= 0 && image < (s32)NUM_TEXTURES) texLoadFromTextureNum(image, 0);
+    }
+    s_stageSelCursor[slot] = cursor >= 0 && cursor < count ? cursor : 0;
+    s_stageSelScroll[slot] = 0;
+    s_stageSelCols[slot] = 4;
+    s_stageSelStick[slot] = 0;
+    s_stageSelHeld[slot] = 0;
+}
+
+s32 frontStageSelectShown(s32 slot)
+{
+    return slot >= 0 && slot < MAX_PLAYER_COUNT ? s_stageSelCursor[slot] : 0;
+}
+
+/*
+ * A frame of the slot's grid: 1 chosen (frontStageSelectShown has the tile),
+ * -1 B (leave it as it was), 0 still choosing. A, Z or START chooses, as on
+ * the screen. The stick moves the highlight, repeating while held; the
+ * d-pad and the C buttons step once a press: a flat pad's d-pad is its stick
+ * in the menus too (input.c inputFlatPadSticks), and a press held stepped
+ * as the button and again as the stick's repeat (front.c's Select
+ * Character, 2026-11-24).
+ */
+s32 frontStageSelectTick(s32 slot, const FrontStageTile *tiles, s32 count)
+{
+    extern void mpwatchPlayBeep(void);
+    const u16 pad = L_JPAD | R_JPAD | U_JPAD | D_JPAD | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS;
+    s32 cur;
+    s32 next;
+    s32 dx = 0;
+    s32 dy = 0;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || count <= 0) return -1;
+    cur = s_stageSelCursor[slot];
+    if (cur < 0 || cur >= count) cur = 0;
+    s_stageSelCursor[slot] = cur;
+
+    if (joyGetButtonsPressedThisFrame(slot, B_BUTTON)) return -1;
+    if (joyGetButtonsPressedThisFrame(slot, A_BUTTON | Z_TRIG | START_BUTTON))
+    {
+        if (!tiles[cur].eligible) return 0;
+        sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+        return 1;
+    }
+
+    if (joyGetButtons(slot, pad))
+    {
+        u16 pressed = joyGetButtonsPressedThisFrame(slot, pad);
+
+        if (pressed & (L_JPAD | L_CBUTTONS)) dx = -1;
+        else if (pressed & (R_JPAD | R_CBUTTONS)) dx = 1;
+        else if (pressed & (U_JPAD | U_CBUTTONS)) dy = -1;
+        else if (pressed & (D_JPAD | D_CBUTTONS)) dy = 1;
+        s_stageSelStick[slot] = 0;
+        s_stageSelHeld[slot] = 0;
+    }
+    else
+    {
+        s32 sx = joyGetStickX(slot);
+        s32 sy = joyGetStickY(slot);
+        s32 ax = sx < 0 ? -sx : sx;
+        s32 ay = sy < 0 ? -sy : sy;
+        s32 dir = 0;
+
+        if (ax > 30 && ax >= ay) dir = sx > 0 ? 1 : -1;
+        else if (ay > 30) dir = sy > 0 ? -2 : 2;   /* up the stick: a row up */
+        if (dir != s_stageSelStick[slot])
+        {
+            s_stageSelStick[slot] = dir;
+            s_stageSelHeld[slot] = 0;
+        }
+        else if (dir == 0 || ++s_stageSelHeld[slot] < 18 || (s_stageSelHeld[slot] - 18) % 6 != 0)
+        {
+            dir = 0;
+        }
+        if (dir == 1 || dir == -1) dx = dir;
+        else if (dir) dy = dir / 2;
+    }
+
+    if (dx || dy)
+    {
+        next = frontStageSelectStep(tiles, count, s_stageSelCols[slot], cur, dx, dy);
+        if (next != cur)
+        {
+            s_stageSelCursor[slot] = next;
+            mpwatchPlayBeep();
+        }
+    }
+    return 0;
+}
+
+/* tile i's picture loaded into entry (its decoded address); 0 none */
+static s32 frontStageSelectTexture(const FrontStageTile *tile, struct sImageTableEntry *entry)
+{
+    s32 image = frontStageSelectPhoto(tile->level);
+
+    if (image < 0 || image >= (s32)NUM_TEXTURES) return 0;
+    /* a copy each frame: the static tables' slots are reset at a stage load, this one is the frame's */
+    entry->index = (uintptr_t)image;
+    entry->width = STAGESEL_PHOTO_W;
+    entry->height = STAGESEL_PHOTO_H;
+    entry->level = 0;
+    entry->format = G_IM_FMT_I;
+    entry->depth = G_IM_SIZ_8b;
+    entry->flagsS = G_TX_CLAMP;
+    entry->flagsT = G_TX_CLAMP;
+    entry->pad = 0;
+    texLoad(&entry->index, NULL);
+    return entry->index >= NUM_TEXTURES;
+}
+
+/* A font's line, as textRender spaces lines (textMeasure counts only the breaks) */
+#define STAGESEL_LINE(chars) ((chars)['['].height + (chars)['['].baseline)
+
+/* text in a black box, its top left at (x, y) */
+static Gfx *frontStageSelectLabel(Gfx *DL, s32 x, s32 y, char *text, u32 colour)
+{
+    s32 h;
+    s32 w;
+
+    textMeasure(&h, &w, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    h = STAGESEL_LINE(ptrFontBankGothicChars);
+    DL = microcode_constructor_related_to_menus(DL, x, y, x + w, y + h, 0x000000C0);
+    DL = textRender(DL, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, 0);
+    return DL;
+}
+
+/*
+ * The slot's grid over the view at (vx, vy), vw x vh screen pixels: a sheet
+ * of the folder's paper as Select Character's, the title, the rows of
+ * photos that fit, and under them the highlighted stage's name, its votes
+ * and the buttons. The photo of the stage the player already has (their
+ * vote, or the host's map) is framed in green; each photo with votes shows
+ * how many in its corner. Only rectangles and text: the view's depth and
+ * geometry are left as they were.
+ */
+Gfx *frontStageSelectDraw(Gfx *DL, s32 slot, const FrontStageTile *tiles, s32 count, const char *title,
+                          const char *verb, s32 vx, s32 vy, s32 vw, s32 vh)
+{
+    struct sImageTableEntry entries[65];   /* No vote and the 64 stages a ballot holds (net_match.c) */
+    u8 loaded[65];
+    char text[80];
+    f32 s;
+    s32 cols;
+    s32 rows;
+    s32 total;
+    s32 cur;
+    s32 scroll;
+    s32 th;
+    s32 tw;
+    s32 headh;
+    s32 gridh;
+    s32 gx;
+    s32 gy;
+    s32 top;
+    s32 pitchx;
+    s32 pitchy;
+    s32 band;
+    s32 frame;
+    s32 i;
+    s32 x;
+    s32 y;
+    f32 halfw;
+    f32 halfh;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || vw <= 0 || vh <= 0 || count <= 0) return DL;
+    if (count > 65) count = 65;
+    cur = s_stageSelCursor[slot];
+    if (cur < 0 || cur >= count) cur = 0;
+
+    headh = STAGESEL_LINE(ptrFontZurichBoldChars) + 2;
+    frontStageSelectLayout(vw, vh - 2 * headh - 6, count, &s, &cols, &rows);
+    s_stageSelCols[slot] = cols;
+    total = (count + cols - 1) / cols;
+    scroll = s_stageSelScroll[slot];
+    if (scroll > cur / cols) scroll = cur / cols;
+    if (scroll < cur / cols - rows + 1) scroll = cur / cols - rows + 1;
+    if (scroll > total - rows) scroll = total - rows;
+    if (scroll < 0) scroll = 0;
+    s_stageSelScroll[slot] = scroll;
+
+    pitchx = (s32)(STAGESEL_PITCH_X * s);
+    pitchy = (s32)(STAGESEL_PITCH_Y * s);
+    band = (s32)(STAGESEL_BAND * s);
+    halfw = STAGESEL_PHOTO_W * 0.5f * s;
+    halfh = STAGESEL_PHOTO_H * 0.5f * s;
+    frame = s >= 1.0f ? 2 : 1;
+    gridh = (rows - 1) * pitchy + band;
+    gx = vx + (vw - cols * pitchx) / 2;
+    top = vy + (vh - (2 * headh + gridh + 6)) / 2;
+    if (top < vy) top = vy;
+    gy = top + headh + 3;
+
+    gDPPipeSync(DL++);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    DL = microcode_constructor(DL);
+    DL = microcode_constructor_related_to_menus(DL, vx, vy, vx + vw, vy + vh, 0xC8B488F0);
+
+    /* the bands, the frames, and the cards of stages without a picture */
+    for (i = 0; i < rows; i++)
+    {
+        s32 last = (scroll + i + 1) * cols < count ? cols : count - (scroll + i) * cols;
+
+        y = gy + i * pitchy;
+        DL = microcode_constructor_related_to_menus(DL, gx + 2, y, gx + last * pitchx - 2, y + band, 0x101010FF);
+    }
+    for (i = scroll * cols; i < count && i < (scroll + rows) * cols; i++)
+    {
+        s32 cx = gx + (i % cols) * pitchx + pitchx / 2;
+        s32 cy = gy + (i / cols - scroll) * pitchy + band / 2;
+        s32 l = cx - (s32)halfw;
+        s32 t = cy - (s32)halfh;
+        s32 r = cx + (s32)halfw;
+        s32 b = cy + (s32)halfh;
+
+        loaded[i] = (u8)frontStageSelectTexture(&tiles[i], &entries[i]);
+        if (tiles[i].mine)
+        {
+            DL = microcode_constructor_related_to_menus(DL, l - frame - 1, t - frame - 1, r + frame + 1, b + frame + 1, 0x00E000FF);
+        }
+        else if (i == cur)
+        {
+            DL = microcode_constructor_related_to_menus(DL, l - frame, t - frame, r + frame, b + frame, 0xFFFFFFC0);
+        }
+        if (!loaded[i])
+        {
+            DL = microcode_constructor_related_to_menus(DL, l, t, r, b,
+                                                        i == cur ? 0x707070FF : tiles[i].eligible ? 0x383838FF : 0x181818FF);
+        }
+    }
+
+    /* the photos, as the screen draws them */
+    DL = combiner_bayer_lod_perspective(DL);
+    gDPSetTextureFilter(DL++, s > 0.95f && s < 1.05f ? G_TF_POINT : G_TF_BILERP);
+    for (i = scroll * cols; i < count && i < (scroll + rows) * cols; i++)
+    {
+        f32 pos[2];
+        f32 size[2];
+
+        if (!loaded[i]) continue;
+        pos[0] = (f32)(gx + (i % cols) * pitchx + pitchx / 2);
+        pos[1] = (f32)(gy + (i / cols - scroll) * pitchy + band / 2);
+        size[0] = halfw;
+        size[1] = halfh;
+        texSelect(&DL, &entries[i], 1, 0, 2);
+        if (i == cur)
+        {
+            gDPSetCycleType(DL++, G_CYC_2CYCLE);
+            gDPSetFogColor(DL++, 0xff, 0xff, 0xff, 0x0a);
+            gDPSetRenderMode(DL++, G_RM_FOG_PRIM_A, G_RM_AA_OPA_SURF2);
+            display_image_at_position(&DL, pos, size, STAGESEL_PHOTO_W, STAGESEL_PHOTO_H, 0, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0, 1);
+        }
+        else if (tiles[i].eligible)
+        {
+            display_image_at_position(&DL, pos, size, STAGESEL_PHOTO_W, STAGESEL_PHOTO_H, 0, 0, 1, 0x6E, 0x6E, 0x6E, 0xFF, 0, 0);
+        }
+        else
+        {
+            display_image_at_position(&DL, pos, size, STAGESEL_PHOTO_W, STAGESEL_PHOTO_H, 0, 0, 1, 0xF, 0xF, 0xF, 0xFF, 0, 0);
+        }
+    }
+
+    /* on the photos: the name where it fits (a card always), FULL, the votes */
+    DL = microcode_constructor(DL);
+    for (i = scroll * cols; i < count && i < (scroll + rows) * cols; i++)
+    {
+        s32 cx = gx + (i % cols) * pitchx + pitchx / 2;
+        s32 cy = gy + (i / cols - scroll) * pitchy + band / 2;
+        s32 l = cx - (s32)halfw;
+        s32 t = cy - (s32)halfh;
+        s32 r = cx + (s32)halfw;
+        s32 b = cy + (s32)halfh;
+        u32 colour = i == cur ? 0xFFFFFFFF : tiles[i].eligible ? 0x969696FF : 0x505050FF;
+
+        snprintf(text, sizeof(text), "%s", tiles[i].name);
+        if (tiles[i].full)
+        {
+            char *paren = strstr(text, " (");
+
+            if (paren != NULL) *paren = '\0';
+        }
+        textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        th = STAGESEL_LINE(ptrFontBankGothicChars);
+        if (tw <= r - l - 2 && th <= (b - t) / 2 && (s >= 0.8f || !loaded[i]))
+        {
+            DL = frontStageSelectLabel(DL, l + 1, loaded[i] ? b - th - 1 : cy - th / 2, text, colour);
+        }
+        if (tiles[i].full)
+        {
+            snprintf(text, sizeof(text), "FULL");
+            textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            if (tw <= r - l - 10) DL = frontStageSelectLabel(DL, l + 1, t + 1, text, 0xFFD040FF);
+        }
+        if (tiles[i].votes > 0)
+        {
+            snprintf(text, sizeof(text), "%d", tiles[i].votes);
+            textMeasure(&th, &tw, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            DL = frontStageSelectLabel(DL, r - tw - 1, t + 1, text, 0x40FF40FF);
+        }
+    }
+
+    /* the title, the scroll arrows, the highlighted stage and the buttons */
+    snprintf(text, sizeof(text), "%s", title);
+    textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    x = vx + (vw - tw) / 2;
+    y = top;
+    DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    if (scroll > 0)
+    {
+        x = gx + cols * pitchx + 1;
+        y = gy;
+        if (x > vx + vw - 8) x = vx + vw - 8;
+        DL = textRender(DL, &x, &y, "^", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
+    }
+    if (scroll + rows < total)
+    {
+        th = STAGESEL_LINE(ptrFontBankGothicChars);
+        x = gx + cols * pitchx + 1;
+        y = gy + gridh - th;
+        if (x > vx + vw - 8) x = vx + vw - 8;
+        DL = textRender(DL, &x, &y, "v", ptrFontBankGothicChars, ptrFontBankGothic, 0x000000FF, viGetX(), viGetY(), 0, 0);
+    }
+    {
+        char name[48];
+
+        if (tiles[cur].votes > 0) snprintf(name, sizeof(name), "%s - %d vote%s", tiles[cur].name, tiles[cur].votes, tiles[cur].votes == 1 ? "" : "s");
+        else snprintf(name, sizeof(name), "%s", tiles[cur].name);
+        snprintf(text, sizeof(text), "%s   A:%s  B:BACK", name, verb);
+        textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        if (tw > vw - 4)
+        {
+            snprintf(text, sizeof(text), "%s", name);
+            textMeasure(&th, &tw, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+        }
+        x = vx + (vw - tw) / 2;
+        if (x < vx + 2) x = vx + 2;
+        y = gy + gridh + 3;
+        DL = frontPrintText(DL, &x, &y, (s8 *)text, ptrFontZurichBoldChars, ptrFontZurichBold, tiles[cur].eligible ? 0xFF : 0x80,
+                            viGetX(), viGetY(), 0, 0);
+    }
+
+    DL = combiner_bayer_lod_perspective(DL);
+    gDPPipeSync(DL++);
+    gDPSetCycleType(DL++, G_CYC_1CYCLE);
+    gDPSetTextureFilter(DL++, G_TF_BILERP);
+    gDPSetScissor(DL++, G_SC_NON_INTERLACE, vx, vy, vx + vw, vy + vh);
+    return DL;
+}
+#endif
 
 
 MPSCENARIOS get_scenario(void)

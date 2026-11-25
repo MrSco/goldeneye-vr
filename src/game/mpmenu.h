@@ -46,6 +46,9 @@ s32 mpwatchShouldDisplayGauges(void);
 /* online: the Select Character panel in a player's view (dropin: just joined) */
 void gevrCharSelOpen(s32 slot, s32 dropin);
 s32 gevrCharSelIsOpen(s32 slot);
+/* online: the Select Stage photo grid in a player's view (vote: NEXT MAP's ballot, else the host's MAP) */
+void gevrStageSelOpen(s32 slot, s32 vote);
+s32 gevrStageSelIsOpen(s32 slot);
 #endif
 
 #endif

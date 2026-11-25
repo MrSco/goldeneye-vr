@@ -34,6 +34,7 @@ extern int netLocalSeatOfSlot(int slot);
 extern int gevrNetSlotIsLocalHuman(int slot);
 extern void netLobbySetCharacterSlot(int slot, u8 chr_id);
 void gevrCharSelOpen(s32 slot, s32 dropin);
+void gevrStageSelOpen(s32 slot, s32 vote);
 extern void netLobbySetLoadoutSlot(int slot, const u8 items[4]);
 extern void netLobbySetTeamSlot(int slot, u8 team);
 extern void netSetVoteSlot(int slot, int kind, int choice);
@@ -455,9 +456,9 @@ static const GevrMenuRow s_lobbyRows[] = {
     { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     rowStartValue,      rowStartStep,       "A:START" },
     { "RETURN TO LOBBY", GEVR_ROW_ACTION, 1, lobbyCanReturn,    rowReturnValue,     rowReturnStep,      "A:RETURN" },
     { "NEXT ROUND",      GEVR_ROW_VALUE,  1, NULL,              rowNextRoundValue,  rowNextRoundStep,   "R-STICK:PICK" },
-    { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "R-STICK:VOTE" },
+    { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "A/R-STICK:VOTE" },
     { "NEXT WEAPONS",    GEVR_ROW_VALUE,  0, lobbyWeaponVote,       rowNextWeaponsValue, rowNextWeaponsStep, "R-STICK:VOTE" },
-    { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "R-STICK:PICK" },
+    { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "A/R-STICK:PICK" },
     { "PLAYERS",         GEVR_ROW_VALUE,  1, lobbyNoTeams,      rowPlayersValue,    rowPlayersStep,     "R-STICK:PICK" },
     { "BOTS",            GEVR_ROW_VALUE,  1, lobbyBots,         rowBotModeValue,    rowBotModeStep,     "R-STICK:PICK" },
     { "BOT COUNT",       GEVR_ROW_VALUE,  1, lobbyBotsFixed,    rowBotCountValue,   rowBotCountStep,    "R-STICK:PICK" },
@@ -747,10 +748,14 @@ static s32 gevrCharSelTick(s32 player_num)
         gevrCharSelClose(player_num);
         return 0;
     }
-    /* The press that opened it (a drop-in's START, the row's A) is not a choice. */
+    /* The press that opened it (a drop-in's START, the row's A, the pause window's
+     * click: the left button is Z, and a click released before this frame is still
+     * this frame's press) is not a choice. */
     if (!s_charSelArmed[player_num])
     {
-        if (joyGetButtons(player_num, A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON)) return 1;
+        const u16 opener = A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON;
+
+        if (joyGetButtons(player_num, opener) || joyGetButtonsPressedThisFrame(player_num, opener)) return 1;
         s_charSelArmed[player_num] = 1;
     }
     result = frontCharSelectTick(player_num, netCharacterCount());
@@ -765,6 +770,179 @@ static s32 gevrCharSelTick(s32 player_num)
         gevrCharSelClose(player_num);
     }
     return 1;
+}
+
+/*
+ * Select Stage in a match, online on a flat screen: GoldenEye's multiplayer
+ * stage select (front.c: the rows of photos on their dark bands, the
+ * highlighted one lit) for one player, in their own view and driven by their
+ * pad, while the others play on, as Select Character above. A on the LOBBY
+ * page's MAP row (the host) chooses the map with it, A on NEXT MAP (anyone,
+ * while the next round is voted) casts that player's vote, its first tile,
+ * the screen's Random photo, being No vote. Every listed stage has a tile
+ * (net_match.c, more than the screen's eleven); one the party cannot play
+ * is dimmed and passed over, as the rows pass over it. Each photo shows its
+ * votes, and the player's own (their vote, the host's map) is framed. The
+ * choice goes out as the row's step does (CFG_STAGE by list position,
+ * netSetVoteSlot), so nothing on the wire changes; B leaves it as it was. The
+ * solo player opens it from the pause window's Match tab. The stick still
+ * steps the rows as before.
+ */
+#define GEVR_STAGESEL_TILES 65   /* No vote and the 64 stages a ballot holds (net_match.c) */
+static s32 s_stageSelVote[MAX_PLAYER_COUNT];
+static s32 s_stageSelArmed[MAX_PLAYER_COUNT];
+static s32 s_stageSelLeaving[MAX_PLAYER_COUNT];   /* chosen or backed out: closes once the button is let go */
+
+s32 gevrStageSelIsOpen(s32 slot)
+{
+    struct player *pl;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    return pl != NULL && pl->mpmenuon && pl->mpmenumode == MENU_STAGESEL;
+}
+
+/* whether slot may still use its grid: the host's own seat for the map, anyone while voting */
+static s32 gevrStageSelAllowed(s32 slot, s32 vote)
+{
+    if (!netIsActive() || !gevrNetSlotIsLocalHuman(slot)) return 0;
+    return vote ? lobbyVoting() : netIsHost() && slot == netGetLocalSlot();
+}
+
+/* The grid's tiles for slot, as its rows offer them; the count */
+static s32 gevrStageSelTiles(s32 slot, s32 vote, FrontStageTile *tiles)
+{
+    s32 count = netStageCount();
+    s32 voting = lobbyVoting();
+    s32 mine = vote ? netGetVote(0, slot) : netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE));
+    s32 n = 0;
+    s32 i;
+    s32 k;
+
+    if (vote)
+    {
+        tiles[n].level = -1;
+        tiles[n].name = "No vote";
+        tiles[n].eligible = 1;
+        tiles[n].full = 0;
+        tiles[n].mine = mine < 0;
+        tiles[n].votes = 0;
+        n++;
+    }
+    for (i = 0; i < count && n < GEVR_STAGESEL_TILES; i++, n++)
+    {
+        const NetMatchStage *stage = netStage(i);
+        s32 votes = 0;
+
+        if (voting)
+        {
+            for (k = 0; k < MAX_PLAYER_COUNT; k++)
+            {
+                if (netGetVote(0, k) == i) votes++;
+            }
+        }
+        tiles[n].level = (s32)netStageLevelId(stage->level_id);
+        tiles[n].name = stage->name;
+        tiles[n].eligible = netStageEligible(i) != 0;
+        tiles[n].full = netStageIsFull(stage->level_id) != 0;
+        tiles[n].mine = i == mine;
+        tiles[n].votes = (u8)votes;
+    }
+    return n;
+}
+
+void gevrStageSelOpen(s32 slot, s32 vote)
+{
+    FrontStageTile tiles[GEVR_STAGESEL_TILES];
+    struct player *pl;
+    s32 n;
+    s32 cursor = 0;
+    s32 i;
+
+    if (g_gevrStereo || slot < 0 || slot >= MAX_PLAYER_COUNT || !gevrStageSelAllowed(slot, vote)) return;
+    pl = g_playerPointers[slot];
+    if (pl == NULL) return;
+    n = gevrStageSelTiles(slot, vote, tiles);
+    for (i = 0; i < n; i++)
+    {
+        if (tiles[i].mine) cursor = i;
+    }
+    frontStageSelectBegin(slot, tiles, n, cursor);
+    pl->mpmenuon = TRUE;
+    pl->mpmenumode = MENU_STAGESEL;
+    pl->mpjoywascentre = 1;
+    s_stageSelVote[slot] = vote;
+    s_stageSelArmed[slot] = 0;
+    s_stageSelLeaving[slot] = 0;
+}
+
+static void gevrStageSelClose(s32 slot)
+{
+    struct player *pl = g_playerPointers[slot];
+
+    if (pl != NULL && pl->mpmenumode == MENU_STAGESEL) pl->mpmenumode = MENU_LOBBY;   /* back to the page it came from */
+}
+
+/* The grid's frame for the player ticking; whether it had the pad */
+static s32 gevrStageSelTick(s32 player_num)
+{
+    const u16 opener = A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON;
+    FrontStageTile tiles[GEVR_STAGESEL_TILES];
+    s32 vote;
+    s32 n;
+    s32 result;
+
+    if (!gevrStageSelIsOpen(player_num)) return 0;
+    vote = s_stageSelVote[player_num];
+    /* the host's map grid closes for a host no more; the vote's when the host stops the vote */
+    if (!gevrStageSelAllowed(player_num, vote))
+    {
+        gevrStageSelClose(player_num);
+        return 0;
+    }
+    /* The press that opened it (the row's A, the pause window's click) is not a choice, as Select Character's. */
+    if (!s_stageSelArmed[player_num])
+    {
+        if (joyGetButtons(player_num, opener) || joyGetButtonsPressedThisFrame(player_num, opener)) return 1;
+        s_stageSelArmed[player_num] = 1;
+    }
+    /*
+     * Chosen or backed out: the grid stays (the choice framed) until the button
+     * is let go, as Select Character's portrait grows. Closed at once, the press
+     * still held reached what came back: the pause window's button that opened
+     * the grid took the A and opened it again.
+     */
+    if (s_stageSelLeaving[player_num])
+    {
+        if (!joyGetButtons(player_num, opener)) gevrStageSelClose(player_num);
+        return 1;
+    }
+    n = gevrStageSelTiles(player_num, vote, tiles);
+    result = frontStageSelectTick(player_num, tiles, n);
+    if (result > 0)
+    {
+        s32 pick = frontStageSelectShown(player_num);
+
+        if (vote) netSetVoteSlot(player_num, 0, pick - 1);   /* the first tile: no vote */
+        else gevrNetConfigSet(CFG_STAGE, pick);              /* the setter takes the list position */
+        s_stageSelLeaving[player_num] = 1;
+    }
+    else if (result < 0)
+    {
+        mpwatchPlayBeep();
+        s_stageSelLeaving[player_num] = 1;
+    }
+    return 1;
+}
+
+static Gfx *gevrStageSelDraw(Gfx *gdl, s32 slot)
+{
+    FrontStageTile tiles[GEVR_STAGESEL_TILES];
+    s32 vote = s_stageSelVote[slot];
+    s32 n = gevrStageSelTiles(slot, vote, tiles);
+
+    return frontStageSelectDraw(gdl, slot, tiles, n, vote ? "Vote for the Next Map" : "Select Map", vote ? "VOTE" : "PICK",
+                                viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
 }
 
 /* A on the LOBBY page: the selected action row */
@@ -782,6 +960,16 @@ static s32 gevrMenuPageAction(void)
         gevrCharSelOpen(menuActingSlot(), 0);
         mpwatchPlayBeep();
         return 1;
+    }
+    if ((r->step == rowMapStep || r->step == rowNextMapStep) && gevrRowVisible(r) && gevrRowEditable(r) && !g_gevrStereo)
+    {
+        /* A on MAP (the host) or NEXT MAP (the vote): the photos (the stick still steps the row) */
+        gevrStageSelOpen(menuActingSlot(), r->step == rowNextMapStep);
+        if (gevrStageSelIsOpen(menuActingSlot()))
+        {
+            mpwatchPlayBeep();
+            return 1;
+        }
     }
     if (!gevrRowVisible(r) || !gevrRowEditable(r) || r->kind != GEVR_ROW_ACTION || r->step == NULL) return 0;
     r->step(0);
@@ -1065,6 +1253,7 @@ s32 mpwatchMenuCanGoRight(void)
         case MENU_FINISHED:
 #ifdef GEVR
         case MENU_CHARSEL:
+        case MENU_STAGESEL:
 #endif
             return 0;
         case MENU_SCORES:
@@ -1096,6 +1285,7 @@ s32 mpwatchMenuCanGoLeft(void)
         case MENU_FINISHED:
 #ifdef GEVR
         case MENU_CHARSEL:
+        case MENU_STAGESEL:
 #endif
             return 0;
         case MENU_LOSSES:
@@ -1674,6 +1864,7 @@ void mpwatchMenuTick(void)
     /* Select Character (co-op too, whose watch is the solo pause): nothing else
      * reads the pad meanwhile. After the game-over timer, which the first player drives. */
     if (gevrCharSelTick(player_num)) return;
+    if (gevrStageSelTick(player_num)) return;
 #endif
 
 #ifdef GEVR
@@ -2277,6 +2468,10 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
     {
         return frontCharSelectDraw(gdl, curplayernum, netCharacterCount(),
                                    viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
+    }
+    if (gevrStageSelIsOpen(curplayernum))
+    {
+        return gevrStageSelDraw(gdl, curplayernum);
     }
 #endif
  
