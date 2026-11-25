@@ -267,6 +267,48 @@ static void testReports()
     pcCrashRecord("second", "");   // the first record of a run wins
     CHECK(readCrashRecord(&c) && c.trace == "BACKTRACE:\n#00\n");
     removeFile("gevr_crash.txt");
+
+    // stale crash retirement (report fd01e420): a clean exit after skipping the
+    // launcher retires an earlier un-offered crash, while the crashing process's
+    // own exit (supersedeCrash=false) and backgrounding (foreground(false)) do not.
+    removeFile("gevr_prefs.txt");
+    const long long crashAt = std::max(wallMs(), fileTimeMs(exePath()) + 60000);
+    CHECK(writeFileAtomic("gevr_crash.txt", std::to_string(crashAt) + " EXCEPTION test\n#00\n"));
+    {
+        LogReporter r1;
+        CHECK(r1.status() == "offer");
+        // backgrounding without exiting must keep the crash un-offered
+        r1.foreground(false);
+        CHECK(prefGetInt("debug_reports.offered_crash", 0) == 0);
+        // crashing process exiting (s_recorded == true -> supersedeCrash=false) keeps it offered
+        r1.cleanExit(false);
+        CHECK(prefGetInt("debug_reports.offered_crash", 0) == 0);
+        CHECK(prefGetInt("debug_reports.foreground_run", 0) == 0);
+    }
+    {
+        // next run (e.g. --boot-stage skipping launcher) starts with the offer, then exits cleanly
+        LogReporter r2;
+        CHECK(r2.status() == "offer");
+        r2.cleanExit(true);
+        CHECK(r2.status() == "idle");
+        CHECK(prefGetInt("debug_reports.offered_crash", 0) == crashAt);
+        CHECK(prefGetInt("debug_reports.foreground_run", 0) == 0);
+    }
+    {
+        // a later launcher open must not offer that retired crash
+        LogReporter r3;
+        CHECK(r3.status() == "idle");
+        // a newer crash recorded during this run is still offered on the next start
+        CHECK(writeFileAtomic("gevr_crash.txt", std::to_string(crashAt + 1000) + " EXCEPTION newer\n#01\n"));
+        r3.cleanExit(false);
+    }
+    {
+        LogReporter r4;
+        CHECK(r4.status() == "offer");
+        r4.cleanExit(true);
+    }
+    removeFile("gevr_crash.txt");
+    removeFile("gevr_prefs.txt");
 }
 
 static void testFriends()

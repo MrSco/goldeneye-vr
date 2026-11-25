@@ -318,6 +318,22 @@ public:
         prefSetInt("debug_reports.run_pid", myPid());
     }
 
+    /* A clean exit clears the foreground marker and, when this run did not
+     * record a crash of its own, retires any older un-offered crash whose log
+     * has now been rotated away (e.g. a --boot-stage / --no-launcher run that
+     * skipped the launcher UI and exited cleanly; report fd01e420). */
+    void cleanExit(bool supersedeCrash)
+    {
+        foreground(false);
+        if (supersedeCrash) {
+            std::lock_guard<std::mutex> lock(lock_);
+            if (crashTimestamp_ > 0 && crashTimestamp_ > prefGetInt("debug_reports.offered_crash", 0)) {
+                prefSetInt("debug_reports.offered_crash", crashTimestamp_);
+            }
+            if (state_ == "offer") state_ = "idle";
+        }
+    }
+
     std::string status()
     {
         std::lock_guard<std::mutex> lock(lock_);
@@ -435,8 +451,9 @@ std::atomic<bool> s_recorded{false};
 
 void reporterAtExit(void)
 {
-    // a clean exit: the marker goes (MainActivity.onDestroy's reporter.foreground(false))
-    if (s_reporter) s_reporter->foreground(false);
+    // a clean exit: the marker goes (MainActivity.onDestroy's reporter.foreground(false)),
+    // and any older un-offered crash is retired unless this process itself recorded a crash.
+    if (s_reporter) s_reporter->cleanExit(!s_recorded.load());
 }
 
 LogReporter &reporter()
@@ -457,7 +474,7 @@ void pcReportCommand(const char *cmd) { reporter().command(cmd ? cmd : ""); }
  * run ended cleanly, as MainActivity.restartToLauncher's foreground(false). */
 void pcReportCleanExit(void)
 {
-    if (s_reporter) s_reporter->foreground(false);
+    if (s_reporter) s_reporter->cleanExit(!s_recorded.load());
 }
 
 extern "C" {

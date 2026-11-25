@@ -7,6 +7,7 @@ extern u8 *g_RomFile;
 extern u32 g_RomFileSize;
 
 s32 romdataInit(void);
+const char *romdataLastError(void);
 
 u8 *romdataFileLoad(s32 fileNum, u32 *outSize);
 void romdataFilePreprocess(s32 fileNum, s32 loadType, u8 *data, u32 size, u32 *outSize);

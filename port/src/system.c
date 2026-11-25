@@ -300,7 +300,8 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 #endif
 }
 
-void sysFatalError(const char *fmt, ...)
+static void sysErrorExit(s32 recordCrash, const char *title, const char *fmt, va_list ap) __attribute__((noreturn));
+static void sysErrorExit(s32 recordCrash, const char *title, const char *fmt, va_list ap)
 {
     static s32 alreadyCrashed = 0;
 
@@ -312,19 +313,20 @@ void sysFatalError(const char *fmt, ...)
 
     alreadyCrashed = 1;
 
-    va_list ap;
-    va_start(ap, fmt);
     vsnprintf(errmsg, sizeof(errmsg), fmt, ap);
-    va_end(ap);
 
-    sysLogPrintf(LOG_ERROR, "FATAL: %s", errmsg);
+    sysLogPrintf(LOG_ERROR, recordCrash ? "FATAL: %s" : "%s", errmsg);
 
     fflush(stdout);
     fflush(stderr);
 
 #ifdef ANDROID
     /* PORT: no desktop to show a box on; a blocking dialog here left the process alive
-       and silent on the headset. Abort instead, so the failure leaves a tombstone. */
+       and silent on the headset. Abort on fatal errors so the failure leaves a tombstone;
+       user setup errors (missing/wrong ROM) exit without creating a crash report. */
+    if (!recordCrash) {
+        exit(1);
+    }
 #ifdef GEVR_NATIVE_SERVICES
     {
         /* no MainActivity (Klepton on Vision Pro): no tombstone reaches a report,
@@ -336,14 +338,19 @@ void sysFatalError(const char *fmt, ...)
 #endif
     abort();
 #elif defined(GEVR_VISIONOS)
-    pcCrashRecord(errmsg, "");
-    abort();
+    if (recordCrash) {
+        pcCrashRecord(errmsg, "");
+        abort();
+    }
+    exit(1);
 #elif defined(GEVR_IOS)
-    /* Record the error for the next launch's crash-report offer (pc_reports.cpp).
+    /* Record fatal errors for the next launch's crash-report offer (pc_reports.cpp).
        Avoid SDL_ShowSimpleMessageBox(..., NULL): SDL 2 creates a sceneless UIWindow
        that UIKit never composites under UIApplicationSceneManifest, hanging forever
        in UIKit_WaitUntilMessageBoxClosed on an empty launch screen. */
-    pcCrashRecord(errmsg, "");
+    if (recordCrash) {
+        pcCrashRecord(errmsg, "");
+    }
     if (!sysArgCheck("--input-script")) {
         gevrIosFatalError(errmsg);
     }
@@ -351,15 +358,34 @@ void sysFatalError(const char *fmt, ...)
 #else
 #ifdef GEVR_PC
     /* the Quest's abort leaves a tombstone, offered as a crash on the next start;
-       a crash's own record (crash.c, with the trace) is already written */
-    pcCrashRecord(errmsg, "");
+       a crash's own record (crash.c, with the trace) is already written. User setup
+       errors (missing/wrong ROM) show the message box without recording a crash. */
+    if (recordCrash) {
+        pcCrashRecord(errmsg, "");
+    }
     /* a scripted test run (port/pc/pc_testinput.c) has nobody to close the box */
     if (!sysArgCheck("--input-script"))
 #endif
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Fatal error", errmsg, NULL);
+#ifndef GEVR_HEADLESS
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, errmsg, NULL);
+#endif
 
     exit(1);
 #endif
+}
+
+void sysFatalError(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    sysErrorExit(1, "Fatal error", fmt, ap);
+}
+
+void sysUserError(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    sysErrorExit(0, "GoldenEye VR", fmt, ap);
 }
 
 void sysGetExecutablePath(char *outPath, const u32 outLen)

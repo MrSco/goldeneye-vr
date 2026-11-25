@@ -482,6 +482,9 @@ int main(int argc, const char **argv)
 
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "Starting initialization sequence");
 
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "sysInit starting");
+    sysInit();
+
     if (!sysArgCheck("--no-crash-handler")) {
         crashInit();
     }
@@ -495,8 +498,6 @@ int main(int argc, const char **argv)
     signal(SIGPIPE, SIG_IGN);
 #endif
 
-    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "sysInit starting");
-    sysInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "fsInit starting");
     fsInit();
     /* Apple builds: the other devices' settings and saves into the files
@@ -580,9 +581,8 @@ int main(int argc, const char **argv)
 #endif
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit starting");
     if (romdataInit() != 0) {
-        /* Booting on without a ROM only dies later in memp with nothing to say why. */
-        sysFatalError("rom: no usable GoldenEye ROM (the rom: line above says why). "
-                "GoldenEye VR needs a USA (NGEE) cartridge dump.");
+        /* Missing/wrong ROM is a setup error, not a crash: tell the user clearly without recording gevr_crash.txt. */
+        sysUserError("%s", romdataLastError());
     }
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit complete");
     extTexInit();
@@ -781,18 +781,17 @@ int main(int argc, const char** argv)
 {
         vrShowWaitingWindow("logo.bmp"); // VR
 		sysInitArgs(argc, argv);
+		sysInit();
 		if (!sysArgCheck("--no-crash-handler")) {
 				crashInit();
 		}
-		sysInit();
 		fsInit();
 		configInit();
 		videoInit();
 		inputInit();
 		audioInit();
 		if (romdataInit() != 0) {
-				sysFatalError("rom: no usable GoldenEye ROM (the rom: line above says why). "
-						"GoldenEye VR needs a USA (NGEE) cartridge dump.");
+				sysUserError("%s", romdataLastError());
 		}
         extTexInit();
 
