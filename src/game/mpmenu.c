@@ -1621,6 +1621,30 @@ s32 gevrMpOptionsAvailable(s32 slot)
     return gevrSetupRows(slot, ids, hostonly) > 0;
 }
 
+/*
+ * The folder is a split screen's menu, in each player's own view. One player
+ * on the screen, flat or in a headset, has the full pause window instead,
+ * with the whole setup on it (owner, 2026-11-25, Quest: "it shows the small
+ * pause panel... it should show full panel if not in splitscreen").
+ */
+static s32 gevrMpOptionsAsMenu(void) { return netLocalSlotCount() > 1; }
+
+/* where the folder opens by itself (arriving, RETURN TO LOBBY, Horde's setup
+ * break): a split screen's folder, or one player's full pause window */
+static void gevrMpOptionsOrPause(s32 slot)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+
+    if (pl == NULL || pl->mpmenuon) return;
+    if (gevrMpOptionsAsMenu())
+    {
+        gevrMpOptionsOpen(slot, -1);
+        return;
+    }
+    pl->mpmenuon = TRUE;   /* the pause window shows over any page but the game's screens */
+    pl->mpmenumode = MENU_LOBBY;
+}
+
 s32 gevrMpOptionsIsOpen(s32 slot)
 {
     struct player *pl;
@@ -2209,6 +2233,11 @@ static void gevrMpOptionsVoteOpen(s32 slot)
     struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
 
     if (pl == NULL || !gevrMpOptionsAvailable(slot)) return;
+    if (!gevrMpOptionsAsMenu())
+    {
+        gevrMpOptionsOrPause(slot);   /* one player: the pause window's Match tab has the vote */
+        return;
+    }
     if (gevrMenuPanelIsOpen(slot) && !gevrMpOptionsIsOpen(slot)) return;
     if (!gevrMpOptionsIsOpen(slot)) gevrMpOptionsOpen(slot, pl->mpmenuon ? pl->mpmenumode : -1);
     if (!gevrMpOptionsIsOpen(slot)) return;
@@ -2257,7 +2286,7 @@ static void gevrMpOptionsHordeAutoTick(s32 slot)
     pl = g_playerPointers[slot];
     if (pl == NULL || pl->bonddead || !netHordeSetupBreak()) return;
     s_setupOwed[slot] = 0;
-    if (!pl->mpmenuon) gevrMpOptionsOpen(slot, -1);
+    gevrMpOptionsOrPause(slot);
 }
 
 static void gevrMpOptionsAutoTick(s32 slot)
@@ -2300,7 +2329,7 @@ static void gevrMpOptionsAutoTick(s32 slot)
     /* the first frame of a warmup past that load, the player alive (a round in progress: still owed) */
     if (pl == NULL || netStageLoadCount() == s_setupLoads || netGetPhase() != 1 || pl->bonddead || g_gameOverFlag) return;
     s_setupOwed[slot] = 0;
-    if (!pl->mpmenuon) gevrMpOptionsOpen(slot, -1);
+    gevrMpOptionsOrPause(slot);
 }
 
 /* the results of a match: right (or START, but the host's, which continues) leaves them for the folder, on NEXT MAP while voting */
@@ -2308,7 +2337,7 @@ static s32 gevrMpOptionsFromResults(s32 slot)
 {
     struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
 
-    if (pl == NULL || !g_gameOverFlag || pl->mpmenumode != MENU_SCORES || !gevrMpOptionsAvailable(slot)) return 0;
+    if (pl == NULL || !g_gameOverFlag || pl->mpmenumode != MENU_SCORES || !gevrMpOptionsAvailable(slot) || !gevrMpOptionsAsMenu()) return 0;
     if (!mpwatchIsPlayerPressingRight(slot) &&
         !(joyGetButtonsPressedThisFrame(slot, START_BUTTON) && !gevrSetupHostSeat(slot))) return 0;
     mpwatchPlayBeep();
@@ -2345,7 +2374,7 @@ void gevrMpOptionsFromPause(s32 slot) { gevrMpOptionsOpen(slot, MENU_LOBBY); }
  * folder is each player's menu); whether it did */
 s32 gevrMpOptionsStartPressed(s32 slot)
 {
-    if (!gevrMpOptionsAvailable(slot)) return 0;
+    if (!gevrMpOptionsAvailable(slot) || !gevrMpOptionsAsMenu()) return 0;   /* one player: the pause window */
     if (netHordeActive() ? !netHordeSetupBreak() && netLocalSlotCount() < 2 : netGetPhase() != 1) return 0;
     gevrMpOptionsOpen(slot, -1);
     return gevrMpOptionsIsOpen(slot);
@@ -2559,7 +2588,7 @@ static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
 static int gevrPauseInFolder(int id, const GevrMenuRow *r)
 {
     if (id >= 100 || gevrLobbyQuickRow(r) || r->step == rowFavMapStep || r->step == rowFavSetStep) return 0;
-    return gevrMpOptionsAvailable(netGetLocalSlot());
+    return gevrMpOptionsAsMenu() && gevrMpOptionsAvailable(netGetLocalSlot());   /* one player: the window has them all */
 }
 int gevrPauseReadField(int tab,int index,GevrPauseField *out)
 {

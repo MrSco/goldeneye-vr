@@ -214,7 +214,8 @@ extern "C" void gevrNativePauseRender(void) {
     view.teams=view.handicap&&netScenarioHasTeams(gevrNetConfigGet(CFG_SCENARIO));
 #endif
     view.portraits=true;   /* the game's own screens: in the view, or in stereo on the head-locked HUD (mpmenu.c) */
-    view.setup=gevrMpOptionsAvailable(netGetLocalSlot())!=0;
+    /* a split screen's setup is each player's folder; one player's is this window (mpmenu.c gevrMpOptionsAsMenu) */
+    view.setup=gevrMpOptionsAvailable(netGetLocalSlot())!=0 && netLocalSlotCount()>1;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {
