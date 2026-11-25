@@ -1906,6 +1906,33 @@ void chrpropAddBulletHit(struct ShotData *shotdata, PropRecord *prop, f32 dist, 
 }
 
 
+#ifdef GEVR
+/*
+ * The online punch below (a target off the on-screen list): the blow's
+ * direction as the on-screen path gives it, a unit vector (the shot's path,
+ * bullet_path_from_screen_center). The victim is pushed twice it a tick
+ * (bondview2.c record_damage_kills). The raw distance to the target, as this
+ * passed up to v0.5.27, is up to 100 units: a push 100 times the game's,
+ * which threw flat players slapped beside a wall into it (Slappers only,
+ * 2026-11-25). Right on top of the target: the way the puncher faces.
+ */
+static void gevrPunchDir(f32 dx, f32 dy, f32 dz, f32 sintheta, f32 costheta, coord3d *out)
+{
+    f32 len = sqrtf(dx * dx + dy * dy + dz * dz);
+
+    if (!(len > 0.001f))
+    {
+        dx = sintheta;
+        dy = 0.0f;
+        dz = -costheta;
+        len = 1.0f;
+    }
+    out->x = dx / len;
+    out->y = dy / len;
+    out->z = dz / len;
+}
+#endif
+
 void chraiFistAttackHandler(s32 hand, s32 item_id)
 {
     PropRecord *playerprop;
@@ -2073,9 +2100,7 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
                                               prop->pos.x, prop->pos.z,
                                               CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER,
                                               ducking, ducking, 0.0f, 1.0f)) continue;
-                vector.x = dx;
-                vector.y = dy;
-                vector.z = dz;
+                gevrPunchDir(dx, dy, dz, g_CurrentPlayer->vv_sintheta, g_CurrentPlayer->vv_costheta, &vector);
                 if (handles_shot_actors(prop->chr, HIT_CHEST, &vector, item_id, 1))
                 {
                     recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);

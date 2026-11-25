@@ -1349,6 +1349,19 @@ void bgFindRoomsAlongSegment(coord3d *fromPos, coord3d *toPos, u8 *fromRooms, u8
     s32 count;
     u8 portalStatuses[PORTMAX];
 
+#ifdef GEVR
+    /* the sets' unused tails end them (the N64 read stack garbage there),
+     * and no more rooms are written out than a set can hold */
+    for (count = 0; count < 16; count++)
+    {
+        sourceRooms[count] = foundRooms[count] = allRooms[count] = 0xff;
+    }
+    if (maxTraversedRooms > (s32)sizeof(allRooms) - 1)
+    {
+        maxTraversedRooms = (s32)sizeof(allRooms) - 1;
+    }
+#endif
+
     for (portalnum = 0; g_BgPortals[portalnum].offset_portal != 0; portalnum++)
     {
         portalStatuses[portalnum] = sub_GAME_7F0B9F14(portalnum, fromPos, toPos);

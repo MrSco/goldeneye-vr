@@ -6659,12 +6659,28 @@ void gunInitProjectileFromPlayer(ObjectRecord *obj, coord3d *targetpos, Mtxf *ar
     f32 ylo;
     s32 usedfallback;
     f32 stanheight;
+#ifdef GEVR
+    /*
+     * bgFindRoomsAlongSegment reads 8 start rooms and writes up to 20 rooms
+     * crossed (the 0x14 below). The N64 frame had them in pad_a's padding;
+     * a host compiler lays locals out as it likes, so with rooms[2] and one
+     * s32 it read past the first and wrote over the saved registers above
+     * the second as soon as the throw crossed a portal. The v0.5.27 Linux
+     * build kept the thrower's projectile pointer there (rbx in
+     * generate_player_thrown_knife/grenade): a knife or mine thrown through
+     * a doorway, or a remote player's copied throw, crashed on the next use.
+     */
+    u8 rooms[8] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+    s32 sp54[0x14];
+    s32 sp50;
+#else
     u8 rooms[2];
     s32 pad_rooms;
     u8 pad_a[0x4c];
     s32 sp54;
     s32 sp50;
     s32 pad_sp;
+#endif
 
     // fake
     if (obj->prop);
@@ -6722,7 +6738,11 @@ void gunInitProjectileFromPlayer(ObjectRecord *obj, coord3d *targetpos, Mtxf *ar
         rooms[0] = bondviewGetCurrentPlayersRoom();
         rooms[1] = 0xff;
 
+#ifdef GEVR
+        bgFindRoomsAlongSegment(bondviewGetCurrentPlayersPosition3(), &pos, rooms, obj->projectile->unkCC, sp54, &sp50, 0x14);
+#else
         bgFindRoomsAlongSegment(bondviewGetCurrentPlayersPosition3(), &pos, rooms, obj->projectile->unkCC, &sp54, &sp50, 0x14);
+#endif
     }
 }
 
