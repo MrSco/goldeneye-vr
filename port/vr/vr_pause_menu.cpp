@@ -250,6 +250,11 @@ extern "C" void gevrNativePauseRender(void) {
         p.slot=slot;p.loaded=lobby->slots[slot].loaded!=0;p.spectator=lobby->slots[slot].spectator!=0;p.canKick=netHostCanKickPlayer(slot)!=0;p.bot=lobby->slots[slot].is_bot!=0;
         snprintf(p.character,sizeof(p.character),"%s",netCharacterName(gevrNetSlotChr(slot)));p.host=slot==netGetHostSlot();
         snprintf(p.device,sizeof(p.device),"%s",netGetSlotDeviceName(slot));
+        {   /* their friend code and what the friends list says of it: the name's menu (Add friend) */
+            const char*code=netGetSlotFriendCode(slot);
+            snprintf(p.friendCode,sizeof(p.friendCode),"%s",code?code:"");
+            p.friendRelation=gevrNetSlotIsLocalHuman(slot)?GEVR_RELATION_SELF:gevrFriendRelation(gevrFriends(),p.friendCode);
+        }
         p.ready=lobby->slots[slot].ready!=0;p.down=view.coop&&gevrCoopDowned(slot);p.ping=netGetSlotPing(slot);
         if(!view.coop)gevrPausePlayerStats(slot,&p.points,&p.kills,&p.losses);
     }
@@ -297,5 +302,15 @@ extern "C" void gevrNativePauseRender(void) {
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}
     if(action==GEVR_PAUSE_REQUEST_VOTES)netHostRequestVotes();
     if(action>=GEVR_PAUSE_KICK_BASE && action<GEVR_PAUSE_KICK_BASE+8)netHostKickPlayer(action-GEVR_PAUSE_KICK_BASE);
+    if(action>=GEVR_PAUSE_FRIEND_BASE && action<GEVR_PAUSE_FRIEND_BASE+8) {
+        /* Add friend (or accept their request), as the launcher roster sent it */
+        const char*code=netGetSlotFriendCode(action-GEVR_PAUSE_FRIEND_BASE);
+        std::string requestId;
+        const int relation=gevrFriendRelation(gevrFriends(),code?code:"",&requestId);
+        if(relation==GEVR_RELATION_REQUEST)gevrFriendsSend("answer|"+requestId+"|1");
+        /* (the button already noted the code as asked, so it reads Sent here) */
+        else if(code && code[0] && relation!=GEVR_RELATION_FRIENDS && relation!=GEVR_RELATION_BLOCKED && relation!=GEVR_RELATION_SELF)
+            gevrFriendsSend(std::string("add|")+code);
+    }
 }
 #endif

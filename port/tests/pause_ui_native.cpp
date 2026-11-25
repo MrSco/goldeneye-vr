@@ -119,6 +119,19 @@ int main(){
     click(kickX,kickY);frame();
     click(kickModal->Pos.x+kickModal->Size.x-100,kickModal->Pos.y+kickModal->Size.y-40);
     check(action==GEVR_PAUSE_KICK_BASE+7,"confirmed kick targets the correct slot");action=0;
+    /* a player's name opens their menu: friend code and Add friend (the launcher roster's, moved here) */
+    view.friendsReady=true;view.players[0].friendRelation=GEVR_RELATION_SELF;
+    view.players[7].friendRelation=GEVR_RELATION_NONE;snprintf(view.players[7].friendCode,32,"GE-ABC123");
+    frame();frame();table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
+    click(table->Columns[0].WorkMinX+20,table->RowPosY1+16);frame();
+    {
+        ImGuiContext&g=*ImGui::GetCurrentContext();
+        ImGuiWindow*menu=g.OpenPopupStack.Size?g.OpenPopupStack.back().Window:nullptr;
+        check(menu && ui.playerMenuSlot==7 && action==0,"a player's name opens their menu");
+        if(menu){click(menu->Pos.x+60,menu->Pos.y+menu->Size.y-24);}
+        check(action==GEVR_PAUSE_FRIEND_BASE+7,"Add friend in a player's menu sends for their slot");action=0;
+        view.players[7].friendRelation=GEVR_RELATION_SENT;
+    }
     view.host=false;frame();frame();table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
     check(table->ColumnsCount==8,"clients have no kick controls");view.host=true;
     view.voting=true;frame();frame();click(500,736);

@@ -4,6 +4,7 @@
 #include "imgui/imgui.h"
 #include "gevr_tooltip.h"
 #include "gevr_settings_ui.h"
+#include "gevr_add_friend_ui.h"   /* a player's Add friend, as the launcher roster had it */
 #include <cstring>
 #include <cstdio>
 #include <initializer_list>
@@ -14,6 +15,8 @@ struct GevrPausePlayerView {
     char name[64], character[64], device[32]="";   // device: "Quest", "PC VR"... (net_core.c netGetSlotDeviceName)
     int slot=-1,points=0,kills=0,losses=0,ping=0;
     bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false,bot=false;
+    char friendCode[32]="";   /* the code their build sent (net_core.c NET_MSG_FRIEND_CODE) */
+    int friendRelation=GEVR_RELATION_UNKNOWN;   /* what the friends list says of it (gevr_add_friend_ui.h) */
 };
 struct GevrPauseView {
     bool horde=false,hordeDefeated=false;
@@ -22,6 +25,7 @@ struct GevrPauseView {
     bool hordeSetup=false,hordeCanStart=false,hordeRestart=false;
     int hordeWave=1;
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
+    bool friendsReady=false;   /* Friends has signed in: Add friend can send */
     bool startRequested=false,rosterReady=false,voting=false,warmup=true;
     int count=0,capacity=8,countdown=0;
     GevrPauseGaugeVertex gauges[92]{};
@@ -43,10 +47,12 @@ struct GevrPauseUi {
     bool focusResume=true,confirmLeave=false,confirmAbort=false;
     int kickSlot=-1;
     char kickName[64]="";
+    int playerMenuSlot=-1;   /* the player whose menu (friend code, Add friend) is open */
+    bool openPlayerMenu=false;
 };
 /* HD textures is the Mods/Fun section's row now, and Reset sound gone with #229 (owner, 2026-11-23) */
 enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,
-       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_HANDICAP,GEVR_PAUSE_TEAMSEL,GEVR_PAUSE_HORDE_START,GEVR_PAUSE_SETUP,GEVR_PAUSE_KICK_BASE=100 };
+       GEVR_PAUSE_CHARSEL,GEVR_PAUSE_STAGESEL,GEVR_PAUSE_STAGEVOTE,GEVR_PAUSE_HANDICAP,GEVR_PAUSE_TEAMSEL,GEVR_PAUSE_HORDE_START,GEVR_PAUSE_SETUP,GEVR_PAUSE_KICK_BASE=100,GEVR_PAUSE_FRIEND_BASE=200 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -352,8 +358,17 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             ImGui::TableHeadersRow();
             for(int i=0;i<model.count;i++) {
                 const auto&p=model.players[i];ImGui::TableNextRow(0,40);
-                ImGui::TableNextColumn();ImGui::Text("%.14s%s",p.name,p.host?" *":"");
-                if(ImGui::IsItemHovered())gevrTooltip("%s%s",p.name,p.host?" (Host)":"");
+                ImGui::TableNextColumn();
+                /* another person's name opens their menu: friend code and Add friend (owner,
+                 * 2026-11-23 "click on them and add them as a friend"; the launcher's roster had it) */
+                if(!p.bot && p.friendRelation!=GEVR_RELATION_SELF && p.slot>=0) {
+                    char label[96];snprintf(label,sizeof(label),"%.14s%s##pm%d",p.name,p.host?" *":"",p.slot);
+                    if(ImGui::Selectable(label,ui.playerMenuSlot==p.slot && ImGui::IsPopupOpen("##pause-player"))){ui.playerMenuSlot=p.slot;ui.openPlayerMenu=true;}
+                    if(ImGui::IsItemHovered())gevrTooltip("%s%s\nSelect for their friend code and Add friend.",p.name,p.host?" (Host)":"");
+                } else {
+                    ImGui::Text("%.14s%s",p.name,p.host?" *":"");
+                    if(ImGui::IsItemHovered())gevrTooltip("%s%s",p.name,p.host?" (Host)":"");
+                }
                 ImGui::TableNextColumn();ImGui::TextUnformatted(p.character);
                 ImGui::TableNextColumn();ImGui::TextDisabled("%s",p.bot?"Bot":p.device[0]?p.device:"—");
                 if(model.coop) {ImGui::TableNextColumn();ImGui::TextColored(p.down?bad:good,"%s",p.down?"Down / revive":"Active");ImGui::TableNextColumn();ImGui::Text("%d",p.ping);}
@@ -378,6 +393,21 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 }
             }
             ImGui::EndTable();
+        }
+        /* a player's menu: their friend code, and Add friend or Accept their request */
+        if(ui.openPlayerMenu){ImGui::OpenPopup("##pause-player");ui.openPlayerMenu=false;}
+        if(ImGui::BeginPopup("##pause-player")) {
+            const GevrPausePlayerView*pm=nullptr;
+            for(int i=0;i<model.count;i++)if(model.players[i].slot==ui.playerMenuSlot)pm=&model.players[i];
+            if(!pm) ImGui::CloseCurrentPopup();
+            else {
+                ImGui::TextColored(gold,"%s",pm->name);
+                if(pm->friendCode[0])ImGui::TextDisabled("Friend code: %s",pm->friendCode);
+                if(gevrAddFriendButton(pm->friendRelation,model.friendsReady,pm->name,pm->friendCode)) {
+                    action=GEVR_PAUSE_FRIEND_BASE+pm->slot;ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::EndPopup();
         }
         if(model.coop && !model.horde) {
             ImGui::SetCursorPos(ImVec2(18,574));ImGui::TextColored(gold,"MISSION OBJECTIVES");
