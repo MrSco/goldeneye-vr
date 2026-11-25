@@ -126,6 +126,8 @@ EXPORT int test_spatial_error(void) { return netSpatialLastError(); }
 
 EXPORT int test_ping(uint32_t rtt,uint32_t last,uint32_t now) { return netLatencyValue(rtt,last,now); }
 
+EXPORT int test_same_name_reconnect(uint32_t last,uint32_t now) { return netSameNameIsReconnect(last,now); }
+
 EXPORT int test_door_escape(void) {
     float p[8]={-50,-10,50,-10,50,10,-50,10};
     float reversed[8]={-50,10,50,10,50,-10,-50,-10};

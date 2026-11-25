@@ -52,6 +52,14 @@ static inline uint16_t netLatencyValue(uint32_t rtt, uint32_t last_receive, uint
     if (!last_receive || (uint32_t)(now-last_receive) > 5000) return NET_PING_UNKNOWN;
     return rtt >= NET_PING_UNKNOWN ? NET_PING_UNKNOWN-1 : (uint16_t)rtt;
 }
+/* A joiner whose name a connected player has: the same player back on a new
+ * connection (a crash, a quit without a goodbye) only when the earlier one has
+ * gone quiet. A live one is someone else with that name: two devices of one
+ * player, whose name the cross-platform sync carries (docs/cloud-sync.md), both
+ * play, the newcomer numbered ("Rocco 2"). ENet pings every half second. */
+static inline int netSameNameIsReconnect(uint32_t last_receive, uint32_t now) {
+    return !last_receive || (uint32_t)(now-last_receive) > 2000;
+}
 /* The scenarios: the game's own eight (MPSCENARIOS, 0..7: 5..7 its 2v2, 3v1
  * and 2v1), then two online team sizes past four players (protocol 16). */
 enum { NET_SCENARIO_3V3 = 8, NET_SCENARIO_4V4 = 9 };

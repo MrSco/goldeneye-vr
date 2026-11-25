@@ -51,6 +51,7 @@ def build():
     dll = C.CDLL(str(NATIVE/("multiplayer_native"+SUFFIX)))
     dll.test_gain.argtypes = [C.c_int, C.c_float]; dll.test_gain.restype = C.c_float
     dll.test_ping.argtypes = [C.c_uint32]*3
+    dll.test_same_name_reconnect.argtypes = [C.c_uint32]*2
     dll.test_group.argtypes = [C.c_int]*6
     dll.test_roster.argtypes = [C.c_int,C.POINTER(C.c_uint8),C.POINTER(C.c_uint8)]
     dll.test_spatial_render.argtypes = [C.c_uint,C.POINTER(C.c_float),C.c_uint,C.POINTER(C.c_float),C.c_int,C.POINTER(C.c_float)]
@@ -396,6 +397,13 @@ class MultiplayerNativeTests(unittest.TestCase):
         self.assertEqual(self.lib.test_ping(42,0,100),65535)
         self.assertEqual(self.lib.test_ping(99999,100,200),65534)
         self.assertEqual(self.lib.test_ping(42,0xfffffffe,2),42)
+    def test_same_name_live_is_another_device(self):
+        # a live connection with the name (heard from within 2 s) is another device, kept
+        self.assertEqual(self.lib.test_same_name_reconnect(1000,2500),0)
+        self.assertEqual(self.lib.test_same_name_reconnect(0xfffffff0,100),0)
+        # a quiet one, or one never heard from, is the player back: dropped
+        self.assertEqual(self.lib.test_same_name_reconnect(1000,3001),1)
+        self.assertEqual(self.lib.test_same_name_reconnect(0,100),1)
     def test_latency_expiry_and_host_migration(self): self.assertEqual(self.core.test_core_latency_and_migration(),0)
     def test_packet_roundtrip_and_all_truncations(self): self.assertEqual(self.lib.test_protocol(),0)
     def test_invalid_config_and_player_counts(self): self.assertEqual(self.lib.test_config_validation(),0)

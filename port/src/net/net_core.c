@@ -4718,10 +4718,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             }
 
             /* The same name back on a new connection: the earlier one is dead
-             * (a crash, a quit without a goodbye) and its slot is theirs again. */
+             * (a crash, a quit without a goodbye) and its slot is theirs again.
+             * Not while the earlier one is still heard from: that is another
+             * device of the same player (netSameNameIsReconnect). */
             for (int i = 0; i < s_max_players; i++) {
                 if (s_lobby_state.slots[i].connected && s_client_peers[i] && s_client_peers[i] != peer &&
-                    strcasecmp(s_lobby_state.slots[i].name, clean) == 0) {
+                    strcasecmp(s_lobby_state.slots[i].name, clean) == 0 &&
+                    netSameNameIsReconnect(s_client_peers[i]->lastReceiveTime, enet_time_get())) {
                     NET_LOG("%s is back on a new connection; slot %d's earlier one dropped", clean, i);
                     netHostDropSlot(i, s_client_peers[i]);
                 }
