@@ -75,7 +75,7 @@ def build_core():
     keep.update({"netSlotInputNow","netHostInputTableTick","netReceiveInputClasses","netGetSlotInputClass"})
     keep.update({"netLocalPlatform","netSlotPlatformNow","netReceivePlatforms","netGetSlotPlatform","netDeviceKey","netGetSlotDeviceKey",
                  "netGetLocalDeviceKey","netGetSlotDeviceName","netBuildOf","netGetSlotBuild","netGetLocalBuild","netGetSlotAppVersion"})
-    keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
+    keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netTeamHumans","netJoinerSide","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady","netPveLoadGraceOver"})
     keep.update({"netSlotHandicapIndex","netSetSlotHandicap","netGetSlotHandicap","netRoundHandicapIndex","netSlotHandicapEditable","netLobbySetHandicapSlot","netHostSetSlotHandicap","netSyncRoundHandicaps","netSlotHandicapJoined","netGetActiveSlotTeam"})
     keep.update({"netPeerSlotMask","netPeerOwnsSlot","netPeerAttachSlot","netPeerDetachSlot","netPeerPrimarySlot","netPeerSeenBefore","netSlotSyncIndex","netPeerVoiceSameGroup","netLocalSlotCount","netSlotIsLocalHuman","gevrNetSlotIsLocalHuman","netLocalSeatOfSlot","netSlotOfLocalSeat","netGetSlotOwner","gevrLocalViewCount","gevrLocalViewIndex","netSetLocalDesiredCount","netSetLocalSeatConfig","netTakeLocalGuestNotice","netLobbySetReadySlot","netLobbySetCharacterSlot","netLobbySetLoadoutSlot","netLobbySetTeamSlot","netSetVoteSlot","netRemoveLocalSlotEntry","netLocalGuestStartsSpectating","netHostDropSingleSlot","netSendLocalGuestReply","netRequestAddLocalGuest","netRequestRemoveLocalGuest","netReceiveLocalGuest","netCleanName","netSetJoinerName"})
@@ -376,6 +376,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_eight_slots_packets_teams_and_pads(self): self.assertEqual(self.core.test_core_eight_slots(),0)
     def test_bot_roster(self): self.assertEqual(self.core.test_core_bot_roster(),0)
     def test_bot_join_and_election(self): self.assertEqual(self.core.test_core_bot_join(),0)
+    def test_bot_join_keeps_teams_within_capacity(self): self.assertEqual(self.core.test_core_bot_join_teams(),0)
     def test_bot_owner(self): self.assertEqual(self.core.test_core_bot_owner(),0)
     def test_full_maps(self): self.assertEqual(self.core.test_core_full_maps(),0)
     def test_no_teleport_rule(self): self.assertEqual(self.core.test_core_no_teleport_rule(),0)

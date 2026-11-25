@@ -1236,17 +1236,33 @@ static int netBotPoints(int slot) {
     return points;
 }
 
+/* The humans on a side of the next round's teams (the lobby's), as netSetSlotTeam counts them */
+static int netTeamHumans(int team) {
+    int count = 0;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot && s_lobby_state.slots[i].team == team) count++;
+    return count;
+}
+
 /* The bot a joiner replaces when every place is taken: in a team match one
- * from the side with more bots, then the lowest score (the later slot on a tie) */
+ * from the side with the most room left for humans (a side the host or a
+ * player already filled keeps its people; owner, 2026-11-24: four split-screen
+ * players on 2v2 put three on one side), then the side with more bots; then
+ * the lowest score (the later slot on a tie) */
 static int netBotToReplace(void) {
     const bool ingame = s_state == NET_STATE_INGAME;
+    const NetMatchConfig *c = ingame ? &s_round.config : &s_lobby_state.config;
     int bots_on[2] = { 0, 0 }, side = -1, best = -1, best_points = 0;
     for (int i = 0; i < s_max_players; i++) {
         int t = ingame ? s_round.team[i] : s_lobby_state.slots[i].team;
         if (netSlotIsBot(i) && t < 2) bots_on[t]++;
     }
-    if (netScenarioHasTeams((ingame ? &s_round.config : &s_lobby_state.config)->scenario) && bots_on[0] + bots_on[1] > 0)
-        side = bots_on[1] > bots_on[0] ? 1 : 0;
+    if (netScenarioHasTeams(c->scenario) && bots_on[0] + bots_on[1] > 0) {
+        const int room0 = netTeamCapacity(c->scenario, 0) - netTeamHumans(0);
+        const int room1 = netTeamCapacity(c->scenario, 1) - netTeamHumans(1);
+        if (!bots_on[0] || !bots_on[1]) side = bots_on[1] ? 1 : 0;
+        else side = room1 != room0 ? (room1 > room0 ? 1 : 0) : bots_on[1] > bots_on[0] ? 1 : 0;
+    }
     for (int i = 0; i < s_max_players; i++) {
         int t = ingame ? s_round.team[i] : s_lobby_state.slots[i].team;
         if (!netSlotIsBot(i) || i == s_host_slot || (side >= 0 && t != side)) continue;
@@ -4010,10 +4026,23 @@ static void netReceiveRespawn(ENetPeer *peer,int slot,struct netbuf *b,const u8 
  * taken a bot gives its own up, in any phase: the joiner drops in at once,
  * on the bot's side. -1: full.
  */
-static int netJoinSlot(int previous, const char *clean, bool *replacing_bot, uint8_t *bot_team) {
+/* A joiner who took a bot's place: the bot's side in the round it plays at once
+ * (bot_team), and for the next round that side while it has room for another
+ * human, else the other side with room, else none (they choose on Teams) */
+static uint8_t netJoinerSide(uint8_t bot_team) {
+    const int scenario = s_lobby_state.config.scenario;
+    if (bot_team > 1 || s_lobby_state.config.mode != NET_MODE_DEATHMATCH || !netScenarioHasTeams(scenario)) return bot_team;
+    if (netTeamHumans(bot_team) < netTeamCapacity(scenario, bot_team)) return bot_team;
+    if (netTeamHumans(1 - bot_team) < netTeamCapacity(scenario, 1 - bot_team)) return (uint8_t)(1 - bot_team);
+    return NET_TEAM_NONE;
+}
+
+/* side: the joiner's side for the next round (the lobby's), bot_team the round's */
+static int netJoinSlot(int previous, const char *clean, bool *replacing_bot, uint8_t *bot_team, uint8_t *side) {
     int assigned = -1;
     *replacing_bot = false;
     *bot_team = NET_TEAM_NONE;
+    *side = NET_TEAM_NONE;
     if (previous >= 0 && previous < s_max_players && previous != s_host_slot &&
         s_lobby_state.slots[previous].connected && s_client_peers[previous] == NULL &&
         s_slot_grace_us[previous] && strcasecmp(s_lobby_state.slots[previous].name, clean) == 0) {
@@ -4032,6 +4061,9 @@ static int netJoinSlot(int previous, const char *clean, bool *replacing_bot, uin
     *bot_team = s_state == NET_STATE_INGAME ? s_round.team[bot] : s_lobby_state.slots[bot].team;
     NET_LOG("%s takes the place of %s (slot %d)", clean, s_lobby_state.slots[bot].name, bot);
     netReleaseBotSlot(bot);
+    *side = netJoinerSide(*bot_team);
+    /* the warmup's teams are the next round's: one side for both */
+    if (s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS) *bot_team = *side;
     return bot;
 }
 
@@ -4163,8 +4195,8 @@ int netRequestAddLocalGuest(const char *name, uint8_t chr_id, uint8_t input_clas
             return -1;
         }
         bool replacing_bot = false;
-        uint8_t bot_team = NET_TEAM_NONE;
-        int assigned = netJoinSlot(-1, clean, &replacing_bot, &bot_team);
+        uint8_t bot_team = NET_TEAM_NONE, side = NET_TEAM_NONE;
+        int assigned = netJoinSlot(-1, clean, &replacing_bot, &bot_team, &side);
         if (assigned < 0) {
             snprintf(s_local_guest_notice, sizeof(s_local_guest_notice), "Match is full.");
             return -1;
@@ -4175,7 +4207,7 @@ int netRequestAddLocalGuest(const char *name, uint8_t chr_id, uint8_t input_clas
         sl->ready = 1;
         sl->loaded = (s_state == NET_STATE_INGAME && s_host_slot >= 0 && s_lobby_state.slots[s_host_slot].loaded) ? 1 : 0;
         sl->chr_id = chr_id;
-        sl->team = bot_team;
+        sl->team = side;
         sl->owner_slot = (uint8_t)s_host_slot;
         sl->spectator = netLocalGuestStartsSpectating(replacing_bot) ? 1 : 0;
         sl->ping_ms = 0;
@@ -4275,8 +4307,8 @@ static void netReceiveLocalGuest(ENetPeer *peer, int slot_id, struct netbuf *buf
             char clean[GEVR_MAX_NAME_LEN];
             netCleanName(clean, name, name_end);
             bool replacing_bot = false;
-            uint8_t bot_team = NET_TEAM_NONE;
-            int assigned = netJoinSlot(-1, clean, &replacing_bot, &bot_team);
+            uint8_t bot_team = NET_TEAM_NONE, side = NET_TEAM_NONE;
+            int assigned = netJoinSlot(-1, clean, &replacing_bot, &bot_team, &side);
             if (assigned < 0) {
                 netSendLocalGuestReply(peer, NET_GUEST_OP_ADD, NET_GUEST_RESULT_FULL, seat, 0xFF);
                 return;
@@ -4298,7 +4330,7 @@ static void netReceiveLocalGuest(ENetPeer *peer, int slot_id, struct netbuf *buf
             sl->ready = s_lobby_state.slots[primary].ready;
             sl->loaded = (s_state == NET_STATE_INGAME && s_lobby_state.slots[primary].loaded) ? 1 : 0;
             sl->chr_id = chr_id;
-            sl->team = bot_team;
+            sl->team = side;
             sl->owner_slot = (uint8_t)primary;
             sl->spectator = netLocalGuestStartsSpectating(replacing_bot) ? 1 : 0;
             sl->ping_ms = s_lobby_state.slots[primary].ping_ms;
@@ -4515,8 +4547,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             bool failed = false;
             for (int s = 0; s < total_req; s++) {
                 bool replacing_bot = false;
-                uint8_t bot_team = NET_TEAM_NONE;
-                int slot = netJoinSlot(seat_prev[s], seat_names[s], &replacing_bot, &bot_team);
+                uint8_t bot_team = NET_TEAM_NONE, side = NET_TEAM_NONE;
+                int slot = netJoinSlot(seat_prev[s], seat_names[s], &replacing_bot, &bot_team, &side);
                 if (slot < 0) { failed = true; break; }
                 assigned_slots[assigned_count++] = slot;
                 netPeerAttachSlot(peer, slot);
@@ -4534,7 +4566,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 s_lobby_state.slots[slot].chr_id = seat_chrs[s];
                 s_lobby_state.slots[slot].owner_slot = (uint8_t)assigned_slots[0];
                 if (!s_slot_grace_us[slot]) {
-                    s_lobby_state.slots[slot].team = bot_team;
+                    s_lobby_state.slots[slot].team = side;
                     s_lobby_state.slots[slot].handicap = NET_HANDICAP_MATCH;   /* not the seat's last player's */
                     s_lobby_state.slots[slot].eliminated = 0;
                     s_lobby_state.slots[slot].ping_ms = NET_PING_UNKNOWN;

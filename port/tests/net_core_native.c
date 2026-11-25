@@ -1477,33 +1477,69 @@ EXPORT int test_core_bot_roster(void) {
 }
 /* Joins: a bot gives its place up (the lowest score), a leaver's comes back to the bots between rounds */
 EXPORT int test_core_bot_join(void) {
-    bool rb;uint8_t team;
+    bool rb;uint8_t team,side;
     botFixture(0);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
-    int slot=netJoinSlot(0xFF,"Guest",&rb,&team);
+    int slot=netJoinSlot(0xFF,"Guest",&rb,&team,&side);
     CHECK(slot==3 && rb && team==NET_TEAM_NONE && !s_lobby_state.slots[3].connected);
     s_lobby_state.slots[3].connected=1;snprintf(s_lobby_state.slots[3].name,GEVR_MAX_NAME_LEN,"Guest");
     netUpdateBots(false);CHECK(botsIn()==2 && netGetHumanPlayerCount()==2);
     netHostDropSlot(3,NULL);CHECK(botsIn()==3 && netSlotIsBot(3));
     /* Fixed below the room: a free slot first */
     gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FIXED);gevrNetConfigSet(CFG_BOT_COUNT,1);CHECK(botsIn()==1);
-    slot=netJoinSlot(0xFF,"Guest",&rb,&team);CHECK(slot==2 && !rb);
+    slot=netJoinSlot(0xFF,"Guest",&rb,&team,&side);CHECK(slot==2 && !rb);
     /* mid-round: the lowest score leaves, the joiner plays on its side, no refill after */
     gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
     netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
     g_playerPlayerData[3].kill_counts[0]=2;
-    slot=netJoinSlot(0xFF,"Late",&rb,&team);CHECK(slot==2 && rb);
+    slot=netJoinSlot(0xFF,"Late",&rb,&team,&side);CHECK(slot==2 && rb);
     CHECK(g_playerPlayerData[0].gevr_score_bank==0 && g_playerPlayerData[3].kill_counts[0]==2);
     s_lobby_state.slots[2].connected=1;s_lobby_state.slots[2].loaded=1;
     netHostDropSlot(2,NULL);CHECK(botsIn()==2 && !s_lobby_state.slots[2].connected);
     /* full of people: no place */
     for(int i=1;i<4;i++) {memset(&s_lobby_state.slots[i],0,sizeof(NetLobbySlot));s_lobby_state.slots[i].connected=1;}
-    CHECK(netJoinSlot(0xFF,"Nope",&rb,&team)<0 && !rb);
+    CHECK(netJoinSlot(0xFF,"Nope",&rb,&team,&side)<0 && !rb);
     /* a host change never elects a bot */
     s_state=NET_STATE_INGAME;s_host_slot=0;s_local_slot=3;
     memset(&s_lobby_state.slots[1],0,sizeof(NetLobbySlot));memset(&s_lobby_state.slots[2],0,sizeof(NetLobbySlot));
     s_lobby_state.slots[1].connected=s_lobby_state.slots[1].is_bot=1;s_lobby_state.slots[2].connected=s_lobby_state.slots[2].is_bot=1;
     netHostLost(&hit_peers[0]);CHECK(s_host_slot==3);
     s_state=NET_STATE_HOSTING_LOBBY;s_host_slot=s_local_slot=0;VrMpBotMode=0;
+    return 0;
+}
+
+/*
+ * Four split-screen players on a 2v2 with bots (owner, 2026-11-24): the Teams
+ * screen showed three of them, "TOO MANY ON A TEAM". A joiner taking a bot's
+ * place took the bot's side from the warmup's load while the host's pick had
+ * moved the bots since. Now no side ever gets more humans than it takes: the
+ * bot from the side with room, the joiner on a side with room, else none.
+ */
+EXPORT int test_core_bot_join_teams(void) {
+    bool rb;uint8_t team,side;
+    botFixture(5);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    netSetSlotTeam(0,NET_TEAM_RED);   /* the host on red: the bots move, the round's teams stay as loaded */
+    for(int i=1;i<4;i++) s_round.team[i]=NET_TEAM_RED;
+    for(int g=0;g<3;g++) {
+        char name[16];snprintf(name,sizeof(name),"Guest %d",g);
+        int slot=netJoinSlot(0xFF,name,&rb,&team,&side);
+        CHECK(slot>0 && rb && team==side);
+        s_lobby_state.slots[slot].connected=1;s_lobby_state.slots[slot].team=side;s_round.team[slot]=team;
+        snprintf(s_lobby_state.slots[slot].name,GEVR_MAX_NAME_LEN,"%s",name);
+        netUpdateBots(false);
+        CHECK(netTeamHumans(NET_TEAM_RED)<=2 && netTeamHumans(NET_TEAM_BLUE)<=2);
+    }
+    CHECK(netTeamHumans(NET_TEAM_RED)==2 && netTeamHumans(NET_TEAM_BLUE)==2 && botsIn()==0);
+    /* mid-round the joiner plays the bot's side now and a side with room next round */
+    botFixture(5);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);
+    netSetSlotTeam(0,NET_TEAM_RED);
+    for(int i=1;i<4;i++) if(netSlotIsBot(i)) s_lobby_state.slots[i].team=NET_TEAM_RED;
+    s_lobby_state.slots[1].connected=1;s_lobby_state.slots[1].is_bot=0;s_lobby_state.slots[1].team=NET_TEAM_RED;
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+    for(int i=0;i<4;i++) s_round.team[i]=NET_TEAM_RED;
+    int slot=netJoinSlot(0xFF,"Late",&rb,&team,&side);
+    CHECK(slot>1 && rb && team==NET_TEAM_RED && side==NET_TEAM_BLUE);
+    s_state=NET_STATE_HOSTING_LOBBY;s_phase=NET_PHASE_WAITING;VrMpBotMode=0;
     return 0;
 }
 
