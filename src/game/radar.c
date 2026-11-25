@@ -104,6 +104,12 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
         return DL;
     }
 #ifdef GEVR
+    /* co-op's pause is the solo watch (pause_state), not the multiplayer menu
+     * above: the radar would draw over it, cut off by the watch's frame */
+    if (g_CurrentPlayer->pause_state != 0)
+    {
+        return DL;
+    }
     extern s32 g_gevrStereo;
     if (!gevrWatchShowsStandard(g_gevrStereo, FALSE, VrWatchFaceStatus)) return DL;
 #endif
