@@ -27,7 +27,8 @@ struct GevrDiscordFriend {
     uint64_t id = 0;
     std::string name;
     bool online = false;
-    bool invited = false;   // invited into the current lobby
+    bool invited = false;   // invited lately (a minute), so a dropped friend can be asked again
+    uint32_t invitedMs = 0;
 };
 // A Discord invite received (Client::SetActivityInviteCreatedCallback).
 struct GevrDiscordInvite {

@@ -71,6 +71,11 @@ std::string s_joinCode;
 std::string s_notice;                     // in-mission notice, game font
 uint32_t s_noticeUntil = 0;
 std::string s_lastLobby;                  // the lobby the "invited" marks are for
+// When each "invited" mark was set: a mark lasts kInvitedMs, and goes once the
+// friend is in the lobby, so a friend who drops out can be invited again
+// (Discord report 2026-11-25: the button stayed "Invited" for the whole lobby).
+std::vector<std::pair<std::string, uint32_t>> s_invitedAt;
+const uint32_t kInvitedMs = 60000;
 
 #ifdef ANDROID
 extern "C" int gevrAndroidJava;
@@ -231,6 +236,10 @@ void handle(const std::vector<std::string> &f, bool inGame) {
     } else if (kind == "INVITED" && f.size() >= 2) {
         if (std::find(s_model.invited.begin(), s_model.invited.end(), f[1]) == s_model.invited.end())
             s_model.invited.push_back(f[1]);
+        s_invitedAt.erase(std::remove_if(s_invitedAt.begin(), s_invitedAt.end(),
+                                         [&](const std::pair<std::string, uint32_t> &x) { return x.first == f[1]; }),
+                          s_invitedAt.end());
+        s_invitedAt.emplace_back(f[1], SDL_GetTicks());
         for (const GevrFriend &x : s_model.friends)
             if (x.id == f[1]) setMessage("Invited " + x.name);
     } else if (kind == "SEARCH_BEGIN") {
@@ -455,6 +464,18 @@ extern "C" void gevrFriendsTick(int inGame) {
     if (lobby != s_lastLobby) {
         s_lastLobby = lobby;
         s_model.invited.clear();
+        s_invitedAt.clear();
+    }
+    for (size_t i = 0; i < s_invitedAt.size();) {
+        const std::string &id = s_invitedAt[i].first;
+        bool arrived = false;
+        for (const GevrFriend &x : s_model.friends)
+            if (x.id == id) arrived = !lobby.empty() && x.lobby == lobby;
+        if (arrived || now - s_invitedAt[i].second >= kInvitedMs) {
+            s_model.invited.erase(std::remove(s_model.invited.begin(), s_model.invited.end(), id), s_model.invited.end());
+            s_invitedAt.erase(s_invitedAt.begin() + i);
+        } else
+            ++i;
     }
     if (!lobby.empty() && !s_inviteQueue.empty()) {
         for (const std::string &id : s_inviteQueue) gevrFriendsSend("invite|" + id + "|" + lobby);

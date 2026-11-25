@@ -73,7 +73,7 @@ void sendInvite(uint64_t id) {
     s_client->SendActivityInvite(id, "", [id](discordpp::ClientResult result) {
         if (result.Successful()) {
             for (GevrDiscordFriend &f : s_friends)
-                if (f.id == id) f.invited = true;
+                if (f.id == id) { f.invited = true; f.invitedMs = SDL_GetTicks(); }
             gevrFriendsMessage("Invited " + userName(id) + " on Discord");
         } else {
             vr_log("discord: invite refused: %s", result.Error().c_str());
@@ -129,7 +129,7 @@ void sendFriends() {
             f.online = user->Status() != discordpp::StatusType::Offline && user->Status() != discordpp::StatusType::Invisible;
         }
         for (const GevrDiscordFriend &old : s_friends)
-            if (old.id == f.id) f.invited = old.invited;
+            if (old.id == f.id) { f.invited = old.invited; f.invitedMs = old.invitedMs; }
         list.push_back(f);
     }
     std::stable_sort(list.begin(), list.end(), [](const GevrDiscordFriend &a, const GevrDiscordFriend &b) {
@@ -190,6 +190,8 @@ void gevrDiscordTick(void) {
     if (!s_client && !s_linked) return;   // nothing to run until a link or a sign-in
     ensureClient();
     discordpp::RunCallbacks();
+    for (GevrDiscordFriend &f : s_friends)
+        if (f.invited && SDL_GetTicks() - f.invitedMs >= 60u * 1000u) f.invited = false;
     // a saved link: a fresh token for this run; asked again each minute until one
     // comes (offline at start, or the Worker or Discord briefly down)
     if (s_linked && !s_haveToken && (!s_refreshAsked || SDL_GetTicks() - s_refreshAskedMs > 60u * 1000u)) {
