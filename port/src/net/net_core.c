@@ -1041,14 +1041,56 @@ int netGetSlotOwner(int slot) {
     return o < GEVR_MAX_PLAYERS ? (int)o : slot;
 }
 
+/*
+ * A couch match (offline split screen, flat builds) with room for more loads
+ * all four players, so a pad's START can drop in mid-match: the seats nobody
+ * has taken yet are loaded but empty, as an online match's free slots are
+ * (switched off, not ticked, not drawn, not scored). The seated players are
+ * slots 0 .. seats-1; a drop-in takes the next. 0: not such a match.
+ */
+static int s_couch_seats;
+
+/* The players a stage loads with: four for a couch match of two or three
+ * (eligible: the caller's flat, offline, not in the headset), else as chosen */
+int gevrCouchLoadPlayers(int players, int eligible) {
+    s_couch_seats = 0;
+    if (!eligible || netIsActive() || players < 2 || players >= 4) return players;
+    s_couch_seats = players;
+    return 4;
+}
+
+int gevrCouchSeats(void) { return netIsActive() ? 0 : s_couch_seats; }
+
+/* The next seat for a drop-in (its slot), or -1: full, or not a couch match */
+int gevrCouchSeatAdd(void) {
+    if (netIsActive() || s_couch_seats < 2 || s_couch_seats >= 4) return -1;
+    return s_couch_seats++;
+}
+
+/* A slot's player is in the world: online, occupied (netSlotOccupied); in a
+ * couch match, seated; otherwise every loaded player */
+int gevrSlotInWorld(int slot) {
+    if (netIsActive()) return netSlotOccupied(slot);
+    return s_couch_seats == 0 || slot < s_couch_seats;   /* offline, as before: no guard (a -1 too) */
+}
+
+/* ... and takes part in the round: online, not spectating (netPlayerInRound) */
+int gevrSlotInRound(int slot) {
+    if (netIsActive()) return netPlayerInRound(slot);
+    return gevrSlotInWorld(slot);
+}
+
+/* The views come from the seats (gevrLocalViewCount/Index), not the loaded players */
+int gevrViewsBySeat(void) { return netIsActive() || gevrCouchSeats() > 0; }
+
 int gevrLocalViewCount(void) {
-    if (!netIsActive()) return getPlayerCount();
+    if (!netIsActive()) return s_couch_seats > 0 ? s_couch_seats : getPlayerCount();
     int n = netLocalSlotCount();
     return n > 0 ? n : 1;
 }
 
 int gevrLocalViewIndex(int slot) {
-    if (!netIsActive()) return slot;
+    if (!netIsActive()) return s_couch_seats > 0 && slot >= s_couch_seats ? -1 : slot;
     if (s_dedicated) return slot == s_local_slot ? 0 : -1;
     return netLocalSeatOfSlot(slot);
 }
@@ -3277,8 +3319,10 @@ int netGetPlayingCount(void) {
 }
 
 /* The game's player_count online: the humans in the round, not the stage's
- * slots (lv.c's YOLT end, mpmenu.c's Golden Gun bonus). */
+ * slots (lv.c's YOLT end, mpmenu.c's Golden Gun bonus); a couch match's: its
+ * seated players, not the four it loaded */
 int netMpPlayerCount(int fallback) {
+    if (!netIsActive() && s_couch_seats > 0) return s_couch_seats;
     return s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING ? netGetPlayingCount() : fallback;
 }
 

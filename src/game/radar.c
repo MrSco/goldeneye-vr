@@ -203,6 +203,10 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
             /* a copy driven by its owner, or a player this headset runs (the host's bots) */
             if (netIsActive() && (i == netSpectatorTarget() || !netSlotOccupied(i) ||
                 (i != cur_playernum && !netIsRemotePlayerActive(i) && !gevrNetOwnsSlot(i)))) continue;
+            {
+                extern int gevrSlotInWorld(int slot);
+                if (!gevrSlotInWorld(i)) continue;   /* a couch match's empty seat: no blip */
+            }
         }
 #endif
         if (i != cur_playernum)

@@ -3317,7 +3317,7 @@ static s32 gevrAwardPickInt(s32 numplayers, const s32 *first, s32 sign)
         s32 value = *(const s32 *)((const u8 *)first + slot * sizeof(struct AwardMetrics));
         s32 held = best < 0 ? 0 : *(const s32 *)((const u8 *)first + best * sizeof(struct AwardMetrics));
 
-        if (netSlotOccupied(slot) && !netPlayerIsSpectator(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
+        if (gevrSlotInWorld(slot) && !netPlayerIsSpectator(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
     }
     return best < 0 ? 0 : best;
 }
@@ -3332,12 +3332,12 @@ static s32 gevrAwardPickFloat(s32 numplayers, const f32 *first, s32 sign)
         f32 value = *(const f32 *)((const u8 *)first + slot * sizeof(struct AwardMetrics));
         f32 held = best < 0 ? 0 : *(const f32 *)((const u8 *)first + best * sizeof(struct AwardMetrics));
 
-        if (netSlotOccupied(slot) && !netPlayerIsSpectator(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
+        if (gevrSlotInWorld(slot) && !netPlayerIsSpectator(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
     }
     return best < 0 ? 0 : best;
 }
 
-#define MP_AWARD(find, kind, sign, field) (netIsActive() ? gevrAwardPick##kind(player_count, &metrics[0].field, sign) \
+#define MP_AWARD(find, kind, sign, field) (gevrViewsBySeat() ? gevrAwardPick##kind(player_count, &metrics[0].field, sign) \
     : find(player_count, metrics[0].field, metrics[1].field, metrics[2].field, metrics[3].field))
 #else
 #define MP_AWARD(find, kind, sign, field) find(player_count, metrics[0].field, metrics[1].field, metrics[2].field, metrics[3].field)
@@ -3395,7 +3395,7 @@ void mpCalculateAwards(bool gameoverdelay)
     for (i = 0; i < player_count; i++)
     {
 #ifdef GEVR
-        if (netIsActive() && !netSlotOccupied(i)) continue;
+        if (!gevrSlotInWorld(i)) continue;   /* online: empty; a couch match: a seat nobody took */
 #endif
 
         set_cur_player(i);
@@ -3532,7 +3532,7 @@ void mpCalculateAwards(bool gameoverdelay)
     for (i = 0; i < player_count; i++)
     {
 #ifdef GEVR
-        if (netIsActive() && !netSlotOccupied(i)) continue;
+        if (!gevrSlotInWorld(i)) continue;   /* online: empty; a couch match: a seat nobody took */
 #endif
         if (g_playerPlayerData[i].most_killed_one_time == 4)
         {
@@ -3556,7 +3556,7 @@ void mpCalculateAwards(bool gameoverdelay)
     for (i = 0; i < player_count; i++)
     {
 #ifdef GEVR
-        if (netIsActive() && !netSlotOccupied(i)) continue;
+        if (!gevrSlotInWorld(i)) continue;   /* online: empty; a couch match: a seat nobody took */
 #endif
         s32 numdone = 0;
         s32 awardindex = 16;
@@ -3608,6 +3608,10 @@ void mpwatchMenuTick(void)
 
     player_num = get_cur_playernum();
     player_count = getPlayerCount();
+#ifdef GEVR
+    /* a couch match waits on its seated players (slots 0..n-1) to leave the results, not the four it loaded */
+    if (gevrCouchSeats() > 0) player_count = gevrCouchSeats();
+#endif
     x_centered = joyGetStickXInRange(player_num, -2, 1);
 
     // The player in shuffled position 0 drives down g_gameOverFlag which is both a flag and a timer.
@@ -4029,11 +4033,24 @@ void write_playerrank_to_buffer(char *buffer, s32 playernum)
     scenario = get_scenario();
     count = getPlayerCount();
 
+#ifdef GEVR
+    /* a couch match's empty seats are not ranked (online keeps its own ranking) */
+    j = 0;
+    for (i = 0; i < count; i++)
+    {
+        if (gevrCouchSeats() > 0 && !gevrSlotInWorld(i) && i != playernum) continue;
+        scores[j] = get_points_for_mp_player(i);
+        players[j] = i;
+        j++;
+    }
+    count = j;
+#else
     for (i = 0; i < count; i++)
     {
         scores[i] = get_points_for_mp_player(i);
         players[i] = i;
     }
+#endif
 
     for (j = 0; j < count; j++)
     {
@@ -4236,6 +4253,10 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
  
     curplayernum = get_cur_playernum();
     player_count = getPlayerCount();
+#ifdef GEVR
+    /* a couch match's pages lay out its seated players (slots 0..n-1), not the four it loaded */
+    if (gevrCouchSeats() > 0) player_count = gevrCouchSeats();
+#endif
     self_paused = 0;
 
 #ifdef GEVR

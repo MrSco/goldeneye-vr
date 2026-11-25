@@ -1634,6 +1634,51 @@ static void inputOnlineTickDropIn(void)
 }
 #endif
 
+#ifdef GEVR_FLAT
+/*
+ * A couch match with a seat to spare (net_core.c gevrCouchSeats: two or three
+ * players, four loaded): a pad that did not join presses START and plays at
+ * once as the next player, the screen splitting again (front.c
+ * gevrCouchDropIn). Its START that dropped it in is not a pause.
+ */
+static s32 s_couchPadHeld[INPUT_MAX_CONTROLLERS];
+static s32 s_couchHoldStart[INPUT_MAX_CONTROLLERS];   /* a player's START held from the drop-in */
+
+static void inputCouchTickDropIn(void)
+{
+    extern int gevrCouchSeats(void);
+    extern s32 gevrCouchDropIn(void);
+    extern int gevrNativePauseOpen(void);
+    const s32 seats = gevrCouchSeats();
+
+    if (netIsActive() || g_gevrStereo || seats < 2 || seats >= INPUT_MAX_CONTROLLERS || s_seated != seats
+            || bossGetStageNum() == LEVELID_TITLE || gevrNativePauseOpen()) {
+        for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_couchPadHeld[k] = 1;   /* a press already down is not one */
+        return;
+    }
+    for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
+        SDL_GameController *pad = pads[k];
+        if (!pad || !inputJoinablePad(pad)) {
+            s_couchPadHeld[k] = 0;
+            continue;
+        }
+        const s32 id = (s32)inputControllerGetId(pad);
+        const s32 pressed = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START) != 0;
+        const s32 fresh = pressed && !s_couchPadHeld[k];
+        s_couchPadHeld[k] = pressed;
+        if (!fresh || inputJoinFind(id) >= 0) continue;   /* a seated pad's START is its pause */
+        const s32 player = gevrCouchDropIn();
+        if (player < 0) return;
+        sysLogPrintf(LOG_NOTE, "input: '%s' drops in as player %d", SDL_GameControllerName(pad), player + 1);
+        s_joinDev[s_joinCount++] = id;
+        inputSeatsCommit();
+        s_couchHoldStart[player] = 1;
+        for (s32 j = 0; j < INPUT_MAX_CONTROLLERS; ++j) s_couchPadHeld[j] = 1;   /* the pads moved slots */
+        return;
+    }
+}
+#endif
+
 /* The player the keyboard and mouse (or the touch controls) drive offline */
 s32 inputOwnPlayer(void)
 {
@@ -2758,6 +2803,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             inputFlatPadSticks(pad, &padsCfg[pdev], menu, menu && gevrMenuRowsOpen(player),
                                SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
                                -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
+        }
+        /* a couch drop-in's START that seated it is not a pause (inputCouchTickDropIn) */
+        if (!netIsActive() && player >= 0 && player < INPUT_MAX_CONTROLLERS && s_couchHoldStart[player]) {
+            if (npad->button & START_BUTTON) npad->button &= ~START_BUTTON;
+            else s_couchHoldStart[player] = 0;
         }
         /* Horde online: a split screen's guest's START is their own folder, as the first player's */
         if (isLocalOnline && me != NULL) inputHordeStart(player, npad);
@@ -4121,6 +4171,7 @@ void inputUpdate(void)
 #endif
 #ifdef GEVR_FLAT
         inputOnlineTickDropIn();
+        inputCouchTickDropIn();
 #endif
         // inputUpdateMouse(); Removed for VR
     }

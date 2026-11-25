@@ -8585,6 +8585,84 @@ void set_players_team_or_scenario_item_flag(int player,s32 flag)
   g_playerPlayerData[player].have_token_or_goldengun = flag;
 }
 
+#ifdef GEVR
+/*
+ * A couch match (offline split screen) of two or three loads all four players
+ * so a pad can drop in mid-match (net_core.c gevrCouchLoadPlayers, input.c).
+ * The seats nobody took yet get a character no seated player plays and the
+ * normal handicap, so a newcomer has a body of their own from the load.
+ */
+void gevrCouchPrepareSeats(s32 seated)
+{
+    s32 slot;
+
+    for (slot = seated; slot < 4; slot++)
+    {
+        s32 c;
+
+        for (c = 0; c < num_chars_selectable_mp; c++)
+        {
+            s32 k;
+            s32 used = FALSE;
+
+            for (k = 0; k < slot; k++)
+            {
+                if (player_char[k] == c) used = TRUE;
+            }
+            if (!used) break;
+        }
+        player_char[slot] = c < num_chars_selectable_mp ? c : slot;
+        player_handicap[slot] = 5;
+    }
+}
+
+/*
+ * A pad dropped in to a couch match (input.c): the next seat's player comes
+ * into the world at a start pad, with no score yet, on the side with fewer
+ * players in a team game. Returns its player number, or -1 (no seat left).
+ */
+s32 gevrCouchDropIn(void)
+{
+    extern int gevrCouchSeatAdd(void);
+    extern int gevrCouchSeats(void);
+    extern void mp_respawn_handler(void);   /* bondview2.c */
+    extern s32 g_stopPlayFlag;
+    extern s32 g_gameOverFlag;
+    s32 slot;
+    s32 prev;
+    s32 i;
+    char msg[32];
+
+    if (g_gameOverFlag || g_stopPlayFlag) return -1;
+    slot = gevrCouchSeatAdd();
+    if (slot < 0) return -1;
+    selected_num_players = gevrCouchSeats();   /* the next match keeps them */
+    if (get_scenario() >= SCENARIO_2v2)
+    {
+        s32 side[2] = { 0, 0 };
+
+        for (i = 0; i < slot; i++)
+        {
+            side[get_players_team_or_scenario_item_flag(i) ? 1 : 0]++;
+        }
+        set_players_team_or_scenario_item_flag(slot, side[1] < side[0] ? 1 : 0);
+    }
+    prev = get_cur_playernum();
+    set_cur_player(slot);
+    mp_respawn_handler();
+    set_cur_player(prev);
+    snprintf(msg, sizeof(msg), "PLAYER %d JOINS", slot + 1);
+    for (i = 0; i <= slot; i++)
+    {
+        set_cur_player(i);
+        HUDMESSAGEBOTTOM(msg);
+    }
+    set_cur_player(prev);
+    sysLogPrintf(LOG_NOTE, "couch: player %d drops in (character %d)", slot + 1, player_char[slot]);
+    return slot;
+}
+#endif
+
 
 
 //********************************************************************************************************

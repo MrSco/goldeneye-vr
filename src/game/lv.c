@@ -997,11 +997,15 @@ Gfx* lvlRender(Gfx* DL)
                     }
                     continue;
                 }
+                {
+                    extern int gevrSlotInWorld(int slot);
+                    if (!gevrSlotInWorld(playernum)) continue;   /* a couch match's empty seat: no view */
+                }
             }
 #endif
             set_cur_player(playernum);
 #ifdef GEVR
-            if (netIsActive())
+            if (gevrViewsBySeat())   /* online, or a couch match: the views follow the seats */
             {
                 extern s16 bondviewGetCurrentPlayerViewportWidth(void);
                 extern s16 bondviewGetCurrentPlayerViewportHeight(void);
@@ -1021,7 +1025,7 @@ Gfx* lvlRender(Gfx* DL)
                     set_cur_player_viewport_size(vl, vt);
                     set_cur_player_aspect(asp);
                 }
-                netSpectatorFrame();
+                if (netIsActive()) netSpectatorFrame();
             }
 #endif
 
@@ -1697,7 +1701,7 @@ void lvlManageMpGame(void)
             for (i = 0; i < player_count; i++)
             {
 #ifdef GEVR
-                if (netIsActive() && !netPlayerInRound(i)) continue;
+                if (!gevrSlotInRound(i)) continue;   /* online: not in the round; a couch match: an empty seat */
 #endif
                 killed_count = 0;
                 not_dead_count = 0;
@@ -1705,7 +1709,7 @@ void lvlManageMpGame(void)
                 for (j = 0; j < player_count; j++)
                 {
 #ifdef GEVR
-                    if (netIsActive() && !netPlayerInRound(j)) continue;
+                    if (!gevrSlotInRound(j)) continue;
 #endif
                     if (g_playerPointers[j]->bonddead == 0)
                     {

@@ -1607,8 +1607,10 @@ void proplvreset2(enum LEVELID stageId)
             {
 #ifdef GEVR
                 /* the setup files' bits stop at four players; past four
-                 * (online) the stage loads as it does for four */
-                flags |= 1 << (MIN(getPlayerCount(), 4) + 20);
+                 * (online) the stage loads as it does for four. A couch
+                 * match loads its seated players' set, whoever drops in */
+                extern int gevrCouchSeats(void);
+                flags |= 1 << (MIN(gevrCouchSeats() > 0 ? gevrCouchSeats() : getPlayerCount(), 4) + 20);
 #else
                 flags |= 1 << (getPlayerCount() + 20);
 #endif

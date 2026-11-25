@@ -16044,7 +16044,8 @@ s16 bondviewGetCurrentPlayerViewportWidth(void)
     extern bool netIsActive(void);
     extern int gevrLocalViewCount(void);
     extern int gevrLocalViewIndex(int slot);
-    if (netIsActive())
+    extern int gevrViewsBySeat(void);
+    if (gevrViewsBySeat())   /* online, or a couch match with seats to spare (net_core.c) */
     {
         s32 vcount = gevrLocalViewCount();
         s32 vidx = gevrLocalViewIndex(get_cur_playernum());
@@ -16085,7 +16086,8 @@ s16 get_curplayer_viewport_ulx(void)
     extern bool netIsActive(void);
     extern int gevrLocalViewCount(void);
     extern int gevrLocalViewIndex(int slot);
-    if (netIsActive())
+    extern int gevrViewsBySeat(void);
+    if (gevrViewsBySeat())   /* online, or a couch match with seats to spare (net_core.c) */
     {
         s32 vcount = gevrLocalViewCount();
         s32 vidx = gevrLocalViewIndex(get_cur_playernum());
@@ -16120,7 +16122,8 @@ s16 bondviewGetCurrentPlayerViewportHeight(void)
     extern bool netIsActive(void);
     extern int gevrLocalViewCount(void);
     extern int gevrLocalViewIndex(int slot);
-    if (netIsActive())
+    extern int gevrViewsBySeat(void);
+    if (gevrViewsBySeat())   /* online, or a couch match with seats to spare (net_core.c) */
     {
         s32 vcount = gevrLocalViewCount();
         s32 vidx = gevrLocalViewIndex(get_cur_playernum());
@@ -16182,7 +16185,8 @@ s16 bondviewGetCurrentPlayerViewportUly(void)
     extern bool netIsActive(void);
     extern int gevrLocalViewCount(void);
     extern int gevrLocalViewIndex(int slot);
-    if (netIsActive())
+    extern int gevrViewsBySeat(void);
+    if (gevrViewsBySeat())   /* online, or a couch match with seats to spare (net_core.c) */
     {
         s32 vcount = gevrLocalViewCount();
         s32 vidx = gevrLocalViewIndex(get_cur_playernum());
@@ -23826,8 +23830,8 @@ void bondviewGetPropHeightRelatedValues(PropRecord *arg0, struct rect4f **field_
     /* Some callers ask for a footprint directly, without propIsOfCdType.
      * Reserved online slots never moved, so their old bounds may be garbage. */
     {
-        extern bool netSlotOccupied(int slot);
-        if (netIsActive() && !netSlotOccupied(temp_v0))
+        extern int gevrSlotInWorld(int slot);   /* online: occupied; a couch match: seated */
+        if (!gevrSlotInWorld(temp_v0))
         {
             *field_B0 = NULL;
             *arg2 = 0;

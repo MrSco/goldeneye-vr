@@ -286,6 +286,8 @@ ROM, as on the Quest.
   Linux, Apple TV, phones and tablets), offline. Choose **Multiplayer**, then each player presses
   to join (A or Start on a pad, Enter on the keyboard); the order is the player numbers. The
   keyboard and mouse count as one player, each pad as another; the Siri Remote doesn't join.
+  A pad that didn't join can **drop in mid-match** with Start: the screen splits again and they
+  play at once, and stay for the next match.
 
 ## Mirrored missions (optional)
 

@@ -59,6 +59,10 @@ extern void netPlayerSyncBeforeTick(s32 playernum);
 extern void netPlayerSyncAfterTick(s32 playernum);
 extern u64 sysGetMicroseconds(void);
 extern bool netSlotOccupied(int slot);
+extern int gevrCouchLoadPlayers(int players, int eligible);   /* a couch match's drop-in seats (net_core.c) */
+extern int gevrCouchSeats(void);
+extern int gevrSlotInWorld(int slot);
+extern int gevrViewsBySeat(void);
 extern bool netTakeRoundReset(void);
 extern void netStageLoaded(void);
 extern void netCoopStageLoaded(void);   /* co-op (#94): a new mission's guards (net_coop.c) */
@@ -596,6 +600,23 @@ void bossMainloop(void)
                 localSelectedNumPlayers = get_selected_num_players();
             }
         }
+#ifdef GEVR
+        {
+            /* a couch match of two or three loads four: a pad can drop in (net_core.c) */
+            s32 couch = FALSE;
+#ifdef GEVR_FLAT
+            extern s32 g_gevrStereo;
+            couch = g_StageNum != LEVELID_TITLE && !g_gevrStereo && !get_is_ramrom_flag() && !gevrCoopActive();
+#endif
+            localSelectedNumPlayers = gevrCouchLoadPlayers(localSelectedNumPlayers, couch);
+            if (gevrCouchSeats() > 0)
+            {
+                extern void gevrCouchPrepareSeats(s32 seated);
+                gevrCouchPrepareSeats(gevrCouchSeats());
+                sysLogPrintf(LOG_NOTE, "couch: %d seated, four loaded for drop-ins", gevrCouchSeats());
+            }
+        }
+#endif
 
         init_player_data_ptrs_construct_viewports(localSelectedNumPlayers);
         dynInitMemory();
@@ -719,10 +740,10 @@ void bossMainloop(void)
                                     s_net_config_on_load = TRUE;
                                     bossSetLoadedStage(netRoundLoadStage());
                                 }
-                                if (netIsActive()) {
+                                if (gevrViewsBySeat()) {   /* online, or a couch match's empty seats */
                                     for (i = 0; i < getPlayerCount(); i++) {
                                         if (g_playerPointers[i] && g_playerPointers[i]->prop) {
-                                            bool occupied = netSlotOccupied(i);
+                                            bool occupied = gevrSlotInWorld(i);
                                             if (occupied != s_net_slot_enabled[i]) {
                                                 if (occupied) chrpropEnable(g_playerPointers[i]->prop);
                                                 else chrpropDisable(g_playerPointers[i]->prop);
@@ -743,7 +764,7 @@ void bossMainloop(void)
                                 for (i = 0; i < getPlayerCount(); i++)
                                 {
                                     s32 playernum = get_nth_player_from_shuffled(i);
-                                    if (netIsActive() && !netSlotOccupied(playernum)) continue;
+                                    if (!gevrSlotInWorld(playernum)) continue;
                                     set_cur_player(playernum);
 
                                     localPlayer = g_CurrentPlayer;
