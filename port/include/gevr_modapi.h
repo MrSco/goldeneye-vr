@@ -296,6 +296,13 @@ enum { GEVR_MODAT_PLAYER = 1, GEVR_MODAT_GUARD, GEVR_MODAT_PAD };
 #define GEVR_MODAPI_SOUND_NEAR 5000.0f   /* a placed sound: full within, as chrobjSndCreatePostEventDefault */
 #define GEVR_MODAPI_SOUND_FAR 6000.0f
 
+#define GEVR_MOD_BLOOD_BODIES 256
+typedef struct GevrModBloodConfig {
+    int headBurst;   /* percent, 0 turns head bursts off */
+    unsigned char bodies[GEVR_MOD_BLOOD_BODIES];
+} GevrModBloodConfig;
+int gevrModGameBlood(const GevrModBloodConfig *config);   /* NULL restores stock effects */
+
 /* ---- the network (plan step 5): mod.net between the players' machines ---- */
 
 #define GEVR_MODAPI_NET_PAYLOAD 1024      /* a message's bytes (net_protocol.h NET_MOD_PAYLOAD_MAX) */

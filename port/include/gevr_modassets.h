@@ -44,6 +44,8 @@ int gevrModAssetHasModel(const char *name);
 FILE *gevrModAssetOpenModel(const char *name);
 /* Optional .opaque companion to a validated pack mesh name. */
 FILE *gevrModAssetOpenModelOpacity(const char *name);
+/* One flat stem in assets/effects; the loader adds the PNG extension. */
+FILE *gevrModAssetOpenEffect(const char *name);
 /* The last model file loaded was the mod's (objecthandler_2.c): the patches
  * made for the cartridge's meshes (VR hands, magazines, the hat, Bean) leave
  * it alone. Cleared as each load starts. */

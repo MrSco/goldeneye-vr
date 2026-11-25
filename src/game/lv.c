@@ -70,6 +70,7 @@
 #include "gevr_rom_segments.h"
 #ifdef GEVR
 #include "gevr_ragdoll.h"
+#include "gevr_modblood.h"
 #endif
 #ifdef GEVR
 extern bool netIsActive(void);
@@ -1257,6 +1258,7 @@ Gfx* lvlRender(Gfx* DL)
             }
 
 #ifdef GEVR
+            DL = gevrModBloodDraw(DL);
             if (gevrScopeRec)
             {
                 gDPNoOpTag(DL++, 0x565D0001); /* VR_SCOPE_REC_END */
@@ -1509,6 +1511,7 @@ void lvlManageMpGame(void)
 #ifdef GEVR
     gevrVrStatsSimulation((unsigned)g_ClockTimer);
     gevrRagdollTick(g_ClockTimer);
+    if (g_ClockTimer > 0) gevrModBloodTick();
     { extern void gevrHordeTick(int ticks); gevrHordeTick(g_ClockTimer); }
     { extern void gevrArenaTick(s32 ticks); gevrArenaTick(g_ClockTimer); }
 #endif

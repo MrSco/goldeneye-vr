@@ -343,6 +343,17 @@ int gevrModGamePlaySound(int id, float volume, const float *pos)
     else printf("SOUND %d %.2f -\n", id, volume);
     return 1;
 }
+int gevrModGameBlood(const GevrModBloodConfig *config)
+{
+    if (config) {
+        printf("BLOOD %d", config->headBurst);
+        for (int body = 0; body < GEVR_MOD_BLOOD_BODIES; ++body)
+            if (config->bodies[body]) printf(" %d", body);
+        printf("\n");
+    }
+    return 1;
+}
+
 int gevrModGameSmoke(int type, int at, int which)
 {
     if (at == GEVR_MODAT_GUARD && which == 99) return 0;
