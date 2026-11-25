@@ -2995,33 +2995,6 @@ static s32 s_gevrBatHandStage = -1;
 static s32 s_gevrBatHandReady;
 static s32 s_gevrBatHandBean = -1;   /* the hand was cut for Bean (1) or GoldenEye's own model (0) */
 
-/*
- * GoldenEye's hand and sleeve: under Switches 8-13. The game shows 35 with
- * them (gun.c sub_GAME_7F05E978), but in GwppkZ that is a piece of the
- * pistol - a short tube ahead of the grip, 18 units across and 54 long -
- * left floating by the fist on GoldenEye's own rifle bat (owner, 2026-11-22,
- * headset: "leftover barrel on original sniper melee hand"). Bean draws its
- * glove on the hand's lists and blanks the pistol itself, so for Bean it is
- * kept as it was (cuff).
- */
-static s32 gevrBatHandNode(const ModelFileHeader *header, ModelNode *node, s32 cuff)
-{
-    s32 s;
-
-    for (; node != NULL; node = node->Parent)
-    {
-        for (s = 8; s <= 13 && s < header->numSwitches; s++)
-        {
-            if (header->Switches[s] != NULL && node == header->Switches[s]) return TRUE;
-        }
-        if (cuff && header->numSwitches > 35 && header->Switches[35] != NULL && node == header->Switches[35])
-        {
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
-
 static s32 gevrBatHandLoad(void)
 {
     ModelFileHeader *tmpl;
@@ -3068,7 +3041,12 @@ static s32 gevrBatHandLoad(void)
         {
             continue;
         }
-        if (gevrBatHandNode(&s_gevrBatHandHeader, node, bean))
+        /* GoldenEye's hand and sleeve, less the PP7's tube ahead of the grip,
+         * which was left floating by the fist on GoldenEye's own rifle bat
+         * (owner, 2026-11-22, headset: "leftover barrel on original sniper
+         * melee hand"); Bean's own list in its place stays (model.c
+         * modelGunHandList) */
+        if (modelGunHandList(&s_gevrBatHandHeader, node, (const char *) name))
         {
             kept++;
         }
@@ -3439,13 +3417,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             if (!gevrStereoWatchItem(item)) {
                 if (mesh != NULL) {
                     renderdata.gdl = gevrModMeshDraw(renderdata.gdl, (Mtxf *)handptr->weaponModel.render_pos, mesh);
-                    /* Same stock PP7 tube as the borrowed bat hand (gevrBatHandNode).
-                     * Classify by the loaded cartridge model, not just the item slot. */
-                    const char *carrier = (const char *)get_ptr_item_text_call_line(item);
-                    const int pp7Carrier = gevrRomRetailArt() && carrier != NULL
-                        && (!strcmp(carrier, "GwppkZ") || !strcmp(carrier, "GwppksilZ")
-                            || !strcmp(carrier, "GsilverwppkZ") || !strcmp(carrier, "GgoldwppkZ"));
-                    modelDrawGunHand(&renderdata, &handptr->weaponModel, pp7Carrier);
+                    /* the stock hand, less the gun pieces some models file under it
+                     * (model.c modelGunHandList), known by the item's cartridge file */
+                    modelDrawGunHand(&renderdata, &handptr->weaponModel,
+                                     (const char *)get_ptr_item_text_call_line(item));
                 } else {
                     subdraw(&renderdata, &handptr->weaponModel);
                 }

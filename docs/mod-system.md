@@ -546,7 +546,12 @@ in-game screen). We maintain the adapters, not the mods.
     choice never touches a player mid-load (`gevrModGunReconcile()`).
   - A self-describing `GEVRWPN1` or `GEVRWPN2` mesh can also be used as
     `file`; leave the exported bytes unchanged. It draws at the stock
-    gun's root and keeps the stock hand and sleeve. The stock gun still
+    gun's root and keeps the stock hand and sleeve: the lists the game
+    shows and hides as the hand (switches 8-13 and 35), less the gun
+    pieces three of GoldenEye's own models file there (the PP7's, the
+    silenced PP7's and the TT-33's, `modelGunHandList()` in `model.c`).
+    The fist's stock model is the hand itself, none of it under those
+    switches, so a mesh for the fist replaces the hand. The stock gun still
     drives animation, shot origin and reload. Replacing the gun body
     hides the stock muzzle flash. This format alone does not add action
     geometry, an authored muzzle or grip, optics, or remote weapon looks.

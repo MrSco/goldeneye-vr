@@ -10,6 +10,8 @@
 #include "gevr_n64mag.h"
 #include "vtxstore.h"
 #include "gevr_oddjobhat.h"
+#include "gevr_romlayout.h"
+#include <string.h>
 #endif
 #include "../rmon.h" /*<PR/rmon.h>*/
 #include "bondview.h"
@@ -5614,27 +5616,56 @@ void gevrModelTraceNextDraw(void)
 #endif
 
 #ifdef GEVR
-/* Switch 35 follows hand visibility but holds gun geometry on the retail PP7.
- * Bean can replace it with its cuff; an unpatched node must not draw the tube. */
-static int modelInGunHand(const ModelFileHeader *obj, ModelNode *node, int pp7Carrier)
+/*
+ * GoldenEye's first-person hand and sleeve in a hand item's model: the lists
+ * under Switches 8-13 and 35, which the game shows and hides together (gun.c
+ * sub_GAME_7F05E978). Three of GoldenEye's own models file a piece of the gun
+ * there as well, one 16-triangle list in the gun's texture: the PP7's and the
+ * silenced PP7's under 35, the TT-33's under 11. Drawn with the hand and not
+ * the gun, it floats by the fist (owner, 2026-11-22, the rifle bat's hand;
+ * Kelly, 2026-11-24, a pack mesh PP7). Bean draws its glove on the hand's
+ * lists and blanks the pistol, so a piece Bean replaces is kept as Bean shows
+ * it. port/tests/test_gun_hand_lists.py checks this list against every hand
+ * item's model on the cartridge. GoldenEye's art only: a hack campaign's
+ * models and GoldenEye X's are their own.
+ */
+static const struct { const char *file; s32 sw; } s_gunPiecesOnHand[] = {
+    { "GwppkZ", 35 },
+    { "GwppksilZ", 35 },
+    { "Gtt33Z", 11 },
+};
+
+/* Whether list node of header (from the cartridge file named file, NULL when
+ * not known) is part of the hand: the rifle bat's hand (gunfire.c) and a pack
+ * mesh gun's (gunfire.c, modelDrawGunHand) keep these and nothing else. */
+s32 modelGunHandList(const ModelFileHeader *header, ModelNode *node, const char *file)
 {
-    if (obj->Switches == NULL) return FALSE;
-    ModelNode *draw = node;
-    for (; node != NULL; node = node->Parent) {
-        s32 i;
-        for (i = 8; i <= 13 && i < obj->numSwitches; ++i) {
-            if (node == obj->Switches[i]) return TRUE;
+    extern int VrGexGuns;
+    ModelNode *list = node;
+    s32 hand = -1;
+    u32 i;
+
+    if (header == NULL || header->Switches == NULL) return FALSE;
+    for (; node != NULL && hand < 0; node = node->Parent) {
+        s32 s;
+        for (s = 8; s <= 13 && s < header->numSwitches && hand < 0; ++s) {
+            if (header->Switches[s] != NULL && node == header->Switches[s]) hand = s;
         }
-        if (obj->numSwitches >= 36 && node == obj->Switches[35]) {
-            Gfx *stock = draw->Data->DisplayList.Primary;
-            return !pp7Carrier || gevrBeanShownGdl(draw, stock) != stock;
+        if (hand < 0 && header->numSwitches > 35 && header->Switches[35] != NULL && node == header->Switches[35]) hand = 35;
+    }
+    if (hand < 0) return FALSE;
+    if (file == NULL || VrGexGuns || !gevrRomRetailArt()) return TRUE;
+    for (i = 0; i < ARRAYCOUNT(s_gunPiecesOnHand); ++i) {
+        if (s_gunPiecesOnHand[i].sw == hand && strcmp(s_gunPiecesOnHand[i].file, file) == 0) {
+            Gfx *stock = list->Data->DisplayList.Primary;
+            return gevrBeanShownGdl(list, stock) != stock;
         }
     }
-    return FALSE;
+    return TRUE;
 }
 #endif
 
-static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly, int pp7Carrier)
+static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly, const char *file)
 {
     ModelNode *root = mdl->obj->RootNode;
 #ifdef GEVR
@@ -5685,7 +5716,7 @@ static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly
 #ifdef GEVR
         const u32 op = root->Opcode & 0xff;
         if (!gunHandOnly || op == MODELNODE_OPCODE_SWITCH || op == MODELNODE_OPCODE_LOD
-            || op == MODELNODE_OPCODE_BSP || (op == MODELNODE_OPCODE_DL && modelInGunHand(mdl->obj, root, pp7Carrier)))
+            || op == MODELNODE_OPCODE_BSP || (op == MODELNODE_OPCODE_DL && modelGunHandList(mdl->obj, root, file)))
 #endif
         sub_GAME_7F074534(mrData, mdl, root);
 #ifdef GEVR
@@ -5727,13 +5758,13 @@ static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly
 
 void subdraw(ModelRenderData *mrData, Model *mdl)
 {
-    subdrawFiltered(mrData, mdl, 0, 0);
+    subdrawFiltered(mrData, mdl, 0, NULL);
 }
 
 #ifdef GEVR
-void modelDrawGunHand(ModelRenderData *mrData, Model *mdl, int pp7Carrier)
+void modelDrawGunHand(ModelRenderData *mrData, Model *mdl, const char *file)
 {
-    subdrawFiltered(mrData, mdl, 1, pp7Carrier);
+    subdrawFiltered(mrData, mdl, 1, file);
 }
 #endif
 
