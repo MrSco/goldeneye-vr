@@ -122,6 +122,9 @@ const char *fsFullPath(const char *relPath);  // port/src/fs.c
 int fsFileSize(const char *name);             // port/src/fs.c: -1 when absent
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
+#if defined(GEVR_IOS) && !defined(GEVR_HEADLESS)
+extern int VrICloudSync, VrICloudPacks;   // gevr_settings.c: iCloud, chosen on Play > Sync
+#endif
 #ifdef GEVR_PCVR
 void gfx_pc_mirror_frame(void);       // fast3d gfx_pc.cpp: the desktop mirror window, for the launcher's frames
 #endif
@@ -4210,7 +4213,20 @@ extern "C" void gevrLauncherRun(void)
                     break;
                 }
                 if (sub == GEVR_LSUB_PLAY_SYNC) {
-                    // Google Drive sync (gevr_sync_ui.h, docs/cloud-sync.md)
+                    // Google Drive sync (gevr_sync_ui.h, docs/cloud-sync.md); on an
+                    // Apple build signed for iCloud, first which one this device uses
+#if defined(GEVR_IOS) && !defined(GEVR_HEADLESS)
+                    if (gevrCloudAvailable()) {
+                        char status[160];
+                        gevrCloudStatus(status, sizeof(status));
+                        const GevrSyncICloud icloud = { &VrICloudSync, &VrICloudPacks, [] {
+                                                            gevrCloudSetOptions(VrICloudSync, VrICloudPacks);
+                                                            vrSettingsSave();
+                                                        }, status };
+                        gevrSyncPage(gold, bad, &icloud);
+                        break;
+                    }
+#endif
                     gevrSyncPage(gold, bad);
                     break;
                 }

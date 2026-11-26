@@ -34,6 +34,10 @@ page = page.replace('            ImGui::EndChild();\n        });',
                     'pageWidth = ImGui::GetContentRegionAvail().x; pageTab = tab; pageSub = sub; }\n'
                     '            ImGui::EndChild();\n        });')
 assert 'pageBottom = ' in page
+# Play > Sync's Apple layout (Off / iCloud / Google Drive) behind a switch the fixture sets
+icloud_guard = '#if defined(GEVR_IOS) && !defined(GEVR_HEADLESS)\n                    if (gevrCloudAvailable()) {'
+assert icloud_guard in page
+page = page.replace(icloud_guard, '#if 1\n                    if (s_testICloud) {')
 update = source[source.index('        // Update line: only when there is something to say'):source.index('        const bool campaignReady')]
 footer = ('        if (launcherTabs.top != GEVR_LTAB_ONLINE) footerTop = ImGui::GetCursorPosY();\n'
           '        if (launcherTabs.top != GEVR_LTAB_ONLINE) {\n        ImGui::Separator();\n' + update +

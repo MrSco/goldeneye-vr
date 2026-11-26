@@ -11,9 +11,16 @@
 #include "gevr_sync.h"   // Play tab: Google Drive sync (stubs: no GEVR_PC here)
 /* Play > Sync drawn with its longest state: linked, a pack on its way, a device
  * name, and five saves set aside, as a build with the Google client shows it */
+static int s_testDriveWaiting;   // the sign-in instead: the code and the QR code
 static int gevrTestSyncDrive(GevrSyncDriveInfo *out)
 {
     memset(out, 0, sizeof(*out));
+    if (s_testDriveWaiting) {
+        out->state = GEVR_SYNC_DRIVE_WAITING;
+        snprintf(out->url, sizeof(out->url), "https://www.google.com/device");
+        snprintf(out->code, sizeof(out->code), "WXYZ-WXYZ");
+        return out->state;
+    }
     out->state = GEVR_SYNC_DRIVE_LINKED;
     out->syncing = 1;
     snprintf(out->account, sizeof(out->account), "a.rather.long.address.for.a.player@gmail.com");
@@ -32,6 +39,11 @@ static int gevrTestSyncSavesAside(char (*names)[96], int max)
     for (; n < 5 && n < max; n++) snprintf(names[n], 96, "eeprom-hack-mario.bin.before-sync-2026112%d-201400", n);
     return n;
 }
+/* Play > Sync on an Apple build signed for iCloud: the Off / iCloud / Google Drive
+ * choice above Drive's page (the last sweep) */
+#include "gevr_icloud.h"
+extern "C" int VrICloudSync, VrICloudPacks;   // gevr_settings.c
+static int s_testICloud;
 #define gevrSyncDrive gevrTestSyncDrive
 #define gevrSyncProgress gevrTestSyncProgress
 #define gevrSyncSavesAside gevrTestSyncSavesAside
@@ -257,9 +269,14 @@ int main() {
     pages += sweep("co-op host");
     s_host = 0; s_coop = 0; s_config.mode = 0; s_config.scenario = 1; s_netSpeed = 4;
     pages += sweep("deathmatch joiner");
+    // an Apple build signed for iCloud: Play > Sync asks which sync first (Drive linked, its fullest)
+    s_net = 0; s_testICloud = 1;
+    pages += sweep("Apple, iCloud or Google Drive");
+    s_testDriveWaiting = 1;
+    pages += sweep("Apple, signing in to Google Drive");
     // 14 a state: Comfort & display > Graphics joined General (the graphics rows had run General out of room),
     // Play > Sync (Google Drive) joined Play's sub-tabs
-    check(pages == 4 * 14, "every settings page, Ghosts, Sync, and Multiplayer's Fun and Audio, in four states");
+    check(pages == 6 * 14, "every settings page, Ghosts, Sync, and Multiplayer's Fun and Audio, in six states");
     // both tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     int bars = 0;
@@ -270,6 +287,6 @@ int main() {
         }
     check(bars >= 3, "the top row and the Controls and Rules rows were drawn");
     ImGui::DestroyContext();
-    std::printf("PASS: launcher frame: %d pages (flat, stereo, co-op host, joiner), their controls and reasons, "
+    std::printf("PASS: launcher frame: %d pages (flat, stereo, co-op host, joiner, Apple), their controls and reasons, "
                 "the tab rows, the update line and START fit at Quest font size\n", pages);
 }

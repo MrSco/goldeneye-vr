@@ -211,26 +211,31 @@ Sync moves **data**, never **who a device is online**:
   the guest seats; their names come from each device's own guest seats
   (never synced), so they don't collide through the sync.
 
-## Apple devices: iCloud and Google Drive together
+## Apple devices: iCloud or Google Drive, one at a time
 
-iCloud sync shipped on TestFlight in v0.5.26, so it stays as it is, beside
-this sync, and both work on the save folder's files. On an Apple device,
-iCloud's launch merge runs first (main.c: gevrCloudLaunch, then
-gevrSyncLaunch); what it brought is a change in the files, which this sync
-stamps and carries to the other devices; what this sync writes is passed to
-iCloud (gevrCloudFileSaved) for the other Apple devices. Neither bounces a
-value back: each uploads only what differs from what it last synced.
+Owner, 2026-11-26: one sync per device. In v0.5.28 both could run on an
+Apple device, iCloud's launch merge first, then this one, on the same files.
+They fought: iCloud keeps no times for settings, so a value it brought looked
+to this sync like a change made here just now and was stamped with the
+launch's time, beating a newer one from a Quest or PC; and a save it brought
+was moved past this sync's last look (`max(written, clock + 1)`), so an older
+save could beat a newer one. Harmonising them needs times in iCloud's store
+and a handoff both ways, and it can't be tried end to end on a simulator.
 
-- iCloud stays automatic on Apple devices; Google Drive is opt-in everywhere.
-- Both use one table of which keys travel (gevr_sync_keys.h). Moving iCloud
-  onto it made the split-screen guest seats, pad assignments, audio output
-  and window "this device only" in iCloud too: two Apple TVs in two rooms
-  keep their own couch setups (they were per family, so the two TVs
-  overwrote each other's).
-- The one imprecision: a value iCloud brings at launch gets this launch's
-  stamp, so if a non-Apple device changed the same setting between the two
-  syncs, the Apple device's value wins. Saves aren't affected (a save keeps
-  the time it was written).
+- **Play > Sync** on an Apple build signed for iCloud asks first: **Off**,
+  **iCloud** (the Apple devices) or **Google Drive** (every device). Picking
+  one turns the other off on this device; leaving a linked Drive asks first
+  (it unlinks). Devices sync with each other when they use the same one;
+  with a Quest or PC too, Google Drive on every device, the Apple ones
+  included.
+- Both are off until chosen (iCloud was on by default through v0.5.28; a
+  device that has `ICloudSync=1` in its ini keeps it).
+- A device that has both (a v0.5.28 with iCloud on that linked Drive) keeps
+  Google Drive, the one linked by hand: iCloud's launch sees
+  `.gevr-sync/google.txt`, stays off and writes `ICloudSync=0`.
+- Both still use one table of which keys travel (gevr_sync_keys.h): the
+  split-screen guest seats, pad assignments, audio output and window are
+  "this device only" in either.
 
 ## Code
 

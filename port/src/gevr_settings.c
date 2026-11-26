@@ -17,7 +17,6 @@
 #include <math.h>
 #include "gevr_settings.h"
 #include "gevr_romlayout.h"   /* gevrRomRetailArt: hand reload's own-model magazines */
-#include "gevr_icloud.h"
 #include "net/net_core.h"
 #include "net/net_game.h"
 #include "net/net_rules.h"
@@ -814,12 +813,12 @@ static const char *const s_allyMoodNames[] = { "Cautious", "Normal", "Aggressive
 
 #define L(x) ((x) + 1)   /* a row's launcher place, when not its section's */
 
-/* iCloud (port/ios/ios_icloud.mm, docs/icloud-sync.md): the Apple builds signed for it */
-int VrICloudSync = 1;    /* settings, saves and ROMs */
+/* iCloud (port/ios/ios_icloud.mm, docs/icloud-sync.md): the Apple builds signed for it.
+ * Chosen on Play > Sync (port/vr/gevr_sync_ui.h), one sync per device, off until
+ * chosen (owner, 2026-11-26); not rows of this table, so Reset all settings
+ * leaves the device's sync alone. */
+int VrICloudSync = 0;    /* settings, saves and ROMs */
 int VrICloudPacks = 0;   /* and the texture packs (HD, AI, Bean, mods): the player's choice */
-static int shownICloud(void) { return gevrCloudAvailable(); }
-static int shownICloudPacks(void) { return gevrCloudAvailable() && VrICloudSync; }
-static void afterICloud(void) { gevrCloudSetOptions(VrICloudSync, VrICloudPacks); }
 
 /* Fun (the host's; online the match's, live, and the host's only) */
 static const char *blockedHostRule(void) { return netIsActive() && !netIsHost() ? "Host's choice" : NULL; }
@@ -1094,14 +1093,6 @@ static const Row s_rows[] = {
       .lo = THIRDPERSON_SIDE_MIN, .hi = THIRDPERSON_SIDE_MAX, .step = 5, .scale = 1, .fmt = "%.0f", .def = 35, .shown = shownThirdPerson },
     { .label = "Show stats", .tooltip = "Frame rate and timing in the corner, and in the log.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrShowStats, .def = NAN },
-    { .label = "iCloud sync", .tooltip = "Your settings, controls, saves and ROMs follow you to your iPhone, iPad, Apple TV "
-                                         "and Vision Pro. Changes made on another device apply at the next launch.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER,
-      .ivar = &VrICloudSync, .def = 1, .shown = shownICloud, .after = afterICloud },
-    { .label = "  Big packs too", .tooltip = "iCloud also carries the HD, AI and Bean texture packs and other mods. "
-                                            "They take hundreds of MB or more of your iCloud storage and move only on Wi-Fi.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER,
-      .ivar = &VrICloudPacks, .def = 0, .shown = shownICloudPacks, .after = afterICloud },
     { .label = "Speedrun timer", .tooltip = "The mission time in the lower left, to the hundredth: the debrief's clock, stopped in cutscenes and on the watch.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrSpeedrunTimer, .def = NAN,
       .blocked = blockedSpeedrun },

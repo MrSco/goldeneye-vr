@@ -95,10 +95,15 @@ the cloud, and a pack that differed at all from the first uploader's, by file
 count or size, such as Bean with or without its Community Edition overlay, came
 down whole.)
 
-Launcher: **Play** tab, under Show stats: **iCloud sync** (on) and
-**Big packs too** (off), shown only in a build signed for iCloud. The ROM box
-shows the status line ("iCloud: downloading ge.z64 40%") and a one-time
-message when a ROM arrives; the launcher's ROM scan picks it up.
+Launcher: **Play > Sync**, in a build signed for iCloud: which sync this
+device uses, **Off**, **iCloud** or **Google Drive**, one at a time (owner,
+2026-11-26; [cloud-sync.md](cloud-sync.md), "Apple devices"). iCloud is off
+until chosen (it was on by default through v0.5.28; a device whose ini says
+`ICloudSync=1` keeps it). Chosen, **Big packs too** (off) shows under it,
+with iCloud's status line. The line under START shows the progress
+("iCloud: downloading ge.z64 40%") and a one-time message when a ROM arrives;
+the launcher's ROM scan picks it up. Reset all settings leaves the choice
+alone (the switches are not rows of the settings table).
 
 ## Turning it on (Apple developer account, once)
 

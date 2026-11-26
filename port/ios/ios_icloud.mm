@@ -77,7 +77,7 @@ bool g_launched = false;
 bool g_workerStarted = false;
 bool g_launchDone = false;           // gevrCloudLaunch finished
 bool g_joined = false;                // this device takes part in the key-value sync (see gevrCloudLaunch)
-bool g_sync = true, g_packs = false;
+bool g_sync = false, g_packs = false;   // off until the player chooses iCloud on Play > Sync
 std::string g_root;                   // the save folder, absolute, no trailing slash
 std::string g_status, g_message;
 float g_progress = -1;                // a transfer's share done, 0..1; -1 none
@@ -1641,6 +1641,18 @@ extern "C" void gevrCloudLaunch(void)
     while (g_root.size() > 1 && g_root.back() == '/') g_root.pop_back();
     makeDirs(statePath(""));
     readOptions();
+    // one sync per device (owner, 2026-11-26): iCloud and Google Drive would
+    // each take the other's changes for this device's own. A device linked to
+    // Google Drive syncs with it alone; a v0.5.28 that had both on keeps Drive,
+    // the one the player linked by hand, and its iCloud row is put off.
+    std::string driveLink;
+    if (g_sync && readFile(g_root + "/.gevr-sync/google.txt", &driveLink) && !driveLink.empty()) {
+        g_sync = false;
+        const std::string iniPath = g_root + "/" + kIni.name;
+        std::string text;
+        if (readFile(iniPath, &text)) writeFileAtomic(iniPath, iniApply(kIni, text, { { "ICloudSync", "0" } }));
+        cloudLog("off: this device syncs with Google Drive");
+    }
     installReady();   // downloads that waited for this launch
     for (NSNotificationName name in @[ UIApplicationWillEnterForegroundNotification, UISceneWillEnterForegroundNotification ]) {
         [[NSNotificationCenter defaultCenter] addObserverForName:name object:nil queue:nil
