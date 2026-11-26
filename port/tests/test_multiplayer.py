@@ -353,6 +353,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_content_check_names_the_mod(self): self.assertEqual(self.core.test_core_content_mod(),0)
     def test_mod_messages_routed_and_checked(self): self.assertEqual(self.core.test_core_mod_messages(),0)
     def test_mod_shared_pickups_routed(self): self.assertEqual(self.core.test_core_mod_pickups(),0)
+    def test_mod_attachments_routed(self): self.assertEqual(self.core.test_core_mod_attach(),0)
     def test_flat_player_count_and_input_class_changes(self): self.assertEqual(self.core.test_core_flat_count(),0)
     def test_late_join_countdown_and_voted_map_warmup(self): self.assertEqual(self.core.test_core_warmup_join_and_votes(),0)
     def test_ready_vote_prompts_and_authenticated_notices(self): self.assertEqual(self.core.test_core_round_prompts(),0)

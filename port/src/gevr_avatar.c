@@ -3,6 +3,7 @@
  * See docs/multiplayer-ik.md and port/licenses/{perfect-dark-ce,perfect-dark-vr}.txt. */
 #include <stdbool.h>
 #include "gevr_avatar.h"
+#include "gevr_bodyslot.h"   /* the torso's frame, for mod.attach on another player */
 #include "net/net_core.h"
 #include "model.h"
 #include "objecthandler.h"
@@ -260,6 +261,56 @@ ModelNode *gevrAvatarWeaponHand(ChrRecord *chr,int hand,int *physicalLeft) {
     ModelNode *nodes[16];if(!findRig(chr->model,nodes))return NULL;
     *physicalLeft=(hand==GUNLEFT)^((pose.flags&GEVR_POSE_LEFT_HANDED)?1:0);
     return nodes[*physicalLeft?8:9];
+}
+
+/*
+ * gevr_modattach.c (mod.attach on another player, #335): the frame that
+ * player's attachment on a hand (on 1, where its weapon role) or a body
+ * anchor (on 2; bodyAt its centre from the eye, cm: below, right, ahead, as
+ * gevr_bodyslots.c gevrBodySlotAt sends it) is laid in, view space in world
+ * units, unit cm to a gun model's unit: X the holder's left, Y up, Z ahead,
+ * as that player's own headset builds it (bondview2.c gevrModAttachHandFrame,
+ * gevr_bodyslots.c gevrBodySlotFrame). A hand: the tracked grip (the palm
+ * gevrAvatarApply reaches for is 4 cm ahead of it). The body: the torso's
+ * yaw as sent, its frame built from the head as gevrBodyFrameBuild builds
+ * this player's. 0 while that hand or the head isn't tracked.
+ */
+int gevrAvatarAttachFrame(int slot,int on,int where,const float bodyAt[3],float unit,Mtxf *out) {
+    if(slot<0 || slot>=GEVR_MAX_PLAYERS || !g_playerPointers[slot] || !out || !bodyAt)return 0;
+    GevrAvatarPose pose;float weight[3],x[3],y[3],z[3],p[3];
+    if(!netGetAvatarPose(slot,&pose,weight))return 0;
+    const float *at=g_playerPointers[slot]->field_488.collision_position.f;
+    if(on==1) {
+        if(where<0 || where>1 || weight[where+1]<=0)return 0;
+        float grip[3][3];gevrPoseQuatMatrix(pose.hand[where].q,grip);   /* rows: right, back (the barrel's -Y), down */
+        for(int k=0;k<3;k++) {
+            x[k]=-grip[0][k];y[k]=-grip[2][k];z[k]=-grip[1][k];
+            p[k]=at[k]+pose.head.pos[k]+pose.hand[where].pos[k];
+        }
+    } else if(on==2) {
+        if(weight[0]<=0)return 0;
+        float head[3][3],fwd[3],hp[2];gevrPoseQuatMatrix(pose.head.q,head);   /* rows: right, up, back */
+        for(int k=0;k<3;k++)fwd[k]=-head[2][k];
+        if(!gevrBodyHeading(fwd,head[1],hp))return 0;
+        const float yaw=-pose.body_yaw*(3.14159265358979323846f/180);   /* gevrAvatarApply's level frame */
+        GevrBodyTorso torso;memset(&torso,0,sizeof(torso));
+        torso.heading[0]=sinf(yaw);torso.heading[1]=cosf(yaw);torso.valid=1;
+        GevrBodyFrame f;gevrBodyFrameBuild(&f,&torso,hp,fwd,head[1],head[0]);
+        for(int k=0;k<3;k++) {
+            x[k]=-f.right[k];y[k]=f.up[k];z[k]=f.fwd[k];
+            p[k]=at[k]+pose.head.pos[k]+f.origin[k]-bodyAt[0]*f.up[k]+bodyAt[1]*f.right[k]+bodyAt[2]*f.fwd[k];
+        }
+    } else return 0;
+    Mtxf *w2v=camGetWorldToScreenMtxf();
+    if(!w2v)return 0;
+    for(int k=0;k<3;k++) {
+        out->m[0][k]=(x[0]*w2v->m[0][k]+x[1]*w2v->m[1][k]+x[2]*w2v->m[2][k])*unit;
+        out->m[1][k]=(y[0]*w2v->m[0][k]+y[1]*w2v->m[1][k]+y[2]*w2v->m[2][k])*unit;
+        out->m[2][k]=(z[0]*w2v->m[0][k]+z[1]*w2v->m[1][k]+z[2]*w2v->m[2][k])*unit;
+        out->m[3][k]=p[0]*w2v->m[0][k]+p[1]*w2v->m[1][k]+p[2]*w2v->m[2][k]+w2v->m[3][k];
+    }
+    out->m[0][3]=out->m[1][3]=out->m[2][3]=0;out->m[3][3]=1;
+    return 1;
 }
 
 /*

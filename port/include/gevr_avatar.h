@@ -14,6 +14,9 @@ void gevrAvatarJointOffset(Model *model, ModelNode *node);
 RenderPosView *gevrAvatarCollisionPose(Model *model);
 /* Weapon roles follow physical hands in left-handed mode. */
 ModelNode *gevrAvatarWeaponHand(ChrRecord *chr, int hand, int *physicalLeft);
+/* mod.attach on another player (#335): its hand's (on 1) or body anchor's (on 2)
+ * frame, view space, unit cm a gun model's unit; 0 untracked */
+int gevrAvatarAttachFrame(int slot, int on, int where, const float bodyAt[3], float unit, Mtxf *out);
 #ifdef __cplusplus
 }
 #endif

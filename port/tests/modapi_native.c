@@ -41,6 +41,8 @@
  *                                  award (4) or gone (5)
  *     pickuptry <kind> <slot> <local>   propobj.c propPickupByPlayer's ask (TRY 1: held back)
  *     attachgone <id>              gevr_modattach.c: a guard's attachment gone with its body
+ *     netattach <mod> <from> <hex> net_core.c: another player's attachments message (NET_MOD_ATTACH)
+ *     left <slot> | back <slot>    that player's connection gone, or there (netLobbySlotConnected)
  *     panel <0|1>                  this build has the in-game screen (input.c gevrPanelAvailable)
  *     ui                           the pages the in-game screen shows now (UIPAGE, UIROW, UIBUTTON, UIASKED)
  *     uiset <page> <row> <value> | uiclick <page> <button> | uiopened   the screen's side
@@ -79,6 +81,8 @@ bool netIsHost(void) { return s_hostNet != 0; }
 bool netIsDedicated(void) { return s_dedicated != 0; }
 int netGetLocalSlot(void) { return s_slot; }
 int netGetHostSlot(void) { return 0; }
+static int s_gone[8];   /* players whose connection went (all there to start) */
+int netLobbySlotConnected(int slot) { return slot >= 0 && slot < 8 && !s_gone[slot]; }
 /* input.c: the in-game screen (mod.ui.open and close) */
 static int s_panel = 1;
 int gevrPanelAvailable(void) { return s_panel; }
@@ -224,6 +228,28 @@ int gevrModGameAttachPlace(int id, const float offset[4][4])
     return 1;
 }
 void gevrModGameAttachReset(void) { printf("ATTACH reset\n"); s_attached = 0; s_attachFiles = 0; }
+/* another player's (#335): placed as gevr_modattach.c would, Gno models refused */
+int gevrModGameAttachRemote(int slot, int id, const GevrModAttach *a, int shown, const float body[3])
+{
+    int i;
+
+    printf("REMOTE %d %d %d %d %d %d %s %s", slot, id, a->on, a->where, a->node, shown, a->model, a->like[0] ? a->like : "-");
+    for (i = 0; i < 4; i++) {
+        printf(" |%.0f %.0f %.0f %.0f", a->offset[i][0] + 0.0f, a->offset[i][1] + 0.0f, a->offset[i][2] + 0.0f,
+               a->offset[i][3] + 0.0f);
+    }
+    printf(" |%.0f %.0f %.0f\n", body[0] + 0.0f, body[1] + 0.0f, body[2] + 0.0f);
+    return strncmp(a->model, "Gno", 3) != 0;
+}
+void gevrModGameAttachRemoteGone(int slot, int id) { printf("REMOTEGONE %d %d\n", slot, id); }
+/* gevr_bodyslots.c gevrBodySlotAt: the anchor's centre from the eye, cm */
+int gevrModGameAttachBodyAt(int where, float out[3])
+{
+    out[0] = 60.0f + where;
+    out[1] = 20.0f;
+    out[2] = -10.0f;
+    return 1;
+}
 int gevrModGameLoaded(int hand) { return s_loaded[hand]; }
 void gevrModGameSetLoaded(int hand, int rounds) { s_loaded[hand] = rounds; }
 int gevrModGameStats(int item, GevrModWeaponStats *out)
@@ -700,6 +726,23 @@ int main(int argc, char **argv)
             s_modCampaign = atoi(argv[++i]);   /* a mod campaign runs (its own save) */
         } else if (!strcmp(cmd, "attachgone") && i + 1 < argc) {
             gevrModApiAttachGone(atoi(argv[++i]));
+        } else if (!strcmp(cmd, "netattach") && i + 3 < argc) {
+            static unsigned char bytes[2048];
+            int len = 0;
+            const char *hex = argv[i + 3];
+
+            while (hex[0] && hex[1] && len < (int)sizeof(bytes)) {
+                unsigned v;
+
+                sscanf(hex, "%2x", &v);
+                bytes[len++] = (unsigned char)v;
+                hex += 2;
+            }
+            gevrModNetAttach(argv[i + 1], atoi(argv[i + 2]), bytes, len);
+            i += 3;
+        } else if ((!strcmp(cmd, "left") || !strcmp(cmd, "back")) && i + 1 < argc) {
+            s_gone[atoi(argv[i + 1]) & 7] = cmd[0] == 'l';
+            i += 1;
         } else if (!strcmp(cmd, "pickuptry") && i + 3 < argc) {
             printf("TRY %d\n", gevrModApiPickupTry(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3])));
             i += 3;

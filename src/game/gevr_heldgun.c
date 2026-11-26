@@ -876,6 +876,13 @@ Gfx *gevrHeldGunDraw(ChrRecord *chr, ModelRenderData *body, Gfx *gdl, s32 withal
             subdraw(&rd, &inst->rocket);
         }
 
+        {
+            /* what another player wears on this gun (mod.attach, #335), on its matrices as just drawn */
+            extern Gfx *gevrModAttachDrawPlayerGun(Gfx *gdl, ModelRenderData *templ, ChrRecord *chr, s32 hand, Model *gun);
+
+            rd.gdl = gevrModAttachDrawPlayerGun(rd.gdl, &rd, chr, hand, &inst->model);
+        }
+
         gdl = rd.gdl;
 
         if (withalpha)

@@ -22,7 +22,8 @@ def main():
         if build.returncode:
             raise RuntimeError(build.stderr)
         subprocess.run([str(exe)], check=True)
-    print("PASS: attachment poses, mirroring, next-tick lookup, and stale or undrawn frame rejection")
+    print("PASS: attachment poses, mirroring, next-tick lookup, and stale or undrawn frame rejection; another "
+          "player's kept apart, drawn once on its held gun at the level's scale, this player's own placed first")
 
 
 if __name__ == "__main__":

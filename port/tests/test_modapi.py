@@ -42,7 +42,8 @@ def build(temp):
     exe = temp / ("modapi_test.exe" if os.name == "nt" else "modapi_test")
     subprocess.run([cc, *flags, *sanitize, "-I" + str(ROOT / "include"), "-I" + str(ROOT / "port/include"),
                     str(ROOT / "port/tests/modapi_native.c"), str(ROOT / "port/src/gevr_modapi.c"),
-                    str(ROOT / "port/src/gevr_modscript.c"), *objects, "-lm", "-o", str(exe)], check=True)
+                    str(ROOT / "port/src/gevr_modscript.c"), str(ROOT / "port/src/gevr_modattach_net.c"), *objects, "-lm",
+                    "-o", str(exe)], check=True)
     return exe
 
 
@@ -1842,6 +1843,159 @@ end)
           "an id this mod didn't attach: false, nothing touched")
 
 
+def attach_record(op, id=0, on=0, where=0, node=0, shown=1, origin=(0, 0, 0), body=(0, 0, 0), model="", like="", slot=0):
+    """one record of a NET_MOD_ATTACH message (gevr_modattach_net.h)"""
+    import struct
+    b = bytes([op])
+    if op == 1:
+        frame = [1, 0, 0, 0, 1, 0, 0, 0, 1, *origin]
+        b += struct.pack("<IBBBB", id, on, where, node, shown) + struct.pack("<15f", *frame, *body)
+        b += bytes([len(model)]) + model.encode() + bytes([len(like)]) + like.encode()
+    elif op == 2:
+        b += struct.pack("<I", id)
+    elif op == 4:
+        b += bytes([slot])
+    return b
+
+
+def attach_message(stage, *records):
+    return (bytes([stage, len(records)]) + b"".join(records)).hex()
+
+
+def attach_sent(out):
+    """the NET_MOD_ATTACH messages sent: (to, mod, records as tuples)"""
+    import struct
+    sent = []
+    for line in answers(out, "NETSEND 6 "):
+        f = line.split()
+        data = bytes(int(x, 16) for x in f[6:])
+        assert len(data) == int(f[5])
+        stage, n, p, recs = data[0], data[1], 2, []
+        for _ in range(n):
+            op = data[p]
+            p += 1
+            if op == 1:
+                id_, on, where, node, shown = struct.unpack_from("<IBBBB", data, p)
+                p += 8
+                v = struct.unpack_from("<15f", data, p)
+                p += 60
+                model = data[p + 1:p + 1 + data[p]].decode()
+                p += 1 + data[p]
+                like = data[p + 1:p + 1 + data[p]].decode()
+                p += 1 + data[p]
+                recs.append(("set", id_, on, where, node, shown, tuple(round(x) for x in v[9:12]),
+                             tuple(round(x) for x in v[12:15]), model, like))
+            elif op == 2:
+                recs.append(("remove", struct.unpack_from("<I", data, p)[0]))
+                p += 4
+            elif op == 3:
+                recs.append(("clear",))
+            else:
+                recs.append(("ask", data[p]))
+                p += 1
+        assert p == len(data)
+        sent.append((int(f[2]), f[3], stage, recs))
+    return sent
+
+
+def attach_network(exe, temp):
+    """#335: what this player wears goes to the others as it changes (never a guard's), and theirs is drawn here;
+    a player who joins gets it all (the host asks); removals, a stop and a player leaving reach the others"""
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+local ids = {}
+mod.on("mission_start", function()
+  ids.sight = mod.attach.add({ model = "GtacSightZ", like = "Gak47Z", on = "gun", hand = "right", node = 3, at = { 0, 90, -20 } })
+  ids.holster = mod.attach.add({ model = "pack-part.bin", on = "hip_gun" })
+  ids.vest = mod.attach.add({ model = "PvestZ", like = "PcartonZ", on = "guard", guard = 5000, part = "chest" })
+  print("ids", ids.sight, ids.holster, ids.vest)
+end)
+local n = 0
+mod.on("tick", function()
+  n = n + 1
+  if n == 1 then mod.attach.show(ids.sight, false); mod.attach.show(ids.sight, false) end
+  if n == 2 then mod.attach.place(ids.sight, { at = { 0, 90, -25 } }) end
+  if n == 3 then mod.attach.remove(ids.sight); mod.attach.add({ model = "GtacRailZ", like = "Gak47Z", on = "gun", hand = "right" }) end
+  if n == 5 then error("stop") end
+end)
+"""
+    out = run(exe, temp, "attachnet", lua, "online", 1, 0, 0, 2, *play, *(["frame"] * 7))
+    sight = ("set", 1, 0, 0, 3, 1, (0, 90, -20), (0, 0, 0), "GtacSightZ", "Gak47Z")
+    sent = attach_sent(out)
+    check(logs(out)[:1] == ["ids 1 2 3"] and sent == [
+        (255, "tactical", 9, [sight, ("set", 2, 2, 0, 0, 1, (0, 0, 0), (60, 20, -10), "pack-part.bin", "")]),
+        (255, "tactical", 9, [sight[:5] + (0,) + sight[6:]]),
+        (255, "tactical", 9, [sight[:5] + (0, (0, 90, -25)) + sight[7:]]),
+        (255, "tactical", 9, [("remove", 1), ("set", 4, 0, 0, 0, 1, (0, 0, 0), (0, 0, 0), "GtacRailZ", "Gak47Z")]),
+        (255, "tactical", 9, [("clear",)])],
+          "attached, flipped (once, the same again unsent), moved, removed and a gun's part swapped, then a stop's "
+          "clear, each the next frame; never the guard's: " + str(sent))
+    check(answers(out, "NETSEND 1 ") == ["NETSEND 1 255 tactical - 0"], "the stop told as before")
+    out = run(exe, temp, "attachsolo", lua, *play, *(["frame"] * 4))
+    check(not answers(out, "NETSEND"), "solo: nothing sent")
+
+    # another player's: applied at the next frame in play, this mission's and this mod's only
+    gun = attach_record(1, 7, 0, 0, 3, 1, (0, 90, -20), (0, 0, 0), "GtacSightZ", "Gak47Z")
+    holster = attach_record(1, 8, 2, 0, 0, 1, (0, 0, 0), (65, 20, -10), "pack-part.bin", "")
+    out = run(exe, temp, "attachrecv", 'mod.on("tick", function() end)', "online", 1, 0, 0, 2, "start",
+              "netattach", "tactical", 1, attach_message(9, gun),          # before the mission loads: gone with it
+              "prepare", 9,
+              "netattach", "tactical", 1, attach_message(9, gun, holster),  # while it loads: held
+              "begin", 9, "frame",
+              "netattach", "tactical", 1, attach_message(9, attach_record(1, 7, 0, 0, 3, 0, (0, 90, -20), (0, 0, 0),
+                                                                        "GtacSightZ", "Gak47Z")),
+              "frame",
+              "netattach", "tactical", 1, attach_message(9, attach_record(2, 7)),
+              "netattach", "tactical", 1, attach_message(10, gun),         # another mission's
+              "netattach", "other", 1, attach_message(9, gun),             # a mod not running here
+              "netattach", "tactical", 1, attach_message(9, gun) + "00",   # a byte too many: refused whole
+              "netattach", "tactical", 1, attach_message(9, attach_record(1, 7, 3, 0, 0, 1, (0, 0, 0), (0, 0, 0), "GtacSightZ", "")),
+              "netattach", "tactical", 1, attach_message(9, attach_record(1, 9, 0, 0, 0, 1, (0, 0, 0), (0, 0, 0), "../GtacZ", "")),
+              "frame",
+              "netattach", "tactical", 3, attach_message(9, holster),
+              "frame", "netattach", "tactical", 3, attach_message(9, attach_record(3)),
+              "frame", "left", 1, "frame", "frame")
+    check(answers(out, "REMOTE") == [
+        "REMOTE 1 7 0 0 3 1 GtacSightZ Gak47Z |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 90 -20 1 |0 0 0",
+        "REMOTE 1 8 2 0 0 1 pack-part.bin - |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 0 0 1 |65 20 -10",
+        "REMOTE 1 7 0 0 3 0 GtacSightZ Gak47Z |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 90 -20 1 |0 0 0",
+        "REMOTEGONE 1 7",
+        "REMOTE 3 8 2 0 0 1 pack-part.bin - |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 0 0 1 |65 20 -10",
+        "REMOTEGONE 3 0",
+        "REMOTEGONE 1 0"],
+          "another player's placed, flipped, removed, cleared, and gone with its player; held while loading, the last "
+          "mission's gone; another mission's, another mod's and malformed ones not: " + str(answers(out, "REMOTE")))
+    check(out.count("a malformed attachments message from player 1 dropped") == 1, "the malformed logged, once a mission")
+    check(not answers(out, "NETSEND"), "a player wearing nothing sends nothing")
+
+    # a player joining: the host asks those it heard wearing something, and sends its own; nothing without any
+    lua = r"""
+mod.on("mission_start", function() mod.attach.add({ model = "pack-part.bin", on = "chest" }) end)
+"""
+    out = run(exe, temp, "attachjoin", 'mod.on("tick", function() end)', "online", 1, 1, 0, 0, *play, "frame",
+              "peerready", 3, "frame",
+              "netattach", "tactical", 1, attach_message(9, gun), "frame", "peerready", 3, "frame", "peerready", 1, "frame")
+    check(attach_sent(out) == [(255, "tactical", 9, [("ask", 3)])],
+          "the host: no ask while no one wears anything; one for the player who joins, not for the wearer itself: "
+          + str(attach_sent(out)))
+    out = run(exe, temp, "attachjoinhost", lua, "online", 1, 1, 0, 0, *play, "frame", "peerready", 3, "frame")
+    chest = ("set", 1, 2, 4, 0, 1, (0, 0, 0), (64, 20, -10), "pack-part.bin", "")
+    check(attach_sent(out) == [(255, "tactical", 9, [chest]), (3, "tactical", 9, [chest])],
+          "the host's own to the player who joins, to that player alone: " + str(attach_sent(out)))
+    # a player asked by the host sends what it wears to that player; an ask from anyone else is no one's
+    out = run(exe, temp, "attachask", lua, "online", 1, 0, 0, 2, *play, "frame",
+              "netattach", "tactical", 3, attach_message(9, attach_record(4, slot=5)), "frame",
+              "netattach", "tactical", 0, attach_message(9, attach_record(4, slot=2)), "frame",
+              "netattach", "tactical", 0, attach_message(9, attach_record(4, slot=5)), "frame")
+    check(attach_sent(out) == [(255, "tactical", 9, [chest]), (5, "tactical", 9, [chest])],
+          "answered to the one the host asked for alone: " + str(attach_sent(out)))
+    # a dedicated server: it asks, and draws no one
+    out = run(exe, temp, "attachserver", 'mod.on("tick", function() end)', "online", 1, 1, 1, -1, *play,
+              "netattach", "tactical", 1, attach_message(9, gun), "frame", "peerready", 2, "frame")
+    check(not answers(out, "REMOTE") and attach_sent(out) == [(255, "tactical", 9, [("ask", 2)])],
+          "a dedicated server: asks, draws nothing: " + str(attach_sent(out)))
+
+
 def ui(exe, temp):
     play = ("start", "prepare", 9, "begin", 9)
     lua = r"""
@@ -2142,6 +2296,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         attach_authored_frame(exe, temp)
         pack_names(exe, temp)
         attach_loadout(exe, temp)
+        attach_network(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -2164,7 +2319,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "the hand's scope wherever the game read the item's. Gun models: mod.weapon.model's choices, refusals "
           "and reset; the hand's load, load_resource's name and the fits. Attachments: mod.attach on the gun, a hand "
           "and the body or a gun model's node or a guard's body part, its offset, refusals, place, show and remove (the owner's only), one gone with its guard's body; the "
-          "draws, frames and load; a measured loadout's size twice over, the limits, and a frame without room skipping one")
+          "draws, frames and load; a measured loadout's size twice over, the limits, and a frame without room skipping one; on the other players (#335): sent as it changes, never a guard's, another player's applied, flipped, removed, cleared and gone with its player, a join's whole state through the host's ask")
 
 
 if __name__ == "__main__":

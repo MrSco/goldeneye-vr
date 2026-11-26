@@ -1101,6 +1101,28 @@ s32 gevrBodySlotFrame(s32 slot, Mtxf *root)
     return TRUE;
 }
 
+/*
+ * mod.attach over the network (#335, gevr_modattach.c): a slot's centre from
+ * the eye, cm, in the torso's own terms (below, to the frame's right, ahead),
+ * from this player's fit or the default for its height, so another headset
+ * lays it on this player's copy (gevr_avatar.c gevrAvatarAttachFrame) where
+ * gevrBodySlotFrame puts it here.
+ */
+s32 gevrBodySlotAt(s32 slot, f32 out[3])
+{
+    f32 off[3];
+
+    if (slot < 0 || slot >= GEVR_BODY_SLOTS)
+    {
+        return FALSE;
+    }
+    gevrBodySlotOffsets(slot, VrBodySlotFit[slot], VrPlayerHeight, off);
+    out[0] = off[0];
+    out[1] = (f32) gevrBodySlotSide(slot, VrLeftHandedMode) * off[1];
+    out[2] = off[2];
+    return TRUE;
+}
+
 Gfx *gevrBodySlotsDraw(Gfx *gdl)
 {
     static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF, GEVR_BS_CHEST, GEVR_BS_BELT };

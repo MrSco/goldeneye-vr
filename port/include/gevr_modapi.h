@@ -313,6 +313,7 @@ int gevrModGameBlood(const GevrModBloodConfig *config);   /* NULL restores stock
 enum {   /* net_protocol.h NET_MOD_* */
     GEVR_MODNET_DATA = 0, GEVR_MODNET_OFF = 1,
     GEVR_MODNET_DROP = 2, GEVR_MODNET_CLAIM = 3, GEVR_MODNET_GRANT = 4, GEVR_MODNET_GONE = 5,
+    GEVR_MODNET_ATTACH = 6,
 };
 /* a shared pickup's bytes on the wire (little-endian): a drop's u8 stage, u8
  * item, u8 ammo, u8 0, u32 id, s16 from (a guard's id, or -1 - a player's
@@ -330,6 +331,11 @@ void gevrModNetStopped(const char *mod, int from);
  * to _GONE; from the sender's slot); held, and applied in order at the next
  * frame in play if it's this mission's */
 void gevrModNetPickup(const char *mod, int from, int kind, const void *data, int len);
+/* net_core.c: another player's attachments and their state (GEVR_MODNET_ATTACH,
+ * gevr_modattach_net.h's bytes; from the sender's slot, -1 a dedicated
+ * server): checked whole, then held and applied at the next frame in play if
+ * it's this mission's */
+void gevrModNetAttach(const char *mod, int from, const void *data, int len);
 /* net_core.c netReceiveStageReady, the host: a player is in the stage;
  * peer_ready at the next frame in play */
 void gevrModApiPeerReady(int slot);
@@ -503,6 +509,18 @@ void gevrModGameAttachReset(void);   /* none attached (a new mission, a mod stop
 /* gevr_modattach.c: a guard's attachment gone with its body (chr.c
  * chrpropCleanupForRemoval): its id isn't any mod's now */
 void gevrModApiAttachGone(int id);
+/* Another player's attachments (#335), drawn on that player's copy here: on
+ * its held gun, a hand or the body (never a guard's). slot is the owner's,
+ * id the owner's own. Set adds or changes one (a new model loads; the
+ * offset, shown and body anchor's centre from the eye, cm, below, right and
+ * ahead, take effect from the next frame): 1 placed, 0 not (no room left
+ * after this player's own, a model that won't load). Gone removes one, or
+ * all the slot's with id 0. */
+int gevrModGameAttachRemote(int slot, int id, const GevrModAttach *a, int shown, const float body[3]);
+void gevrModGameAttachRemoteGone(int slot, int id);
+/* This player's body anchor's centre from the eye, cm (below, to the right,
+ * ahead), from its own fit (gevr_bodyslots.c): what the others place it by */
+int gevrModGameAttachBodyAt(int where, float out[3]);
 /* A gun or thrown weapon with a model in this cartridge: what a swap or
  * mod.inventory.give/take may use */
 int gevrModGameSwappable(int item);

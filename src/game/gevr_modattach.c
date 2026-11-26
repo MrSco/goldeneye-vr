@@ -21,12 +21,24 @@
  *  - a hand: the controller's grip (bondview2.c gevrModAttachHandFrame);
  *  - a body slot: the slot's centre on the torso (gevr_bodyslots.c
  *    gevrBodySlotFrame), kept while a mod runs even with body slots off.
- * The local player's view only; another player doesn't see them.
+ *    In co-op the others see these three on this player's copy (#335): its
+ *    state goes over the network (gevr_modapi.c, gevr_modattach_net.c), and
+ *    each other headset draws it on that player ("another player's" below).
  *  - a guard's body part: the matrix of the part the game's hits name
  *    (its bounding box's ModelNumber, HIT_*), as drawn (chr.c
  *    chrRenderProp, after the body and what's stuck to it), in every view
  *    the guard's drawn in; kept on its body, dead or alive, until the body
  *    is removed (chrpropCleanupForRemoval).
+ *
+ * Another player's (#335): kept here with a negative id (never an API's),
+ * that player's slot and its own id, and drawn on that player's copy in the
+ * body's passes (chr.c chrRenderProp): on the gun, its first-person model in
+ * the copy's hand (gevr_heldgun.c gevrHeldGunDraw) at its root or the node,
+ * as drawn; on a hand or the body, the frames the player's tracked pose gives
+ * (gevr_avatar.c gevrAvatarAttachFrame), at a gun model's units and the
+ * match's gun size, as this player's own are. They share the tables: this
+ * player's own always find a place (another's is set aside for one), and
+ * another's loads a new file only while ATT_REMOTE_FILES_FREE stay free.
  */
 
 #include <ultra64.h>
@@ -66,6 +78,7 @@ extern s32 gevrBodySlotFrame(s32 slot, Mtxf *root);        /* gevr_bodyslots.c *
 #define ATT_MODELSIZE 0xF000     /* and its model region */
 #define ATT_RW        256        /* rwdata words per instance */
 #define ATT_NAME      64
+#define ATT_REMOTE_FILES_FREE 16 /* model files another player's never takes */
 
 typedef struct
 {
@@ -81,7 +94,9 @@ typedef struct
 
 typedef struct
 {
-    s32 id;                      /* 0 free */
+    s32 id;                      /* 0 free; below 0 another player's (#335) */
+    s32 owner, ownerId;          /* another player's: its slot, and its own id for it */
+    f32 body[3];                 /* another player's on its body: the anchor's centre from the eye, cm */
     AttachFile *file;
     s32 on, where, shown;
     s32 node;                    /* on the gun: the matrix of its model it rides; on a guard: the part */
@@ -103,6 +118,9 @@ typedef struct
 static AttachFile s_files[GEVR_MODAPI_ATTACH_MODELS];
 static Attachment s_attach[GEVR_MODAPI_ATTACH_MAX];
 static s32 s_nextId = 1;
+static s32 s_nextRemote = -1;
+static s32 s_remoteAny;    /* another player's placed this mission */
+static s32 s_remoteWarned; /* one set aside or refused: logged once a mission */
 static s32 s_roomWarned;   /* a frame ran out of room: logged once a mission */
 
 static s32 attachLocal(void)
@@ -300,6 +318,20 @@ int gevrModGameAttach(const GevrModAttach *a)
             slot = &s_attach[i];
         }
     }
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX && slot == NULL; i++)
+    {
+        if (s_attach[i].id < 0)
+        {
+            /* this player's own first: another player's is set aside */
+            if (!s_remoteWarned)
+            {
+                sysLogPrintf(LOG_WARNING, "mods: attach: all %d in use; another player's set aside for this player's",
+                             GEVR_MODAPI_ATTACH_MAX);
+                s_remoteWarned = TRUE;
+            }
+            slot = &s_attach[i];
+        }
+    }
     if (slot == NULL)
     {
         return -1;
@@ -396,12 +428,132 @@ void gevrModGameAttachReset(void)
         s_files[i].mesh = NULL;
     }
     s_roomWarned = FALSE;
+    s_remoteAny = FALSE;
+    s_remoteWarned = FALSE;
+    s_nextRemote = -1;
+}
+
+/* another player's model: one already loaded, else a new one while
+ * ATT_REMOTE_FILES_FREE stay free for this player's own */
+static AttachFile *attachLoadRemote(const char *model, const char *like)
+{
+    s32 i, unused = 0;
+
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MODELS; i++)
+    {
+        if (s_files[i].model[0] && strcmp(s_files[i].model, model) == 0 && strcmp(s_files[i].like, like) == 0)
+        {
+            return attachLoad(model, like);
+        }
+        unused += !s_files[i].model[0];
+    }
+    if (unused <= ATT_REMOTE_FILES_FREE)
+    {
+        if (!s_remoteWarned)
+        {
+            sysLogPrintf(LOG_WARNING, "mods: attach: another player's %s not loaded: %d model files kept for this player's",
+                         model, ATT_REMOTE_FILES_FREE);
+            s_remoteWarned = TRUE;
+        }
+        return NULL;
+    }
+    return attachLoad(model, like);
+}
+
+int gevrModGameAttachRemote(int slot, int id, const GevrModAttach *a, int shown, const float body[3])
+{
+    Attachment *at = NULL, *spare = NULL;
+    AttachFile *f;
+    s32 i, j;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || id <= 0 || a == NULL || body == NULL
+        || (a->on != GEVR_MODATTACH_GUN && a->on != GEVR_MODATTACH_HAND && a->on != GEVR_MODATTACH_BODY)
+        || (netIsActive() && slot == netGetLocalSlot()))
+    {
+        return 0;
+    }
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
+    {
+        if (s_attach[i].id < 0 && s_attach[i].owner == slot && s_attach[i].ownerId == id)
+        {
+            at = &s_attach[i];
+        }
+        else if (s_attach[i].id == 0 && spare == NULL)
+        {
+            spare = &s_attach[i];
+        }
+    }
+    if (at == NULL && spare == NULL)
+    {
+        if (!s_remoteWarned)
+        {
+            sysLogPrintf(LOG_WARNING, "mods: attach: all %d in use; another player's isn't shown", GEVR_MODAPI_ATTACH_MAX);
+            s_remoteWarned = TRUE;
+        }
+        return 0;
+    }
+    f = at != NULL && strcmp(at->file->model, a->model) == 0 && strcmp(at->file->like, a->like) == 0
+      ? at->file : attachLoadRemote(a->model, a->like);
+    if (f == NULL)
+    {
+        if (at != NULL)
+        {
+            at->id = 0;   /* its new model won't load: none rather than the old */
+        }
+        return 0;
+    }
+    if (at == NULL)
+    {
+        at = spare;
+        memset(at, 0, sizeof(*at));
+        at->id = s_nextRemote--;
+        at->owner = slot;
+        at->ownerId = id;
+    }
+    at->file = f;
+    at->on = a->on;
+    at->where = a->where;
+    at->node = a->on == GEVR_MODATTACH_GUN ? a->node : 0;
+    at->shown = shown != 0;
+    for (i = 0; i < 4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            at->offset.m[i][j] = a->offset[i][j];
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        at->body[i] = body[i];
+    }
+    s_remoteAny = TRUE;
+    return 1;
+}
+
+void gevrModGameAttachRemoteGone(int slot, int id)
+{
+    s32 i;
+
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
+    {
+        if (s_attach[i].id < 0 && s_attach[i].owner == slot && (id == 0 || s_attach[i].ownerId == id))
+        {
+            s_attach[i].id = 0;
+        }
+    }
+}
+
+int gevrModGameAttachBodyAt(int where, float out[3])
+{
+    extern s32 gevrBodySlotAt(s32 slot, f32 out[3]);   /* gevr_bodyslots.c */
+
+    return gevrBodySlotAt(where, out);
 }
 
 /* one attachment at its anchor's frame: the offset laid in it, the model's
  * node matrices from there as the game's props get theirs (instcalcmatrices),
  * or every one the pose for a model with animated joints (attachHasJoints) */
-static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *anchor, Mtxf *drawnPose)
+static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *anchor, Mtxf *drawnPose, s32 world)
 {
     ModelFileHeader *h = &a->file->header;
     ModelRenderData rd = *templ;
@@ -409,7 +561,24 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     s32 i;
 
     if (a->file->mesh != NULL) {
+        /* in a body's passes (world, another player's): once, in its solid
+         * pass (the mesh draws its own see-through parts), and at the level's
+         * scale, which the game's own matrices take as they're converted
+         * (matrixmath.c matrix_4x4_f32_to_s32) */
+        if (world && !(templ->flags & 1)) return gdl;
         matrix_4x4_multiply(anchor, &a->offset, &pose);
+        if (world)
+        {
+            extern f32 D_80032310[2];   /* matrixmath.c: the conversion's scale */
+            const f32 k = D_80032310[0] / 65536.0f;
+
+            for (i = 0; i < 4; i++)
+            {
+                pose.m[i][0] *= k;
+                pose.m[i][1] *= k;
+                pose.m[i][2] *= k;
+            }
+        }
         Gfx *end = gevrModMeshDraw(gdl, &pose, a->file->mesh);
         if (drawnPose != NULL && end != gdl) *drawnPose = pose;
         return end;
@@ -506,10 +675,10 @@ Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun
     {
         Attachment *a = &s_attach[i];
 
-        if (a->id != 0 && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand && a->node < gun->obj->numMatrices)
+        if (a->id > 0 && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand && a->node < gun->obj->numMatrices)
         {
             node = ((Mtxf *) gun->render_pos)[a->node];
-            Gfx *end = attachDraw(gdl, templ, a, &node, &a->drawnPose);
+            Gfx *end = attachDraw(gdl, templ, a, &node, &a->drawnPose, FALSE);
             if (end != gdl) {
                 a->drawnFrame = os_scheduler.frameCount;
                 a->drawnItem = get_item_in_hand_or_watch_menu(hand);
@@ -560,7 +729,7 @@ Gfx *gevrModAttachDrawGuard(ChrRecord *chr, ModelRenderData *body, s32 fadealpha
         }
         node = ((Mtxf *) chr->model->render_pos)[a->partMtx];
         objdata.gdl = gdl;
-        gdl = attachDraw(gdl, &objdata, a, &node, NULL);
+        gdl = attachDraw(gdl, &objdata, a, &node, NULL, FALSE);
     }
     return gdl;
 }
@@ -604,7 +773,7 @@ Gfx *gevrModAttachDrawBody(Gfx *gdl)
         Mtxf frame;
         s32 ok;
 
-        if (a->id == 0 || !a->shown || (a->on != GEVR_MODATTACH_HAND && a->on != GEVR_MODATTACH_BODY))
+        if (a->id <= 0 || !a->shown || (a->on != GEVR_MODATTACH_HAND && a->on != GEVR_MODATTACH_BODY))
         {
             continue;
         }
@@ -622,13 +791,99 @@ Gfx *gevrModAttachDrawBody(Gfx *gdl)
          * off hand, 2 the gun hand, as gunfire.c gevrHandTag), the body's the body (3) */
         gDPNoOpTag(gdl++, 0x565F0000 | (u32) (a->on == GEVR_MODATTACH_HAND ? (a->where == GUNRIGHT ? 2 : 1) : 3));
         matrix_4x4_7F058C64();
-        gdl = attachDraw(gdl, &rd, a, &frame, NULL);
+        gdl = attachDraw(gdl, &rd, a, &frame, NULL, FALSE);
         matrix_4x4_7F058C88();
         gDPNoOpTag(gdl++, 0x565F0000);   /* the world again */
     }
     if (set)
     {
         gSPPerspNormalize(gdl++, viGetPerspNorm());
+    }
+    return gdl;
+}
+
+/* ---- another player's (#335) ---- */
+
+/* the other player whose copy chr is, or -1: online, a player's body that
+ * isn't this headset's, in a view's own pass (not a copy's extra one) */
+static s32 attachRemoteSlot(ChrRecord *chr)
+{
+    s32 slot;
+
+    if (!s_remoteAny || !netIsActive() || g_gevrExtraPass || chr == NULL || chr->prop == NULL
+        || chr->prop->type != PROP_TYPE_VIEWER)
+    {
+        return -1;
+    }
+    slot = getPlayerPointerIndex(chr->prop);
+    return slot >= 0 && slot < MAX_PLAYER_COUNT && slot != netGetLocalSlot() ? slot : -1;
+}
+
+/* gevr_heldgun.c gevrHeldGunDraw, in each of the body's passes as another
+ * player's gun is drawn in its hand (its first-person model, its matrices
+ * still floats): what that player wears on the gun that hand holds, on the
+ * model's matrix it rides as drawn (the root, or the node: that model isn't
+ * animated, so a node is where its rest pose puts it) */
+Gfx *gevrModAttachDrawPlayerGun(Gfx *gdl, ModelRenderData *templ, ChrRecord *chr, s32 hand, Model *gun)
+{
+    const s32 slot = attachRemoteSlot(chr);
+    Mtxf node;
+    s32 i;
+
+    if (slot < 0 || gun == NULL || gun->obj == NULL || gun->render_pos == NULL || gun->obj->numMatrices <= 0)
+    {
+        return gdl;
+    }
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
+    {
+        Attachment *a = &s_attach[i];
+
+        if (a->id < 0 && a->owner == slot && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand
+            && a->node < gun->obj->numMatrices)
+        {
+            node = ((Mtxf *) gun->render_pos)[a->node];
+            gdl = attachDraw(gdl, templ, a, &node, NULL, TRUE);
+        }
+    }
+    return gdl;
+}
+
+/* chr.c chrRenderProp, after another player's body and what's stuck to it,
+ * in each of its passes: what that player wears on a hand or the body, at
+ * the frames its tracked pose gives (none for a hand or a head not tracked:
+ * a flat player, a bot). Not while the body fades: its held gun is the
+ * game's then, and these go with it. */
+Gfx *gevrModAttachDrawPlayer(ChrRecord *chr, ModelRenderData *body, s32 fadealpha, Gfx *gdl)
+{
+    extern s32 gevrAvatarAttachFrame(s32 slot, s32 on, s32 where, const f32 bodyAt[3], f32 unit, Mtxf *out);
+    extern f32 gevrGunSizeNow(s32 *setting, s32 *online);   /* bondview2.c */
+    const s32 slot = attachRemoteSlot(chr);
+    ModelRenderData rd;
+    s32 i, setting, online;
+    f32 unit;
+
+    if (slot < 0 || fadealpha < 0xFF)
+    {
+        return gdl;
+    }
+    /* as the first-person gun in its hand is drawn (gevrHeldGunDraw) */
+    rd = *body;
+    rd.PropType = PROP_TYPE_CHR + 1;
+    rd.envcolour.word = body->fogcolour.word;
+    rd.zbufferenabled = TRUE;
+    unit = 0.085f * gevrGunSizeNow(&setting, &online);   /* cm a gun model's unit, as this player's own */
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
+    {
+        Attachment *a = &s_attach[i];
+        Mtxf frame;
+
+        if (a->id >= 0 || a->owner != slot || !a->shown || (a->on != GEVR_MODATTACH_HAND && a->on != GEVR_MODATTACH_BODY)
+            || !gevrAvatarAttachFrame(slot, a->on, a->where, a->body, unit, &frame))
+        {
+            continue;
+        }
+        rd.gdl = gdl;
+        gdl = attachDraw(gdl, &rd, a, &frame, NULL, TRUE);
     }
     return gdl;
 }

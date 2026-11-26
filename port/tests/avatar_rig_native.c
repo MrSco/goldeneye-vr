@@ -143,6 +143,36 @@ static void rig(float scale,int lefty,float yaw,float height) {
         /* Primary and both half-bend matrices were generated; no invalid axes. */
         for(int k=0;k<16;k++)assert(isfinite(((float *)&m.render_pos[(6+side)*3+2].pos)[k]));
     }
+    /* mod.attach on this player's copy (#335): a hand's frame at the tracked
+     * grip (X its left, Y up, Z the barrel), a body anchor's on the torso the
+     * body yaw turns, upright, its centre where gevrBodySlotCentre puts it */
+    {
+        const float unit=.085f,bodyAt[3]={65,20,-10},*at=remote.field_488.collision_position.f;
+        Mtxf f;float grip[3][3];
+        for(int role=0;role<2;role++) {
+            assert(gevrAvatarAttachFrame(1,1,role,bodyAt,unit,&f));
+            gevrPoseQuatMatrix(received.hand[role].q,grip);
+            for(int k=0;k<3;k++) {
+                near(f.m[0][k],-grip[0][k]*unit*scale);near(f.m[1][k],-grip[2][k]*unit*scale);near(f.m[2][k],-grip[1][k]*unit*scale);
+                near(f.m[3][k],(at[k]+received.head.pos[k]+received.hand[role].pos[k])*scale);
+            }
+        }
+        assert(gevrAvatarAttachFrame(1,2,0,bodyAt,unit,&f));
+        const float yr=-yaw*3.14159265358979323846f/180,F[3]={sinf(yr),0,cosf(yr)};
+        float R[3],origin[3];
+        for(int k=0;k<3;k++) {
+            near(f.m[1][k],(k==1)*unit*scale);near(f.m[2][k],F[k]*unit*scale);
+            R[k]=-f.m[0][k]/(unit*scale);
+            origin[k]=-7.5f*tilted[1][k]+8*tilted[2][k]+7.5f*(k==1)+8*F[k];
+        }
+        near(R[0]*F[0]+R[2]*F[2],0);near(R[1],0);near(R[0]*R[0]+R[2]*R[2],1);
+        for(int k=0;k<3;k++)near(f.m[3][k],(at[k]+received.head.pos[k]+origin[k]-65*(k==1)+20*R[k]-10*F[k])*scale);
+        assert(!gevrAvatarAttachFrame(1,0,0,bodyAt,unit,&f) && !gevrAvatarAttachFrame(1,1,2,bodyAt,unit,&f)
+               && !gevrAvatarAttachFrame(9,1,0,bodyAt,unit,&f));
+        weights[1]=0;assert(!gevrAvatarAttachFrame(1,1,0,bodyAt,unit,&f) && gevrAvatarAttachFrame(1,1,1,bodyAt,unit,&f));
+        weights[1]=1;weights[0]=0;assert(!gevrAvatarAttachFrame(1,2,0,bodyAt,unit,&f));weights[0]=1;
+        active=0;assert(!gevrAvatarAttachFrame(1,1,0,bodyAt,unit,&f));active=1;
+    }
     /* A second view builds from its own base, never the prior camera's pose. */
     m.render_pos=base;modelUpdateMatrices(&data,&m);gevrAvatarApply(&chr,&data);
     assert(gevrAvatarCollisionPose(&m)==base);
