@@ -59,6 +59,16 @@ def callers():
     model = source("src/game/model.c")
     if "modelGunHandList(mdl->obj, root, file)" not in model:
         fail("the hand-only draw must keep the lists modelGunHandList names")
+    if "modelGunFlashList(mdl->obj, root)" not in model:
+        fail("the flash-only draw must keep the lists modelGunFlashList names")
+    # a pack body draws the carrier's flash only with an authored muzzle, where
+    # gunUpdateAndFire put the flash matrix (gevrModGunMuzzle)
+    draw = re.search(r"if \(gevrModGunMuzzle\(handnum, &packMuzzle\)\)\s*\{\s*"
+                     r"modelDrawGunFlash\(&renderdata, &handptr->weaponModel\);", gun)
+    if not draw:
+        fail("the pack mesh gun must draw the carrier's flash only with an authored muzzle")
+    if not re.search(r"gevrModGunMuzzle\(handnum, &packFlash\)[^;]*;\s*if \(packFlashed\)\s*\{\s*flashpos = packFlash;", gun):
+        fail("gunUpdateAndFire must put the flash at the authored muzzle")
 
 
 def hand_items():
@@ -70,17 +80,20 @@ def hand_items():
 
 
 def check_rom(rom_path, pieces):
+    """Every hand item's model: the hand rule keeps the hand, the flash rule none of it."""
     sys.path.insert(0, str(ROOT / "tools"))
     import gevr_model_probe as probe
     import gevr_model_export as export
 
     rom = probe.load_rom(rom_path)
     used = set()
+    flashes = 0
     for name in hand_items():
         switches, _matrices, textures = export.header_counts(name)
         offset, size = probe.manifest_lookup(name)
         model = export.Model(probe.decompress_1172(rom[offset:offset + size]), switches, textures)
         out = model.export(name)
+        flash_switch = model.ptr(4 * 1) if switches > 1 else None
         hand_switch = {}
         for s in list(range(8, 14)) + ([35] if switches > 35 else []):
             if s < switches:
@@ -98,6 +111,15 @@ def check_rom(rom_path, pieces):
             tris = [t for t in out["tris"] if t["node"] == node]
             on_hand = sum(1 for t in tris if t["tex"] in HAND_TEXTURES)
             total += on_hand
+            # the flash's lists (under switch 1, modelGunFlashList) draw none of the hand
+            up, flash = node, False
+            while up is not None and not flash:
+                flash = flash_switch is not None and up == flash_switch
+                up = model.ptr(up + 8)
+            if flash and part["op"] == 4:
+                flashes += 1
+                if on_hand:
+                    fail("%s: flash list 0x%x draws %d of the hand's triangles" % (name, node, on_hand))
             if part["op"] != 4 or hand is None:
                 continue
             if (name, hand) in pieces:
@@ -117,6 +139,9 @@ def check_rom(rom_path, pieces):
             fail("%s: keeps %d of the hand's %d triangles" % (name, kept, total))
     if used != pieces:
         fail("s_gunPiecesOnHand names lists no model has: %s" % sorted(pieces - used))
+    if not flashes:
+        fail("no hand item's model has a flash list under switch 1")
+    return flashes
 
 
 def main():
@@ -127,9 +152,10 @@ def main():
         print("PASS: one hand rule for the bat and pack mesh guns (SKIP the cartridge models: "
               "pass a GoldenEye ROM or set GEVR_GE_ROM)")
         return
-    check_rom(rom_path, pieces)
+    flashes = check_rom(rom_path, pieces)
     print("PASS: one hand rule for the bat and pack mesh guns; on the cartridge it keeps every "
-          "hand item's hand and sleeve and none of its gun (%d gun pieces left out)" % len(pieces))
+          "hand item's hand and sleeve and none of its gun (%d gun pieces left out); its %d flash "
+          "lists draw none of the hand" % (len(pieces), flashes))
 
 
 if __name__ == "__main__":

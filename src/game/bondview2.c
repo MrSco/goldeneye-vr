@@ -80,6 +80,7 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
 
 #ifdef GEVR
 #include "gevr_modapi.h"   /* mods' weapons and hands areas: throws, reloads, grips (before their first use) */
+#include "gevr_modmesh.h"
 extern bool netIsActive(void);
 extern int netGetLocalSlot(void);
 extern void netSendRespawnEvent(u8 pad_index, f32 theta);
@@ -4055,6 +4056,20 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
             d[i] = opos[i] - snap[i];
         }
         *distcm = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm;
+        return TRUE;
+    }
+    coord3d packSupport;
+    if (gevrModGunSupport(gun, &packSupport))
+    {
+        Mtxf gunMatrix;
+        if (!gevrStereoGunMatrix(gun, &gunMatrix)) return FALSE;
+        mtx4TransformVecInPlace(&gunMatrix, &packSupport);
+        for (i = 0; i < 3; i++)
+        {
+            snap[i] = packSupport.f[i];
+            d[i] = opos[i] - snap[i];
+        }
+        *distcm = sqrtf(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]) / cm;
         return TRUE;
     }
     if (!drawn && gevrGexPistolPoint(TRUE, snap))

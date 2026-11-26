@@ -5665,6 +5665,20 @@ s32 modelGunHandList(const ModelFileHeader *header, ModelNode *node, const char 
 }
 #endif
 
+/* Whether list node of header is the gun's muzzle flash: under switch 1, the
+ * switch gunfire.c shows on a firing frame (its flashvisptr) and draws at
+ * matrix 1. A pack mesh gun with an authored muzzle draws these there. */
+s32 modelGunFlashList(const ModelFileHeader *header, ModelNode *node)
+{
+    if (header == NULL || header->Switches == NULL || header->numSwitches < 2 || header->Switches[1] == NULL)
+        return FALSE;
+    for (; node != NULL; node = node->Parent) {
+        if (node == header->Switches[1]) return TRUE;
+    }
+    return FALSE;
+}
+
+/* gunHandOnly: 0 every list, 1 the hand's (modelGunHandList), 2 the flash's (modelGunFlashList) */
 static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly, const char *file)
 {
     ModelNode *root = mdl->obj->RootNode;
@@ -5716,7 +5730,9 @@ static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly
 #ifdef GEVR
         const u32 op = root->Opcode & 0xff;
         if (!gunHandOnly || op == MODELNODE_OPCODE_SWITCH || op == MODELNODE_OPCODE_LOD
-            || op == MODELNODE_OPCODE_BSP || (op == MODELNODE_OPCODE_DL && modelGunHandList(mdl->obj, root, file)))
+            || op == MODELNODE_OPCODE_BSP
+            || (op == MODELNODE_OPCODE_DL && (gunHandOnly == 2 ? modelGunFlashList(mdl->obj, root)
+                                                               : modelGunHandList(mdl->obj, root, file))))
 #endif
         sub_GAME_7F074534(mrData, mdl, root);
 #ifdef GEVR
@@ -5765,6 +5781,11 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
 void modelDrawGunHand(ModelRenderData *mrData, Model *mdl, const char *file)
 {
     subdrawFiltered(mrData, mdl, 1, file);
+}
+
+void modelDrawGunFlash(ModelRenderData *mrData, Model *mdl)
+{
+    subdrawFiltered(mrData, mdl, 2, NULL);
 }
 #endif
 

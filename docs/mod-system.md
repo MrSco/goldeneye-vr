@@ -574,9 +574,22 @@ in-game screen). We maintain the adapters, not the mods.
     call sets the whole look, so a later call without `muzzle` clears it;
     give it again with a new fit. A legacy file refuses these options, and
     a thrown weapon refuses `muzzle`, since it leaves the hand by the
-    throw. Replacing the gun body still hides the stock muzzle flash; the
-    muzzle option moves the shot origin, not the flash. This format alone
-    does not add action geometry, a grip, optics, or remote weapon looks.
+    throw.
+
+    `support = { x, y, z }` sets where the off hand reaches and holds the
+    body in VR. It uses the same model units, axes and limits as `muzzle`
+    and goes through the pack body's fit. The player's Gun fit trim still
+    applies. Leaving out `support` or clearing the pack body restores the
+    carrier's usual hold point. Legacy models and thrown weapons refuse it.
+
+    The flash follows the muzzle. Replacing the gun body hides the
+    carrier's flash, since at the carrier's point it would show inside or
+    beyond the new barrel. With `muzzle`, the carrier's own flash comes
+    back at that point: the lists under its switch 1 (`modelGunFlashList()`
+    in `model.c`), on the same firing frames, at the same random scale and
+    turn and with the item's flash extension. A carrier without a flash
+    (the sniper rifle) still shows none. This format alone does not add
+    action geometry, a grip, optics, or remote weapon looks.
 
     **Pack mesh byte layout.** Integers and IEEE 754 floats are little
     endian; there is no implicit padding. The same file can be a held

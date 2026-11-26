@@ -16,4 +16,6 @@ const Mtxf *gevrModGunFrame(s32 hand);
 void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3]);
 /* Fitted muzzle in carrier coordinates, absent for stock or a pending choice. */
 s32 gevrModGunMuzzle(s32 hand, coord3d *out);
+/* Fitted off-hand hold point for the body the hand is actually drawing. */
+s32 gevrModGunSupport(s32 hand, coord3d *out);
 #endif

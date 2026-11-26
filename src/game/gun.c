@@ -5717,6 +5717,8 @@ static Mtxf s_gevrModGunFit[2][ITEM_IDS_MAX];
 static u8 s_gevrModGunHasFit[2][ITEM_IDS_MAX];
 static f32 s_gevrModGunMuzzle[2][ITEM_IDS_MAX][3];
 static u8 s_gevrModGunHasMuzzle[2][ITEM_IDS_MAX];
+static f32 s_gevrModGunSupport[2][ITEM_IDS_MAX][3];
+static u8 s_gevrModGunHasSupport[2][ITEM_IDS_MAX];
 static struct
 {
     const void *owner;           /* the player it was loaded for: another stage's is stale */
@@ -5781,6 +5783,15 @@ s32 gevrModGunMuzzle(s32 hand, coord3d *out)
     return TRUE;
 }
 
+s32 gevrModGunSupport(s32 hand, coord3d *out)
+{
+    const s32 item = gevrModGunFittedItem(hand);
+    if (item < 0 || !s_gevrModGunHasSupport[hand][item]) return FALSE;
+    const Mtxf *fit = s_gevrModGunHasFit[hand][item] ? &s_gevrModGunFit[hand][item] : NULL;
+    gevrModMeshPoint(fit, s_gevrModGunSupport[hand][item], out->f);
+    return TRUE;
+}
+
 /* each tick: a hand showing another model than its gun's choice loads it
  * again, as gevrUnarmedModelUpdate queues the club's replacement */
 static void gevrModGunReconcile(s32 hand)
@@ -5803,7 +5814,7 @@ static void gevrModGunReconcile(s32 hand)
     }
 }
 
-void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4], const float muzzle[3])
+void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3])
 {
     if (hand >= 0 && hand <= 1 && item > ITEM_UNARMED && item < ITEM_IDS_MAX)
     {
@@ -5816,6 +5827,10 @@ void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[
         if (s_gevrModGunHasMuzzle[hand][item]) {
             memcpy(s_gevrModGunMuzzle[hand][item], muzzle, sizeof(s_gevrModGunMuzzle[hand][item]));
         }
+        s_gevrModGunHasSupport[hand][item] = name != NULL && support != NULL;
+        if (s_gevrModGunHasSupport[hand][item]) {
+            memcpy(s_gevrModGunSupport[hand][item], support, sizeof(s_gevrModGunSupport[hand][item]));
+        }
     }
 }
 
@@ -5825,6 +5840,7 @@ void gevrModGunModelReset(void)
     memset(s_gevrModGun, 0, sizeof(s_gevrModGun));
     memset(s_gevrModGunHasFit, 0, sizeof(s_gevrModGunHasFit));
     memset(s_gevrModGunHasMuzzle, 0, sizeof(s_gevrModGunHasMuzzle));
+    memset(s_gevrModGunHasSupport, 0, sizeof(s_gevrModGunHasSupport));
     for (p = 0; p < MAX_PLAYER_COUNT; ++p) {
         for (hand = 0; hand < 2; ++hand) {
             if (s_gevrModGunShown[p][hand].mesh != NULL) s_gevrModGunShown[p][hand].in = FALSE;

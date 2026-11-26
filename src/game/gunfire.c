@@ -1210,6 +1210,15 @@ void gunUpdateAndFire(GUNHAND handnum)
 
             flashpos = *(coord3d *) flashdata;
 #ifdef GEVR
+            /* A pack body's authored muzzle (gevrModGunMuzzle): the carrier's
+             * flash is drawn there (the pack draw below), without its trim. */
+            coord3d packFlash;
+            const s32 packFlashed = gevrModGunMuzzle(handnum, &packFlash);
+            if (packFlashed)
+            {
+                flashpos = packFlash;
+            }
+            else
             {
                 if (item >= 0 && item < GEVR_MAX_WEAPONS)
                 {
@@ -3450,6 +3459,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                      * (model.c modelGunHandList), known by the item's cartridge file */
                     modelDrawGunHand(&renderdata, &handptr->weaponModel,
                                      (const char *)get_ptr_item_text_call_line(item));
+                    /* with an authored muzzle, the carrier's own flash, which
+                     * gunUpdateAndFire placed there (model.c modelGunFlashList) */
+                    coord3d packMuzzle;
+                    if (gevrModGunMuzzle(handnum, &packMuzzle))
+                    {
+                        modelDrawGunFlash(&renderdata, &handptr->weaponModel);
+                    }
                 } else {
                     subdraw(&renderdata, &handptr->weaponModel);
                 }
