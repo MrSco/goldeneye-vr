@@ -75,6 +75,9 @@ int main(void) {
             /* a use left from before a pause or a stage load is dropped */
             player.hands[hand].field_88C=0;target.state=0;use(hand,devices[i]);g_GlobalTimer+=11;
             gevrGadgetUseFlush();assert(useReports==1 && !(target.state&0x40));
+            /* ... and one from the last level: the clock starts again near zero */
+            g_GlobalTimer=500;use(hand,devices[i]);g_GlobalTimer=3;
+            gevrGadgetUseFlush();assert(useReports==1 && !(target.state&0x40));
             /* another player's view does not take this one's use */
             use(hand,devices[i]);cur_player=1;gevrGadgetUseFlush();assert(useReports==1);
             cur_player=0;gevrGadgetUseFlush();assert(useReports==2);

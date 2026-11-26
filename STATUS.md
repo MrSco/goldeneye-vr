@@ -31,6 +31,8 @@ everyone, and a client's console press reaches the host's scripts
 (`NET_COOP_EVENT_ACTIVATE`, protocol unchanged). A gadget used on an object
 (floppy, DAT, decoder, defuser, data thief) searched a barrel pass's props,
 not the view, so it failed host or client: it now searches after the view.
+A switch's door (Dam gates, Facility, Aztec) pressed online moved for the
+presser only: the press now sends it.
 Audit of all 20 missions: `tools/audit_coop_player_tests.py`; notes in
 [docs/issue-94-coop.md](docs/issue-94-coop.md). Played with two hidden PC
 copies against the pre-fix build (Egypt case, Aztec drive, floppy, DAT,

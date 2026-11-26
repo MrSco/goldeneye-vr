@@ -24,9 +24,16 @@ assert "if (gevrCoop && get_cur_playernum() != gevrPrev)" in tick
 for case in ("AI_IFBondInRoomWithPad", "AI_IFBondDistanceToPadLessThanDecimeter",
              "AI_IFBondDistanceToPadGreaterThanDecimeter", "AI_IFBondYPosLessThan", "AI_IFBondHasItemEquipped"):
     assert "GEVR_PARTY_TEST(" in block(ai, "                case " + case + ":"), case
+run = ai[ai.index("void                   ai(PropDefHeaderRecord *Entityp"):]
+assert "gevrCoopPartyRunStart();" in run[:run.index("gevrCoopScriptEffect(AiListp, Offset)")]
 assert "GEVR_PARTY_TEST(TRUE," in block(ai, "                case AI_IFBondDistanceToPadGreaterThanDecimeter:")
 chrprop = (ROOT / "src/game/chrprop.c").read_text(encoding="utf-8")
-assert chrprop.count("tickop = propobjInteract(prop);\n#ifdef GEVR") == 2 and chrprop.count("gevrCoopReportActivate(prop->obj);") == 2
+assert chrprop.count("tickop = propobjInteract(prop);\n#ifdef GEVR\n") == 2 and chrprop.count("gevrInteractObjectOnline(prop);") == 2
+online = block(chrprop, "static void gevrInteractObjectOnline(PropRecord *prop)\n{")
+assert "gevrCoopReportActivate(prop->obj);" in online
+# a switch's door goes out only from this player's own press, never from a host's co-op script
+assert "netSendDoorState(link->second->obj" in online and "(netCoopActive() && netIsHost())" in online
+assert "netSendDoorState" not in block(chrprop, "void sub_GAME_7F03E6A0(PropRecord *prop)")
 assert "set_cur_player(gevrPrev)" in tick
 assert "gevrCoopGrantItem(wep->weaponnum)" in propobj
 # the use queues in the gun tick and reports from the frame's view (#357)
@@ -104,8 +111,7 @@ parts = {
         block(coop, "int gevrCoopPartyTestBegin("),
         block(coop, "int gevrCoopPartyTestTry("),
         block(coop, "int gevrCoopPartyTestSettled("),
-        block(coop, "void gevrCoopPartyTestEnd("),
-    )),
+        block(coop, "void gevrCoopPartyTestEnd("),    )),
     "PRESS": "\n\n".join((
         coop[coop.index("#define COOP_PRESSES"):coop.index("static void coopRememberPress(")],
         block(coop, "static void coopRememberPress("),

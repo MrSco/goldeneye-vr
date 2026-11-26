@@ -1874,19 +1874,33 @@ s32 gevrCoopNearestPlayer(const coord3d *pos)
  * test now tries the list's own player first, then every other player who
  * can be targeted. "Bond is in this room / near this pad / holding this /
  * below this height" passes when anyone is, and that player stays the
- * list's Bond for the rest of the run (chrlvAllChrTick puts the current
- * player back after it). "Bond is far from this pad" passes only when
+ * list's Bond for the rest of the run: its later tests ask only that player
+ * (Cradle: "in the shaft room" then "below this height" is one player, not
+ * one in the room and another fallen elsewhere). chrlvAllChrTick puts the
+ * current player back after the run. "Bond is far from this pad" passes only when
  * everyone is: the lists use it to wait until nobody can see a spawn or
  * hear a sound. Guard lists keep their target (gevrCoopGuardTarget).
  */
 static int s_party_prev = -1;   /* the player the test started with */
 static int s_party_all;
+static int s_party_pinned;      /* this run's Bond is settled: later tests ask only them */
+
+static int coopBackgroundList(const ChrRecord *self)
+{
+    return gevrCoopHostGuards() && self && g_ActiveChrs && self >= g_ActiveChrs &&
+           self < g_ActiveChrs + g_ActiveChrsCount;
+}
+
+/* chrai.c ai(): a list's run starts */
+void gevrCoopPartyRunStart(void)
+{
+    s_party_pinned = FALSE;
+}
 
 int gevrCoopPartyTestBegin(const ChrRecord *self, int all)
 {
     s_party_prev = -1;
-    if (!gevrCoopHostGuards() || !self || !g_ActiveChrs || self < g_ActiveChrs ||
-        self >= g_ActiveChrs + g_ActiveChrsCount) return 1;
+    if (!coopBackgroundList(self) || s_party_pinned) return 1;
     s_party_prev = get_cur_playernum();
     s_party_all = all;
     return 1 + 4;
@@ -1896,7 +1910,8 @@ int gevrCoopPartyTestTry(int k)
 {
     if (k == 0) return 1;   /* the list's own player, as solo */
     k--;
-    if (s_party_prev < 0 || k == s_party_prev || !coopPlayerTargetable(k)) return 0;
+    /* the tests read the player's tile (its room); a player not yet on one is skipped */
+    if (s_party_prev < 0 || k == s_party_prev || !coopPlayerTargetable(k) || !g_playerPointers[k]->prop->stan) return 0;
     set_cur_player(k);
     return 1;
 }
@@ -1912,6 +1927,7 @@ void gevrCoopPartyTestEnd(int passed)
 {
     if (s_party_prev < 0) return;
     if (s_party_all || !passed) set_cur_player(s_party_prev);
+    else s_party_pinned = TRUE;   /* whoever passed is Bond for the rest of the run */
     s_party_prev = -1;
 }
 
@@ -2168,13 +2184,17 @@ void gevrCoopPressTaken(const ChrRecord *self, ObjectRecord *obj)
 {
     s32 tag;
 
-    if (!gevrCoopHostGuards() || !self || !g_ActiveChrs || self < g_ActiveChrs ||
-        self >= g_ActiveChrs + g_ActiveChrsCount) return;
+    if (!gevrCoopHostGuards()) return;
     tag = coopTagOf(obj);
     for (int i = 0; i < COOP_PRESSES; i++) {
+        int by;
         if (!s_press_by[i] || s_press_tag[i] != tag) continue;
-        if (g_playerPointers[s_press_by[i] - 1]) set_cur_player(s_press_by[i] - 1);
-        s_press_by[i] = 0;
+        by = s_press_by[i] - 1;
+        s_press_by[i] = 0;   /* taken, by whichever list: never a later press's presser */
+        if (coopBackgroundList(self) && g_playerPointers[by]) {
+            set_cur_player(by);
+            s_party_pinned = TRUE;
+        }
         break;
     }
 }

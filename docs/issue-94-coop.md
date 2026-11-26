@@ -203,7 +203,11 @@ other player who can be targeted (not down, not a spectator, not still
 choosing a character). "In this room", "near this pad", "holding this" and
 "below this height" pass when anyone does, and that player is the list's
 Bond for the rest of its run, so the next step (a door, an item, a held
-gadget) acts on them. "Far from this pad" passes only when everyone is: the
+gadget) acts on them, and the run's later tests ask only them: Cradle's
+"in the shaft room" then "below this height" is one player, never one in the
+room and another fallen elsewhere (which killed the party), and Surface 1's
+exit needs the same player in the room and low. The next run asks everyone
+again. "Far from this pad" passes only when everyone is: the
 lists use it to wait until nobody can see a spawn or hear a sound.
 `chrlvAllChrTick` puts the current player back after every list. Guard
 lists keep their target. A held-item test just after a gadget use still
@@ -226,6 +230,14 @@ found it. In a headset the barrel follows the hand, so a use worked or not
 depending on where the hand pointed. The use now queues
 (`gevrGadgetUseQueue`) and the search runs after the frame's own view, where
 the B press runs (`gevrGadgetUseFlush`, chrprop.c).
+
+A wall switch linked to a door (setup "LinkProps": Dam's gate switches,
+Facility, Aztec) moved its door on the presser's headset only: a script or
+host door goes out from `doorActivate`, a used door from `propdoorInteract`,
+but a switch's door from neither. The player's own press now sends the
+linked door's state as a used door (chrprop.c `gevrInteractObjectOnline`);
+each receiver already runs the switch link itself, so a received door is
+never sent on.
 
 Checked with two hidden PC copies (host + client over 127.0.0.1, the level
 hook, warps), each against the build before the fix:
@@ -293,7 +305,12 @@ the solo fuse on a thrown mine. Protocol 18 is unchanged.
   wall sparks; a guard's thrown grenade is not seen flying there.
 - Scripts that test "Bond" (rooms, items, cutscene control) test the
   player the guard is targeting; a background list asks the whole party
-  (#356). Keys and documents stay on the headset that picked
+  (#356). When a client sets a list off, the list's commands on "Bond"
+  (lock the controls, equip or hide weapons, Dam's bungee push) land on the
+  host's copy of that client, not on the client: Dam's jump still ends the
+  mission, but the client is not pushed off. A list started by one player
+  in a loop (Cradle's shaft) may be ended by another standing where it
+  checks. Keys and documents stay on the headset that picked
   them up; a keyed door does not accept a teammate's copy.
 - A driven tank is seen moving, but its engine and tread sounds play only
   on the driver's headset.

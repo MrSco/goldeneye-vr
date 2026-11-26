@@ -90,6 +90,7 @@ void gevrCoopReportMineSettled(struct WeaponObjRecord *wep, struct PropRecord *o
 int gevrCoopNearestPlayer(const struct coord3d *pos);   /* background scripts: nearest living player */
 int gevrCoopPartyTestBegin(const struct ChrRecord *self, int all);   /* chrai.c: a background list's Bond test asks the party */
 int gevrCoopPartyTestTry(int k);
+void gevrCoopPartyRunStart(void);   /* chrai.c ai(): a run starts, nobody is its Bond yet */
 int gevrCoopPartyTestSettled(int passed);
 void gevrCoopPartyTestEnd(int passed);
 void gevrCoopReportActivate(struct ObjectRecord *obj);   /* chrprop.c: this player pressed a console or switch */

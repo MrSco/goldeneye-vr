@@ -214,7 +214,8 @@ static struct netbuf open_last(void);
 static struct netbuf written(u8 *raw, u32 cap);
 static void rewind_written(struct netbuf *b);
 
-static void run_case(u8 cmd)
+/* one instruction in a run already under way (chrai.c ai() runs on) */
+static void run_case_same_run(u8 cmd)
 {
     switch (cmd) {
         /* INSERT_IN_ROOM_CASE */
@@ -224,6 +225,13 @@ static void run_case(u8 cmd)
             assert(0);
             break;
     }
+}
+
+/* one instruction as the first of a list's run */
+static void run_case(u8 cmd)
+{
+    gevrCoopPartyRunStart();
+    run_case_same_run(cmd);
 }
 
 /* #356: Egypt's floor list asks "is Bond in the room / near this tile?"
@@ -239,7 +247,9 @@ static void test_party_and_presses(void)
     ObjectRecord *obj = tagged;
 
     assert(obj && obj->prop);
+    static StandTile tiles[4];
     for (int i = 0; i < 4; i++) occupied[i] = i < 3;
+    for (int i = 0; i < 3; i++) { assert(g_playerPointers[i] && g_playerPointers[i]->prop); g_playerPointers[i]->prop->stan = &tiles[i]; }
     memset(downed, 0, sizeof(downed));
     memset(held, 0, sizeof(held));
     host_guards = 1;
@@ -268,12 +278,33 @@ static void test_party_and_presses(void)
     run_case(room[0]);
     assert(goto_calls == 1 && cur_player == 0);
     downed[1] = 0;
+    /* a player not yet standing on a tile (joining) is skipped, not read */
+    {
+        StandTile *keep = g_playerPointers[1]->prop->stan;
+        g_playerPointers[1]->prop->stan = NULL; Offset = 0;
+        run_case(room[0]);
+        assert(goto_calls == 1 && cur_player == 0);
+        g_playerPointers[1]->prop->stan = keep;
+    }
     /* outside a co-op host's run: the current player only */
     host_guards = 0; Offset = 0;
     run_case(room[0]);
     assert(goto_calls == 1 && cur_player == 0);
     host_guards = 1;
     player_room[1] = 1;
+
+    /* a run's Bond, once settled, is the only one its later tests ask (Cradle:
+     * "in the shaft room" then "below this height" is one player) */
+    player_room[2] = 5; ChrEntityp = &bg_chrs[0]; cur_player = 0; Offset = 0;
+    run_case(room[0]);
+    assert(goto_calls == 2 && cur_player == 2);
+    player_room[2] = 1; player_room[1] = 5; Offset = 0;
+    run_case_same_run(room[0]);
+    assert(goto_calls == 2 && cur_player == 2);   /* player 1 in the room does not answer for 2 */
+    cur_player = 0; Offset = 0;
+    run_case(room[0]);
+    assert(goto_calls == 3 && cur_player == 1);   /* the next run asks everyone again */
+    player_room[1] = 1; cur_player = 0; goto_calls = 1;
 
     /* far from the pad (100 units): only once everyone is */
     AiListp = (AIRecord *)far;

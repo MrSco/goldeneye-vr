@@ -1015,6 +1015,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
     {
 #ifdef GEVR
         gevrCoopBondRoomPassed(NULL, -1);   /* a Bond room test counts only within this run */
+        gevrCoopPartyRunStart();            /* and so does the Bond a party test settled (#356) */
 #endif
         // loop forever (or until broken)
         for (;;)
