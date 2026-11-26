@@ -353,6 +353,23 @@ s32 dynGetFreeVtx(void) {
 	return g_VtxBuffers[g_GfxActiveBufferIndex + 1] - g_GfxMemPos;
 }
 
+/* Room left this frame for gfx commands after gdl (counted in the active
+ * master list; a list elsewhere isn't) and for bytes of dynAllocate, both of
+ * which stop the game when overrun: a mod's draw (gevr_modattach.c) skips
+ * what wouldn't fit instead */
+s32 gevrDynRoom(Gfx *gdl, s32 gfx, s32 bytes)
+{
+    uintptr_t base = (uintptr_t)g_GfxBuffers[g_GfxActiveBufferIndex];
+    uintptr_t end = (uintptr_t)g_GfxBuffers[g_GfxActiveBufferIndex + 1];
+    uintptr_t pos = (uintptr_t)gdl;
+    uintptr_t vtx = (uintptr_t)g_GfxMemPos;
+    uintptr_t vtxEnd = (uintptr_t)g_VtxBuffers[g_GfxActiveBufferIndex + 1];
+
+    if (gfx < 0 || bytes < 0) return FALSE;
+    if (base && pos >= base && pos <= end && (end - pos) / sizeof(Gfx) < (uintptr_t)gfx) return FALSE;
+    return vtx <= vtxEnd && vtxEnd - vtx >= (uintptr_t)bytes;
+}
+
 // Address 0x7F0BD7CC NTSC
 void dynCalculateMembarLength(const char* arg0, f32 arg1, f32 arg2)
 {

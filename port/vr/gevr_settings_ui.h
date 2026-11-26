@@ -30,6 +30,10 @@ struct GevrSettingsApi {
     const char *(*warning)(int id) = nullptr;   // optional: a performance cost of the value set now
     void (*drawKbm)() = nullptr;      // optional flat Keyboard & mouse page in gevrSettingsTabs
     void (*drawGamepad)() = nullptr;  // optional flat Gamepad page in gevrSettingsTabs
+    // optional: sub-tabs a section adds beside its own rows (mods' pages under Mods/Fun,
+    // gevr_modui_ui.h), and drawing them as tab items in the section's sub-tab row
+    int (*extraTabs)(int section) = nullptr;
+    void (*drawExtraTabs)(int section) = nullptr;
 };
 
 // The real table (port/src/gevr_settings.c).
@@ -210,8 +214,9 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
         for (int s = 0; s < sections; s++) {
             const int rowCount = a.sectionRows ? a.sectionRows(s, GEVR_SET_INGAME, nullptr, 0) : 0;
             const bool hasControlSubs = (s == GEVR_SEC_CONTROLS) && (a.drawKbm || a.drawGamepad);
+            const int extra = a.extraTabs && a.drawExtraTabs ? a.extraTabs(s) : 0;
             // a section with nothing to set here (a flat game's Gestures) has no tab
-            if (rowCount == 0 && !hasControlSubs) continue;
+            if (rowCount == 0 && !hasControlSubs && extra == 0) continue;
             const ImGuiTabItemFlags open = s == openSection ? ImGuiTabItemFlags_SetSelected : 0;
             if (ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) {
                 if (hasControlSubs) {
@@ -234,6 +239,18 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
                             ImGui::EndChild();
                             ImGui::EndTabItem();
                         }
+                        ImGui::EndTabBar();
+                    }
+                } else if (extra > 0) {
+                    // the section's own rows under Options, then its extra sub-tabs
+                    if (ImGui::BeginTabBar("##panel-section-subs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+                        if (rowCount > 0 && ImGui::BeginTabItem("Options")) {
+                            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                            gevrSettingsSection(a, s, GEVR_SET_INGAME);
+                            ImGui::EndChild();
+                            ImGui::EndTabItem();
+                        }
+                        a.drawExtraTabs(s);
                         ImGui::EndTabBar();
                     }
                 } else {

@@ -7,9 +7,12 @@
 #ifdef GEVR
 #include "gevr_hand_reload.h"
 #include "gevr_bean.h"
+#include "gevr_ragdoll.h"
 #include "gevr_n64mag.h"
 #include "vtxstore.h"
 #include "gevr_oddjobhat.h"
+#include "gevr_romlayout.h"
+#include <string.h>
 #endif
 #include "../rmon.h" /*<PR/rmon.h>*/
 #include "bondview.h"
@@ -5613,7 +5616,71 @@ void gevrModelTraceNextDraw(void)
 }
 #endif
 
-void subdraw(ModelRenderData *mrData, Model *mdl)
+#ifdef GEVR
+/*
+ * GoldenEye's first-person hand and sleeve in a hand item's model: the lists
+ * under Switches 8-13 and 35, which the game shows and hides together (gun.c
+ * sub_GAME_7F05E978). Three of GoldenEye's own models file a piece of the gun
+ * there as well, one 16-triangle list in the gun's texture: the PP7's and the
+ * silenced PP7's under 35, the TT-33's under 11. Drawn with the hand and not
+ * the gun, it floats by the fist (owner, 2026-11-22, the rifle bat's hand;
+ * Kelly, 2026-11-24, a pack mesh PP7). Bean draws its glove on the hand's
+ * lists and blanks the pistol, so a piece Bean replaces is kept as Bean shows
+ * it. port/tests/test_gun_hand_lists.py checks this list against every hand
+ * item's model on the cartridge. GoldenEye's art only: a hack campaign's
+ * models and GoldenEye X's are their own.
+ */
+static const struct { const char *file; s32 sw; } s_gunPiecesOnHand[] = {
+    { "GwppkZ", 35 },
+    { "GwppksilZ", 35 },
+    { "Gtt33Z", 11 },
+};
+
+/* Whether list node of header (from the cartridge file named file, NULL when
+ * not known) is part of the hand: the rifle bat's hand (gunfire.c) and a pack
+ * mesh gun's (gunfire.c, modelDrawGunHand) keep these and nothing else. */
+s32 modelGunHandList(const ModelFileHeader *header, ModelNode *node, const char *file)
+{
+    extern int VrGexGuns;
+    ModelNode *list = node;
+    s32 hand = -1;
+    u32 i;
+
+    if (header == NULL || header->Switches == NULL) return FALSE;
+    for (; node != NULL && hand < 0; node = node->Parent) {
+        s32 s;
+        for (s = 8; s <= 13 && s < header->numSwitches && hand < 0; ++s) {
+            if (header->Switches[s] != NULL && node == header->Switches[s]) hand = s;
+        }
+        if (hand < 0 && header->numSwitches > 35 && header->Switches[35] != NULL && node == header->Switches[35]) hand = 35;
+    }
+    if (hand < 0) return FALSE;
+    if (file == NULL || VrGexGuns || !gevrRomRetailArt()) return TRUE;
+    for (i = 0; i < ARRAYCOUNT(s_gunPiecesOnHand); ++i) {
+        if (s_gunPiecesOnHand[i].sw == hand && strcmp(s_gunPiecesOnHand[i].file, file) == 0) {
+            Gfx *stock = list->Data->DisplayList.Primary;
+            return gevrBeanShownGdl(list, stock) != stock;
+        }
+    }
+    return TRUE;
+}
+#endif
+
+/* Whether list node of header is the gun's muzzle flash: under switch 1, the
+ * switch gunfire.c shows on a firing frame (its flashvisptr) and draws at
+ * matrix 1. A pack mesh gun with an authored muzzle draws these there. */
+s32 modelGunFlashList(const ModelFileHeader *header, ModelNode *node)
+{
+    if (header == NULL || header->Switches == NULL || header->numSwitches < 2 || header->Switches[1] == NULL)
+        return FALSE;
+    for (; node != NULL; node = node->Parent) {
+        if (node == header->Switches[1]) return TRUE;
+    }
+    return FALSE;
+}
+
+/* gunHandOnly: 0 every list, 1 the hand's (modelGunHandList), 2 the flash's (modelGunFlashList) */
+static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly, const char *file)
 {
     ModelNode *root = mdl->obj->RootNode;
 #ifdef GEVR
@@ -5645,7 +5712,7 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
     #endif
     gSPSegment(mrData->gdl++, 3, osVirtualToPhysical(mdl->render_pos));
 #ifdef GEVR
-    if(mrData->unk18==0 && (mrData->flags&1))
+    if(!gunHandOnly && mrData->unk18==0 && (mrData->flags&1))
         modelDrawBeanBody(mrData,gevrBeanWholeModelGdl(mdl));
 #endif
 
@@ -5661,6 +5728,13 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
                 (void *)root->Data->Switch.Controls);
         }
 #endif
+#ifdef GEVR
+        const u32 op = root->Opcode & 0xff;
+        if (!gunHandOnly || op == MODELNODE_OPCODE_SWITCH || op == MODELNODE_OPCODE_LOD
+            || op == MODELNODE_OPCODE_BSP
+            || (op == MODELNODE_OPCODE_DL && (gunHandOnly == 2 ? modelGunFlashList(mdl->obj, root)
+                                                               : modelGunHandList(mdl->obj, root, file))))
+#endif
         sub_GAME_7F074534(mrData, mdl, root);
 #ifdef GEVR
         if (trace && visited < 128) {
@@ -5673,7 +5747,11 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
         visited++;
 #endif
 
-        if (root->Child)
+        if (root->Child
+#ifdef GEVR
+            && ((root->Opcode & 255) != MODELNODE_OPCODE_HEAD || !gevrRagdollHidesHead(mdl))
+#endif
+        )
         {
             root = root->Child;
         }
@@ -5698,6 +5776,23 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
 #endif
 }
 
+
+void subdraw(ModelRenderData *mrData, Model *mdl)
+{
+    subdrawFiltered(mrData, mdl, 0, NULL);
+}
+
+#ifdef GEVR
+void modelDrawGunHand(ModelRenderData *mrData, Model *mdl, const char *file)
+{
+    subdrawFiltered(mrData, mdl, 1, file);
+}
+
+void modelDrawGunFlash(ModelRenderData *mrData, Model *mdl)
+{
+    subdrawFiltered(mrData, mdl, 2, NULL);
+}
+#endif
 
 // unreferenced
 void sub_GAME_7F074790(ModelRenderData* arg0, Model* arg1)

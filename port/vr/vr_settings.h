@@ -17,6 +17,7 @@ extern int VrMotionThrowing;
 extern float VrMotionThrowPitch;
 extern float VrMotionThrowGazeAssist;
 extern float VrMotionThrowStrength;
+extern int VrThrowGuide;
 extern bool VrWeaponRecoil;
 #define WORLDSCALE_MIN    0.50f
 #define WORLDSCALE_MAX    1.50f
@@ -84,6 +85,7 @@ extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty; // bots: NET_BOT_OFF/FI
 extern int VrDetailedGuns;   // guards and other players hold the first-person gun models (#95); 0 = the game's own
 extern int VrGexGuns;        // GoldenEye X's first-person models (guns, items, hands, the watch arm) from data/gex.z64
 extern int VrCampaign;       // 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies, 3 Mirror Mode, 4 Mario Characters. The retail ROM stays put.
+extern char VrCampaignMod[33]; // a mod campaign's id (gevr_modpack.h), played on VrCampaign's cartridge; empty: none
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpHandicaps;       // the host's Handicaps rule: each player picks their own health
 extern int VrMpLobby;           // the host's Lobby rule: the pre-match lobby before each match

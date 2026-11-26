@@ -8,6 +8,7 @@
 #include "gevr_scope.h"
 #include "gevr_gexweapon.h"
 #include "gevr_bodyslot.h"
+#include "gevr_modpack.h"   /* a mod held to its play modes (the stick hold) */
 #endif
 #include <string.h>
 #include <stddef.h>
@@ -351,6 +352,47 @@ static int s_gevrPanelPaused;   /* it opened the watch to pause a solo mission *
 static u32 s_gevrStartUntil;    /* a START pulse until then (a Menu tap, or the panel's pause) */
 int gevrPanelIsOpen(void) { return s_gevrPanel; }
 void gevrPanelClose(void) { s_gevrPanel = 0; }
+/*
+ * A mod's page (gevr_modapi.c mod.ui.open and close): the panel opened on it
+ * as the hold opens it, a solo mission paused under it, or closed as Resume
+ * closes it. The ask is taken by the input pass that owns the panel (the
+ * headset's or the flat game's, gevrPanelTakeAsk).
+ */
+static int s_gevrPanelAsk;
+int gevrPanelAvailable(void)
+{
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR) || defined(GEVR_FLAT)
+    return 1;
+#else
+    return 0;   /* the dedicated server: no screen */
+#endif
+}
+void gevrPanelOpenAsk(void) { s_gevrPanelAsk = 1; }
+void gevrPanelCloseAsk(void)
+{
+    s_gevrPanelAsk = 0;
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR) || defined(GEVR_FLAT)
+    gevrNativePauseResume();   /* the online pause too: the match screen */
+#else
+    s_gevrPanel = 0;
+#endif
+}
+extern int gevrIntroPlaying(void);   /* bondview2.c */
+static void gevrPanelTakeAsk(u32 t, int paused)
+{
+    if (!s_gevrPanelAsk) return;
+    /* the intro: the pause's Start would skip it and the mission would run on,
+     * so the ask waits for play (mod.ui.open from mission_start) */
+    if (gevrIntroPlaying()) return;
+    s_gevrPanelAsk = 0;
+    if (s_gevrPanel) return;
+    s_gevrPanel = 1;
+    if (!netIsActive() && !paused && bossGetStageNum() != LEVELID_TITLE && !lvlGetControlsLockedFlag()) {
+        s_gevrPanelPaused = 1;
+        s_gevrStartUntil = t + 100;
+    }
+    LOGI("input: panel opened for a mod's page%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
+}
 extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
 extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
 s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
@@ -2830,6 +2872,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (paused) s_gevrStartUntil = t + 100;   /* the watch it opened closes */
             }
             panelWas = s_gevrPanel;
+            gevrPanelTakeAsk(t, paused);   /* a mod's page (mod.ui.open) */
             if (toggle && s_gevrPanel) {
                 s_gevrPanel = 0;
             } else if (toggle) {
@@ -3479,6 +3522,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (paused) s_gevrStartUntil = t + 100;   /* the watch it opened closes */
             }
             panelWas = s_gevrPanel;
+            gevrPanelTakeAsk(t, paused);   /* a mod's page (mod.ui.open) */
             if (s_gevrPanel) {
                 /* B, Resume, or a Menu tap closes it; the hold that opened it does not */
                 if (held) {
@@ -3697,8 +3741,24 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (fitting) npad->button &= ~(A_BUTTON | B_BUTTON | R_TRIG);   /* gun fit keeps them (the right grip rolls the grip hand) */
         reloadGameplay = !menu && !fitting && !gevrWeaponPanelOpen
             && !lvlGetControlsLockedFlag();
+        const bool adjusting = (gevrVrScreenMode || nativePause)
+            && get_button_state(0, "grip") && get_button_state(1, "grip");
+        // The body-slot wheel gets both sticks first and keeps them until centred.
+        bool slotSticksCaptured = false;
+        if (stereoplay && !fitting && !adjusting) {
+            float slotSticks[2][2] = {{left.x, left.y}, {right.x, right.y}};
+            slotSticksCaptured = gevrBodySlotSticks(VrSwapJoysticks, slotSticks);
+            if (slotSticksCaptured)
+                npad->button &= ~(L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
+            left.x = slotSticks[0][0]; left.y = slotSticks[0][1];
+            right.x = slotSticks[1][0]; right.y = slotSticks[1][1];
+        }
         const bool lclick = get_button_state(0, "thumbstick_click");
-        const bool rclick = get_button_state(1, "thumbstick_click");
+        const bool rclickRaw = get_button_state(1, "thumbstick_click");
+        const bool opticControl = gevrModOpticInput(reloadGameplay && !adjusting
+            && !slotSticksCaptured && !lclick, rclickRaw, right.y);
+        if (opticControl) right.y = 0.0f;
+        const bool rclick = rclickRaw && !opticControl;
         const u32 now = SDL_GetTicks();
         // Left stick click toggles crouch (bondview2.c reads gevrCrouchToggled). It acts on
         // release so that a click of both sticks (recentre) or a long hold (bring the
@@ -3764,10 +3824,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 /* One grip plus this click is the Bean mesh switch, below. */
                 if (get_button_state(0, "grip") || get_button_state(1, "grip")) spoilt = true;
                 if (!fired && !spoilt && now - downat >= 1000) {
-                    VrPlayMode = VrPlayMode ? 0 : 1; /* VR_PLAYMODE_SCREEN : VR_PLAYMODE_STEREO */
-                    vrSettingsSave();
+                    /* a mod made for one play mode stays in it while it runs (docs/mod-system.md, Play modes) */
+                    const gevrModInfo *mod = gevrModActive();
+                    const char *held = mod ? gevrModPlayModeRefusal(mod->m.playModes,
+                                                                    VrPlayMode ? GEVR_MOD_PLAY_FLAT : GEVR_MOD_PLAY_VR) : NULL;
                     fired = true;
-                    LOGI("input: play mode -> %s\n", VrPlayMode ? "stereo" : "screen");
+                    if (held) {
+                        LOGI("input: play mode stays %s: %s (%s)\n", VrPlayMode ? "stereo" : "screen", held, mod->m.id);
+                    } else {
+                        VrPlayMode = VrPlayMode ? 0 : 1; /* VR_PLAYMODE_SCREEN : VR_PLAYMODE_STEREO */
+                        vrSettingsSave();
+                        LOGI("input: play mode -> %s\n", VrPlayMode ? "stereo" : "screen");
+                    }
                 }
             } else {
                 downat = 0;
@@ -3849,14 +3917,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // grips take hold of it: it follows your hands (vr_screen_grab), and the right
         // stick moves it away/nearer at the same physical size and makes it bigger/smaller
         // with left/right. Saved on release.
-        bool adjusting = false;
         {
             static bool changed = false;
             static u32 last = 0;
             float dt = last ? (float)(now - last) / 1000.0f : 0.0f;
             if (dt > 0.1f) dt = 0.1f;
             last = now;
-            adjusting = (gevrVrScreenMode || nativePause) && get_button_state(0, "grip") && get_button_state(1, "grip");
             vr_screen_grab(adjusting);
             if (adjusting) {
                 changed = true;
@@ -3879,17 +3945,6 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 vrSettingsSave();
                 changed = false;
             }
-        }
-        // Body slots: with a looked-at slot's wheel up, the hand's own stick
-        // points round it. Browsing captures both sticks until leaving/centring.
-        // "left" is the move stick: the off hand's
-        // unless Swap sticks.
-        if (stereoplay && !fitting && !adjusting) {
-            float slotSticks[2][2] = {{left.x, left.y}, {right.x, right.y}};
-            if (gevrBodySlotSticks(VrSwapJoysticks, slotSticks))
-                npad->button &= ~(L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
-            left.x = slotSticks[0][0]; left.y = slotSticks[0][1];
-            right.x = slotSticks[1][0]; right.y = slotSticks[1][1];
         }
         // In menus either stick navigates (whichever is pushed further).
         XrVector2f look = right;

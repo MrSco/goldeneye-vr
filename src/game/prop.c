@@ -34,6 +34,7 @@
 #ifdef GEVR
 #include "gevr_dam_boat.h"
 #include "gevr_arena.h"
+#include "gevr_modapi.h"   /* mods' items area: pickup_spawning */
 #endif
 #include "token.h"
 
@@ -540,6 +541,9 @@ void weaponAssignToHome(s32 arg0, WeaponObjRecord* weapon, s32 cmdindex)
 
         if (chr && chr->prop && chr->model)
         {
+#ifdef GEVR
+            gevrModGuardWeapon(weapon);   /* the gun a mod's guard_spawning chose (gevr_modgame.c) */
+#endif
             if (cheatIsActive(CHEAT_ENEMY_ROCKETS))
             {
                 switch ((s8)GEVR_ITEM_AS(weapon->weaponnum))
@@ -639,6 +643,12 @@ void weaponAssignToHome(s32 arg0, WeaponObjRecord* weapon, s32 cmdindex)
             }
         }
 
+#ifdef GEVR
+        if ((weapon->weaponnum != ITEM_UNARMED) && giveweapon && gevrModPickupSpawn((PropDefHeaderRecord *)weapon, cmdindex))
+        {
+            giveweapon = 0;   /* a mod's pickup_spawning: none here (gevr_modgame.c) */
+        }
+#endif
         if ((weapon->weaponnum != ITEM_UNARMED) && giveweapon)
         {
             weaponLoadProjectileModels(weapon->weaponnum);
@@ -1616,6 +1626,9 @@ void proplvreset2(enum LEVELID stageId)
 #endif
             }
 
+#ifdef GEVR
+            gevrModPickupScan();   /* mods' pickup_spawning: the records a swap leaves alone */
+#endif
             phead = g_CurrentSetup.propDefs;
             pdefIndex = 0;
 
@@ -1731,6 +1744,9 @@ void proplvreset2(enum LEVELID stageId)
                         {
                             pdef_ba->initialamount = (*((s32 *) (&pdef_ba->initialamount))) / M_U16_MAX_VALUE_F;
                             pdef_ba->amount = pdef_ba->initialamount;
+#ifdef GEVR
+                            if (gevrModPickupSpawn(phead, pdefIndex)) break;   /* a mod's pickup_spawning: none here */
+#endif
                             domakedefaultobj(stageId, (struct ObjectRecord *) phead, pdefIndex);
                         }
                         break;
@@ -1773,6 +1789,9 @@ void proplvreset2(enum LEVELID stageId)
                     case PROPDEF_SAFE:
                         if (withobjs && (!(((ObjectRecord *) phead)->flags2 & flags)))
                         {
+#ifdef GEVR
+                            if (phead->type == PROPDEF_MAGAZINE && gevrModPickupSpawn(phead, pdefIndex)) break;   /* pickup_spawning */
+#endif
                             domakedefaultobj(stageId, (struct ObjectRecord *) phead, pdefIndex);
                         }
                         break;
@@ -1810,6 +1829,9 @@ void proplvreset2(enum LEVELID stageId)
 
                         if (((ammoqty > 0) && withobjs) && (!(pdef_macr->flags2 & flags)))
                         {
+#ifdef GEVR
+                            if (gevrModPickupSpawn(phead, pdefIndex)) break;   /* a mod's pickup_spawning: none here */
+#endif
                             for (i9 = 0; i9 < AMMOTYPE_GLOBAL_MAX; i9++)
                             {
                                 if ((pdef_macr->slots[i9].quantity > 0) && (pdef_macr->slots[i9].modelnum != 0xFFFF))

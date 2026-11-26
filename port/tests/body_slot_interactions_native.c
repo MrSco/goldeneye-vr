@@ -53,6 +53,7 @@ void gevrPullTick(void) {}
 static int gevrGunFitActive, s_bodyWheelCtrl=-1, s_bodySticksCaptured;
 int VrMotionThrowing = 1, g_gevrStereo = 1;
 static int g_PlayerIsInTank, s_gevrGripGesture[2], s_gevrGripPendAge[2];
+static int s_gevrModGripHeld[2], s_gevrModGripDown[2], s_gevrModGripUp[2];   /* bondview2.c's, beside them */
 static float s_bodyTune[] = {350};
 float vr_ctrl_velocity_play[2][3], vr_head_velocity_play[3], vr_ctrl_quat_play[2][4];
 float VrMotionThrowPitch, VrMotionThrowGazeAssist, VrMotionThrowStrength;
@@ -95,6 +96,16 @@ void generate_player_thrown_knife(int hand) { (void)hand; }
 void generate_player_thrown_object(int hand) { (void)hand; }
 int gevrBodySlotGrip(int ctrl);
 static int gevrGripGestureTry(int ctrl) { pressDecisions++; return gevrBodySlotGrip(ctrl); }
+/* a mod's grip and release (gevr_modapi.c), as the tick tells them */
+static char modEvents[512];
+static void modEvent(const char *fmt, int a, int b, int c)
+{
+    const size_t n = strlen(modEvents);
+    snprintf(modEvents + n, sizeof(modEvents) - n, fmt, a, b, c);
+}
+void gevrModApiGrip(int ctrl, int anchor, int taken) { modEvent("grip %d %d %d;", ctrl, anchor, taken); }
+void gevrModApiRelease(int ctrl, int anchor) { modEvent("release %d %d;", ctrl, anchor, 0); }
+int gevrBodySlotHover(int ctrl) { return s_bodyLive ? s_bodyHand[ctrl].slot : -1; }
 static int stereoplay = 1, fitting, grips[2], gripWas[2], gripTaken[2], VrSwapJoysticks;
 typedef struct { float x, y; } XrVector2f;
 static XrVector2f left, right;
@@ -115,6 +126,9 @@ static void reset(int item) {
     memset(&player, 0, sizeof(player));
     memset(s_bodyHand, 0, sizeof(s_bodyHand));
     memset(s_gevrGripGesture, 0, sizeof(s_gevrGripGesture));
+    memset(s_gevrModGripHeld, 0, sizeof(s_gevrModGripHeld));
+    memset(s_gevrModGripDown, 0, sizeof(s_gevrModGripDown));
+    memset(s_gevrModGripUp, 0, sizeof(s_gevrModGripUp));
     memset(gripWas, 0, sizeof(gripWas)); memset(grips, 0, sizeof(grips)); memset(squeeze, 0, sizeof(squeeze));
     memset(s_gevrThrowWindup, 0, sizeof(s_gevrThrowWindup)); memset(s_gevrGripArmed, 0, sizeof(s_gevrGripArmed));
     memset(s_gevrThrowSpent, 0, sizeof(s_gevrThrowSpent));
@@ -184,6 +198,43 @@ int main(void) {
         assert(gevrBodySlotGrip(ctrl) && changes == 1);
         beltWanted[ctrl] = 0;
     }
+    /* A mod's grip and release (gevr_modapi.c): told on the game tick, not
+     * the pad's poll, once the press is decided; with the slot the hand is
+     * in and whether one of the game's grips took it; never on another
+     * player's pass, which leaves them for the local one's. */
+    for (int ctrl = 0; ctrl < 2; ctrl++) {
+        char want[128];
+
+        reset(7); VrMotionThrowing = 0; modEvents[0] = 0;
+        s_bodyHand[ctrl].slot = GEVR_BS_BACK_GUN; s_bodyHand[ctrl].pick = 9;
+        frame(ctrl, 0.9f); assert(!modEvents[0]);
+        gevrGripGestureTick();
+        snprintf(want, sizeof(want), "grip %d %d 1;", ctrl, GEVR_BS_BACK_GUN);
+        assert(!strcmp(modEvents, want) && changes == 1);
+        modEvents[0] = 0; frame(ctrl, 0.9f); gevrGripGestureTick(); assert(!modEvents[0]);
+        frame(ctrl, 0); gevrGripGestureTick();
+        snprintf(want, sizeof(want), "release %d %d;", ctrl, GEVR_BS_BACK_GUN);
+        assert(!strcmp(modEvents, want));
+        /* a tap between two ticks, away from the slots: a grip nothing took, then its release */
+        reset(7); VrMotionThrowing = 0; modEvents[0] = 0;
+        frame(ctrl, 0.9f); frame(ctrl, 0); gevrGripGestureTick();
+        snprintf(want, sizeof(want), "grip %d -1 0;release %d -1;", ctrl, ctrl);
+        assert(!strcmp(modEvents, want));
+        /* let go and squeezed again between two ticks: the release, then the new grip */
+        reset(7); VrMotionThrowing = 0;
+        frame(ctrl, 0.9f); gevrGripGestureTick(); modEvents[0] = 0;
+        frame(ctrl, 0); frame(ctrl, 0.9f); gevrGripGestureTick();
+        snprintf(want, sizeof(want), "release %d -1;grip %d -1 0;", ctrl, ctrl);
+        assert(!strcmp(modEvents, want));
+        /* online, another player's pass: nothing, kept for the local player's */
+        reset(7); VrMotionThrowing = 0; modEvents[0] = 0;
+        online = 1; localSlot = 0; currentSlot = 1;
+        frame(ctrl, 0.9f); gevrGripGestureTick(); assert(!modEvents[0]);
+        currentSlot = 0; gevrGripGestureTick();
+        snprintf(want, sizeof(want), "grip %d -1 0;", ctrl);
+        assert(!strcmp(modEvents, want));
+        online = 0;
+    }
     /* The actual poll: a hand hanging in a slot that isn't looked at leaves
      * the sticks, A/X and the wheel alone; the looked-at slot's wheel captures
      * all four axes, even before pointing, and its own stick points round it. */
@@ -228,6 +279,7 @@ int main(void) {
             assert(left.x==0.7f && left.y==0.7f && right.x==0.8f);
         }
     }
-    puts("PASS: body-slot grip ownership, throwable-only pause, partial release, looked-at wheel, pointing and stick capture");
+    puts("PASS: body-slot grip ownership, throwable-only pause, partial release, looked-at wheel, pointing and stick capture; "
+         "a mod's grip and release on the tick");
     return 0;
 }

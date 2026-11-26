@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "chrobjdata.h"
 #include "gevr_model.h"
+#include "gevr_modassets.h"
 #include "gevr_handpatch.h"
 #include "gevr_oddjobhat.h"
 #include "gevr_bean.h"
@@ -121,6 +122,7 @@ void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8* ds
      * needs the switch and texture counts only this header knows.
      */
     gevrModelPendingHeader = objheader;
+    gevrModAssetLast = 0;   /* set by load_resource when the file is a mod's (gevr_modassets.h) */
 
     if (dst != 0)
     {
@@ -143,19 +145,28 @@ void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8* ds
     sub_GAME_7F075A90(objheader, 0x5000000, (uintptr_t)filedata);
     sub_GAME_7F0762E0(objheader, name, dst, buffer);
 
+    /*
+     * PORT: a mod's own model file (gevr_modassets.h) isn't the cartridge's
+     * mesh: the patches measured on the cartridge's (the VR hands' shells,
+     * the hat's nodes, Bean's meshes, the magazines' vertices) leave it alone,
+     * and the mod's look is what's drawn. Their old registrations still go.
+     */
+    const int modModel = gevrModAssetLast;
+
+    gevrModAssetLast = 0;
     /* PORT: close the hand and arm models' open shells for VR (issue #9) */
-    gevrHandPatchApply(objheader, (const char *)name, buffer);
+    if (!modModel) gevrHandPatchApply(objheader, (const char *)name, buffer);
     /* PORT: Mods, Oddjob's hat in place of the throwing knife (draw time only) */
-    gevrHatModelLoaded(objheader, (const char *)name);
+    if (!modModel) gevrHatModelLoaded(objheader, (const char *)name);
     /* Clear stale registrations even when GE-X or an unmapped file takes this slot. */
     gevrBeanForgetModel(objheader);
     gevrBeanForgetModelStorage(filedata, (u32)get_pc_remaining_buffer_for_index(fileGetIndex((char *)name)));
     /* Converted GE-X first-person rigs retain their arms, guns and reloads. */
-    if (!gevrGexPendingFile) gevrBeanModelApply(objheader, (const char *)name);
+    if (!gevrGexPendingFile && !modModel) gevrBeanModelApply(objheader, (const char *)name);
     /* GoldenEye's own guns' magazines, to take out by hand (gevr_n64mag.h): the cartridge's art only */
     gevrN64MagForget(objheader);
     gevrN64MagForgetStorage(filedata, (u32)get_pc_remaining_buffer_for_index(fileGetIndex((char *)name)));
-    if (!gevrGexPendingFile && gevrRomRetailArt()) gevrN64MagApply(objheader, (const char *)name);
+    if (!gevrGexPendingFile && !modModel && gevrRomRetailArt()) gevrN64MagApply(objheader, (const char *)name);
 }
 
 

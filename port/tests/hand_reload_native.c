@@ -29,6 +29,7 @@ static int s_gevrGexHeldGun = GUNRIGHT;
 static float VrGexHeldMag[3];
 static int s_gevrGexHeldAmmoType;
 static int s_gevrReloadSeatTicks, s_gevrGexSeatedTicks[2];
+static int s_gevrGexReloadOpen[2];   /* bondview2.c: a mod's reload_start sent, its reload_end not yet */
 static GevrRack s_gevrRack[2];   /* bondview2.c: the rack's state per gun hand */
 int gevrReloadFitting;   /* input.c: Gun fit is setting the reload's places */
 static float s_gevrReloadSeatAt[3];
@@ -37,6 +38,7 @@ static int gex[2], buzzes, fills, tracked[2] = {1, 1};
 #define reserve player.ammoheldarr[1]
 static int online, playerSlot, localSlot;
 static int s_gevrGripGesture[2], gripHeld[2];
+static int s_gevrModGripHeld[2], s_gevrModGripDown[2], s_gevrModGripUp[2];   /* bondview2.c's: a mod's grips */
 static int s_gevrGripPendAge[2], VrGestureGripUse, VrGestureMineGrab, VrForcePull;
 typedef struct { int MagSize, AmmoType; } WeaponStats;
 static WeaponStats stats = {30, 1};
@@ -78,6 +80,12 @@ static int netGetLocalSlot(void) { return localSlot; }
 static int gevrSpectating(void) { return 0; }
 static int gevrCoopLocalDowned(void) { return 0; }
 static int getCurrentPlayerWeaponId(int h) { return player.hands[h].weapon; }
+/* mods' weapons area (gevr_modapi.c): a magazine out is a reload_start, one seated a reload_end */
+static int modReloadStarts, modReloadEnds, modReloadAsks, modDecline;
+void gevrModApiReloadStart(int hand, int item) { (void)hand; (void)item; modReloadStarts++; }
+void gevrModApiReloadEnd(int hand, int item) { (void)hand; (void)item; modReloadEnds++; }
+/* reload_attempt: asked before a reload takes from the reserve; modDecline is a mod saying no */
+int gevrModApiReloadAttempt(int hand, int item, int spare) { (void)hand; (void)item; (void)spare; modReloadAsks++; return modDecline; }
 static int get_ammo_in_hands_weapon(int h) { (void)h; return reserve; }
 static int get_ammo_type_for_weapon(int item) { return item != ITEM_UNARMED; }
 static int gevrGexHeld(int hand) { return gex[hand]; }
@@ -1941,6 +1949,18 @@ int main(void)
     s_gevrGexMag[GUNRIGHT] = GEVR_GEXMAG_OUT;
     at(1, oldBelt[0], oldBelt[1], oldBelt[2]); gevrHandReloadTick(); assert(fills == 0);
     belt(1, 0); gevrHandReloadTick(); assert(fills == 1);
+    /* the same touch with a mod declining it (reload_attempt): asked, nothing taken */
+    {
+        int kept, asks;
+        reset(); gex[GUNRIGHT] = 1; player.hands[GUNRIGHT].weapon = ITEM_AK47;
+        gevrHandReloadTick();
+        s_gevrGexMag[GUNRIGHT] = GEVR_GEXMAG_OUT;
+        kept = reserve; asks = modReloadAsks; modDecline = 1; fills = 0;
+        at(1, oldBelt[0], oldBelt[1], oldBelt[2]); gevrHandReloadTick();
+        belt(1, 0); gevrHandReloadTick();
+        assert(modReloadAsks == asks + 1 && fills == 0 && reserve == kept && s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT);
+        modDecline = 0;
+    }
     beanPp7Reload();
     rackReload();
     pumpReload();
@@ -1952,6 +1972,8 @@ int main(void)
         pumpReload();
         VrLeftHandedMode = lefty;
     }
+    /* every physical magazine swap above told the mods' weapons area, each end after a start */
+    assert(modReloadStarts > 0 && modReloadEnds > 0 && modReloadEnds <= modReloadStarts);
     puts("PASS: calibrated reloads, PP7 fresh-grip ownership, physical seating, partial/fresh magazines, ammo conservation, handedness, belt and lifecycle, Bean's PP7 magazine, the rack, the pump, the rack's fitted place and the shotguns' own shells");
     return 0;
 }

@@ -7,6 +7,8 @@
 #include "gevr_launcher_ui.h"
 #include "gevr_settings_ui.h"
 #include "gevr_romlayout.h"
+#include "gevr_modpack.h"   /* the START row's mod campaigns (GEVR_MOD_ID_MAX) */
+#include <vector>
 #include "gevr_ghosts_ui.h"
 #include "gevr_sync.h"   // Play tab: Google Drive sync (stubs: no GEVR_PC here)
 /* Play > Sync drawn with its longest state: linked, a pack on its way, a device

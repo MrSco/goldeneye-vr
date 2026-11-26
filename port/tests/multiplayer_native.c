@@ -47,7 +47,7 @@ EXPORT int test_protocol(void) {
     original.bot_mode=NET_BOT_FIXED;original.bot_count=5;original.bot_difficulty=NET_BOT_DARK;original.horde_start_wave=12;
     original.handicaps=1;original.lobby=1;original.warmup=NET_WARMUP_RULE_60;
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 27 || GEVR_NET_VERSION != 29 || GEVR_MAX_PLAYERS != 8) return 1;
+    if (b.error || b.wp != 27 || GEVR_NET_VERSION != 30 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
     for(int size=0;size<27;size++) {

@@ -3,6 +3,7 @@
 #include "gevr_reload_input.h"
 #include "gevr_hand_reload.h"
 #include "gevr_locomotion.h"
+#include "gevr_modoptic.h"
 #endif
 #include "system.h"
 #include <ultra64.h>
@@ -70,6 +71,7 @@
 #include "gevr_rom_segments.h"
 #ifdef GEVR
 #include "gevr_ragdoll.h"
+#include "gevr_modblood.h"
 #endif
 #ifdef GEVR
 extern bool netIsActive(void);
@@ -524,6 +526,13 @@ void lvlStageLoad(s32 stage)
     init_sound_effects_registers();
     init_guards();
     bodiesReset(stage);
+#ifdef GEVR
+    {
+        /* mods' scripts (gevr_modscript.c): the last mission's mission_end, this one's mission_prepare */
+        extern void gevrModScriptStageLoad(int stage, int mission, int done);
+        gevrModScriptStageLoad(stage, stage != LEVELID_TITLE, 0);
+    }
+#endif
     proplvreset2(stage);
     alloc_explosion_smoke_casing_scorch_impact_buffers();
     alloc_shattered_window_pieces();
@@ -573,6 +582,13 @@ void lvlStageLoad(s32 stage)
     viSetVideoMode(MD_NORMAL);
     D_80048368 = 1.0f;
     lvlSetControlsLockedFlag(0);
+#ifdef GEVR
+    {
+        /* mods' scripts: the stage is in, play begins (mission_start) */
+        extern void gevrModScriptStageLoad(int stage, int mission, int done);
+        gevrModScriptStageLoad(stage, stage != LEVELID_TITLE, 1);
+    }
+#endif
 }
 
 
@@ -1082,10 +1098,14 @@ Gfx* lvlRender(Gfx* DL)
                 /* issue #40: the world, up to the gun, is kept for the sniper scope */
                 extern s32 gevrScopeBegin(void);
 
-                gevrScopeRec = gevrScopeBegin();
+                extern s32 gevrModOpticWantScope(void);   /* gevr_modoptic.c: a pack optic's lens */
+
+                const s32 opticScope = gevrModOpticWantScope();
+                gevrScopeRec = gevrScopeBegin() || opticScope;
                 if (gevrScopeRec)
                 {
-                    gDPNoOpTag(DL++, 0x565D0000); /* VR_SCOPE_REC_BEGIN */
+                    /* GEVR_OPTIC_SCOPE_RECORD: the game's scopes and a slot for the lens */
+                    gDPNoOpTag(DL++, opticScope ? GEVR_OPTIC_SCOPE_RECORD : 0x565D0000); /* VR_SCOPE_REC_BEGIN */
                 }
             }
 #endif
@@ -1276,6 +1296,7 @@ Gfx* lvlRender(Gfx* DL)
             }
 
 #ifdef GEVR
+            DL = gevrModBloodDraw(DL);
             if (gevrScopeRec)
             {
                 gDPNoOpTag(DL++, 0x565D0001); /* VR_SCOPE_REC_END */
@@ -1528,6 +1549,7 @@ void lvlManageMpGame(void)
 #ifdef GEVR
     gevrVrStatsSimulation((unsigned)g_ClockTimer);
     gevrRagdollTick(g_ClockTimer);
+    if (g_ClockTimer > 0) gevrModBloodTick();
     { extern void gevrHordeTick(int ticks); gevrHordeTick(g_ClockTimer); }
     { extern void gevrArenaTick(s32 ticks); gevrArenaTick(g_ClockTimer); }
 #endif

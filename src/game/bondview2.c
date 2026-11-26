@@ -79,6 +79,8 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
 #include "textrelated.h"
 
 #ifdef GEVR
+#include "gevr_modapi.h"   /* mods' weapons and hands areas: throws, reloads, grips (before their first use) */
+#include "gevr_modmesh.h"
 extern bool netIsActive(void);
 extern int netGetLocalSlot(void);
 extern void netSendRespawnEvent(u8 pad_index, f32 theta);
@@ -1827,6 +1829,36 @@ static s32 gevrGripAxesRaw(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 ba
     return TRUE;
 }
 
+/*
+ * mod.attach (gevr_modattach.c): a hand's controller grip as a frame, view space,
+ * at the viewmodel's scale (a gun model's units, 0.085 cm each at the player's
+ * gun size): the hand's left, up and ahead as the model's X, Y and Z, as the
+ * body slots' frames. hand: GUNRIGHT the gun hand (controller 1), GUNLEFT the
+ * off hand. The raw pose: a two-handed aim doesn't turn what a hand carries.
+ */
+s32 gevrModAttachHandFrame(s32 hand, Mtxf *root)
+{
+    extern f32 gevrGunSizeNow(s32 *setting, s32 *online);   /* below */
+    f32 pos[3], right[3], up[3], back[3], k;
+    s32 setting, online, i;
+
+    if (!g_gevrStereo || !gevrGripAxesRaw(hand == GUNRIGHT ? 1 : 0, pos, right, up, back))
+    {
+        return FALSE;
+    }
+    k = 0.085f * D_800364CC * gevrGunSizeNow(&setting, &online);
+    for (i = 0; i < 3; i++)
+    {
+        root->m[0][i] = -right[i] * k;
+        root->m[1][i] = up[i] * k;
+        root->m[2][i] = -back[i] * k;
+        root->m[3][i] = pos[i];
+    }
+    root->m[0][3] = root->m[1][3] = root->m[2][3] = 0.0f;
+    root->m[3][3] = 1.0f;
+    return TRUE;
+}
+
 /* Every user of the gun hand's axes comes through here - the gun, its shots,
  * sight, muzzle and scope - so the two-handed aim (issue #35) turns them all,
  * as Perfect Dark VR's vrBuildGunRotation is the one writer of the gun's
@@ -2279,8 +2311,9 @@ f32 gevrGunSizeNow(s32 *setting, s32 *online)
 int gevrFitLook(int hand)
 {
     extern int gevrBeanIsEnabled(void);
+    extern s32 gevrModGunHeld(s32 hand);   /* gun.c: a mod's model, over the cartridge's, takes GoldenEye's fits */
 
-    return gevrGexHeld(hand) ? 1 : gevrBeanIsEnabled() ? 2 : 0;
+    return gevrGexHeld(hand) ? 1 : gevrBeanIsEnabled() && !gevrModGunHeld(hand) ? 2 : 0;
 }
 
 /*
@@ -4033,6 +4066,20 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
         *distcm = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm;
         return TRUE;
     }
+    coord3d packSupport;
+    if (gevrModGunSupport(gun, &packSupport))
+    {
+        Mtxf gunMatrix;
+        if (!gevrStereoGunMatrix(gun, &gunMatrix)) return FALSE;
+        mtx4TransformVecInPlace(&gunMatrix, &packSupport);
+        for (i = 0; i < 3; i++)
+        {
+            snap[i] = packSupport.f[i];
+            d[i] = opos[i] - snap[i];
+        }
+        *distcm = sqrtf(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]) / cm;
+        return TRUE;
+    }
     if (!drawn && gevrGexPistolPoint(TRUE, snap))
     {
         for (i = 0; i < 3; i++) d[i] = opos[i] - snap[i];
@@ -4957,6 +5004,19 @@ void gevrMotionThrowTick(s32 hand)
                     final_vel.z += s_gevrCamLook.z * look_boost;
                 }
 
+                /* a mod's weapon_fire_attempt (gevr_modapi.c) may decline it: nothing
+                 * leaves the hand, and a grenade cooking on the trigger stops cooking
+                 * (the trigger's own throw would take it) */
+                if (gevrModApiFireAttempt(hand, item))
+                {
+                    if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
+                    {
+                        handptr->weapon_action_state = GUN_ANIM_STATE_IDLE;
+                        handptr->field_890 = 0.0f;
+                        handptr->field_88C = 0;
+                    }
+                    return;
+                }
                 g_gevrMotionThrowActive[hand] = 1;
                 s_gevrMotionRecover[hand] = TRUE;
                 g_gevrMotionThrowVel[hand] = final_vel;
@@ -5001,6 +5061,7 @@ void gevrMotionThrowTick(s32 hand)
 
                 extern void gevrRumbleGunfire(s32 hand, s32 item_id);
                 gevrRumbleGunfire(hand, item);
+                gevrModApiFired(hand, item);   /* weapon_fire */
 
                 sysLogPrintf(LOG_NOTE, "stereo: motion throw hand %d item %d speed %.2f m/s (mag %.1f)",
                              hand, item, peak_speed, throw_mag);
@@ -5008,7 +5069,15 @@ void gevrMotionThrowTick(s32 hand)
         }
         else
         {
-            if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
+            if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS
+                && gevrModApiFireAttempt(hand, item))
+            {
+                /* a mod declined the drop: the grenade stops cooking, still in the hand */
+                handptr->weapon_action_state = GUN_ANIM_STATE_IDLE;
+                handptr->field_890 = 0.0f;
+                handptr->field_88C = 0;
+            }
+            else if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
             {
                 /* The grenade was cooked and gently dropped at player's feet */
                 struct coord3d drop_vel;
@@ -5029,6 +5098,7 @@ void gevrMotionThrowTick(s32 hand)
 
                 extern void gevrRumbleGunfire(s32 hand, s32 item_id);
                 gevrRumbleGunfire(hand, item);
+                gevrModApiFired(hand, item);   /* weapon_fire */
                 sysLogPrintf(LOG_NOTE, "stereo: dropped cooked grenade at feet (timer %d)",
                              g_CurrentPlayer->last_z_trigger_timer);
             }
@@ -6365,6 +6435,55 @@ static const struct GevrScope *gevrScopeFor(s32 item)
     return NULL;
 }
 
+/*
+ * A mod's scope per hand (mod.weapon.scope, gevr_modgame.c): the game's own
+ * (GEVR_MODSCOPE_GAME), the mod's eyepiece and zoom (_MOD), or none
+ * (_NONE), while the hand holds the item it was set for. gevr_modapi.c puts
+ * the game's own back at each draw and when a mod stops.
+ */
+static struct
+{
+    s32 mode, item;
+    struct GevrScope sc;
+    f32 zoom;   /* degrees across the lens, as gevrScopeZoom's */
+} s_gevrModScope[2];
+
+void gevrScopeModSet(s32 hand, s32 mode, s32 item, const f32 at[3], f32 radius, f32 zoomDeg)
+{
+    if (hand < 0 || hand > 1)
+    {
+        return;
+    }
+    s_gevrModScope[hand].mode = mode;
+    s_gevrModScope[hand].item = item;
+    if (mode == GEVR_MODSCOPE_MOD && at != NULL)
+    {
+        s_gevrModScope[hand].sc.item = item;
+        s_gevrModScope[hand].sc.x = at[0];
+        s_gevrModScope[hand].sc.y = at[1];
+        s_gevrModScope[hand].sc.z = at[2];
+        s_gevrModScope[hand].sc.r = radius;
+        s_gevrModScope[hand].sc.nearOnly = FALSE;
+        s_gevrModScope[hand].zoom = zoomDeg;
+    }
+}
+
+/* the hand's scope: a mod's (or none) for the item it was set for, else the game's own */
+static const struct GevrScope *gevrScopeForHand(s32 hand, s32 item)
+{
+    if (hand >= 0 && hand <= 1 && s_gevrModScope[hand].mode != GEVR_MODSCOPE_GAME && s_gevrModScope[hand].item == item)
+    {
+        return s_gevrModScope[hand].mode == GEVR_MODSCOPE_MOD ? &s_gevrModScope[hand].sc : NULL;
+    }
+    return gevrScopeFor(item);
+}
+
+/* one of the game's own, with Gun fit's trims and a GoldenEye X eyepiece; not a mod's */
+static s32 gevrScopeInTable(const struct GevrScope *sc)
+{
+    return sc >= s_gevrScopes && sc < s_gevrScopes + GEVR_SCOPE_FITS;
+}
+
 /* the scope's zoom, degrees: the sniper's own, the laser's, a rifle's aim zoom */
 /* Gun fit (port/src/input.c): the gun hand's scope, its place in VrScopeFit, or -1 */
 s32 gevrScopeFitIndex(void)
@@ -6375,8 +6494,8 @@ s32 gevrScopeFitIndex(void)
     {
         return -1;
     }
-    sc = gevrScopeFor(getCurrentPlayerWeaponId(GUNRIGHT));
-    return sc != NULL ? (s32) (sc - s_gevrScopes) : -1;
+    sc = gevrScopeForHand(GUNRIGHT, getCurrentPlayerWeaponId(GUNRIGHT));
+    return sc != NULL && gevrScopeInTable(sc) ? (s32) (sc - s_gevrScopes) : -1;   /* a mod's has no fit */
 }
 
 static f32 gevrScopeZoom(s32 item)
@@ -6399,6 +6518,12 @@ static f32 gevrScopeZoom(s32 item)
     return zoom;
 }
 
+/* the hand's scope's zoom, degrees: a mod's own, else the game's for the item */
+static f32 gevrScopeZoomHand(s32 hand, s32 item, const struct GevrScope *sc)
+{
+    return gevrScopeInTable(sc) ? gevrScopeZoom(item) : s_gevrModScope[hand].zoom;
+}
+
 /* The N64's normal view was 60 deg (30 deg half-angle). Magnification = tan(30) / tan(zoom / 2) */
 f32 gevrScopeMagnificationHand(s32 hand)
 {
@@ -6410,11 +6535,11 @@ f32 gevrScopeMagnificationHand(s32 hand)
         return 1.0f;
     }
     item = getCurrentPlayerWeaponId(hand);
-    if (gevrScopeFor(item) == NULL)
+    if (gevrScopeForHand(hand, item) == NULL)
     {
         return 1.0f;
     }
-    zoom = gevrScopeZoom(item);
+    zoom = gevrScopeZoomHand(hand, item, gevrScopeForHand(hand, item));
     if (zoom < 0.5f) zoom = 0.5f;
     if (zoom > 60.0f) zoom = 60.0f;
     return tanf(30.0f * (M_PI_F / 180.0f)) / tanf(zoom * 0.5f * (M_PI_F / 180.0f));
@@ -6453,7 +6578,7 @@ s32 gevrGripSteadyOnCtrl(s32 ctrl)
     {
         return TRUE;
     }
-    if (gevrScopeFor(getCurrentPlayerWeaponId(hand)) != NULL)
+    if (gevrScopeForHand(hand, getCurrentPlayerWeaponId(hand)) != NULL)
     {
         return g_CurrentPlayer->insightaimmode || s_gevrScopeEyeNear[hand];
     }
@@ -6544,11 +6669,13 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
     f32 ey = sc->y;
     f32 ez = sc->z;
     f32 er = sc->r;
-    const f32 *fit = gevrScopeFitOf(gevrFitLook(hand), sc - s_gevrScopes);
+    static const f32 s_noFit[4];   /* a mod's scope: no Gun fit trims of its own */
+    const f32 *fit = gevrScopeInTable(sc) ? gevrScopeFitOf(gevrFitLook(hand), sc - s_gevrScopes) : s_noFit;
     f32 off[3];
 
     const GexWeaponDef *gexDef = gevrGexHeld(hand) ? gevrGexWeaponForHand(hand) : NULL;
-    if (gexDef && gexDef->hasScope) { ex=gexDef->scopeRoot[0]; ey=gexDef->scopeRoot[1]; ez=gexDef->scopeRoot[2]; }
+    /* GoldenEye X's eyepiece for the game's own; a mod's is where the mod put it */
+    if (gexDef && gexDef->hasScope && gevrScopeInTable(sc)) { ex=gexDef->scopeRoot[0]; ey=gexDef->scopeRoot[1]; ez=gexDef->scopeRoot[2]; }
     gevrGunOff(hand, off);
     lens[0] = (originSide * off[0] + left * fit[0]) * size / 100.0f
             - left * ex * unit + s_gevrScopeTrim[0];
@@ -6657,7 +6784,7 @@ static s32 gevrScopeBeginHand(s32 hand)
     struct coord3d o, d;
     s32 on = FALSE;
     s32 item = g_CurrentPlayer != NULL ? getCurrentPlayerWeaponId(hand) : ITEM_UNARMED;
-    const struct GevrScope *sc = gevrScopeFor(item);
+    const struct GevrScope *sc = gevrScopeForHand(hand, item);
     f32 eye = 0.0f;
     s32 i;
 
@@ -6732,7 +6859,7 @@ static s32 gevrScopeBeginHand(s32 hand)
     u[1] = r[2] * f[0] - r[0] * f[2];
     u[2] = r[0] * f[1] - r[1] * f[0];
 
-    zoom = gevrScopeZoom(item);
+    zoom = gevrScopeZoomHand(hand, item, sc);
     fov = zoom * s_gevrScopeK;   /* always zoomed, as a real scope */
     if (fov > 60.0f) fov = 60.0f;
     if (st->lensTan > 1e-3f)
@@ -7478,6 +7605,29 @@ void bondviewRemovePlayerBody(void)
 }
 
 #ifdef GEVR
+/*
+ * input.c: a page a mod asked for (mod.ui.open) waits while this is true. The
+ * screen pauses a solo mission with a Start press, and Start during the
+ * intro's fly-by and swirl skips them (bondviewTickCamera's skips) instead:
+ * the page would come up over a running mission. Solo plays in
+ * CAMERAMODE_FP (NONE only between modes, or before the intro starts);
+ * local multiplayer plays in NONE after its swirl. Online the screen
+ * doesn't pause, so nothing waits.
+ */
+s32 gevrIntroPlaying(void)
+{
+    if (netIsActive())
+    {
+        return FALSE;
+    }
+    if (g_CameraMode == CAMERAMODE_NONE)
+    {
+        return getPlayerCount() == 1;
+    }
+    return g_CameraMode == CAMERAMODE_INTRO || g_CameraMode == CAMERAMODE_FADESWIRL
+        || g_CameraMode == CAMERAMODE_SWIRL || g_CameraMode == CAMERAMODE_MP;
+}
+
 #include "memp.h"   /* mempGetBankSizeLeft */
 
 /*
@@ -13458,6 +13608,16 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
         g_CurrentPlayer->speedforwards *= 1.08f;
         g_CurrentPlayer->speedforwards *= g_CurrentPlayer->speedboost;
+#ifdef GEVR
+        {
+            /* a mod's mod.player.setSpeed (gevr_modgame.c): the local player's walk and strafe */
+            extern f32 gevrModMoveScale(void);
+            const f32 k = gevrModMoveScale();
+
+            g_CurrentPlayer->speedforwards *= k;
+            g_CurrentPlayer->speedsideways *= k;
+        }
+#endif
 
         if ((moveData.canLookAhead == 0) && (moveData.digitalStepForward == 0))
         {
@@ -18249,6 +18409,13 @@ s32 gevrMuzzleFitAvailable(void)
     if (g_CurrentPlayer == NULL) return FALSE;
     item = getCurrentPlayerWeaponId(GUNRIGHT);
     if (item <= ITEM_FIST || item >= GEVR_MAX_WEAPONS) return FALSE;
+    {
+        /* A pack body's authored muzzle replaces the trim this would edit,
+         * and the trim is the player's saved one for the carrier item. */
+        extern s32 gevrModGunMuzzle(s32 hand, coord3d *out);   /* gun.c */
+        coord3d packMuzzle;
+        if (gevrModGunMuzzle(GUNRIGHT, &packMuzzle)) return FALSE;
+    }
     hdr = get_ptr_itemheader_in_hand(GUNRIGHT);
     return (gevrGexHeld(GUNRIGHT) && gevrGexWeaponForHand(GUNRIGHT) != NULL)
         || (hdr != NULL && hdr->Switches != NULL && hdr->numSwitches > 3 && hdr->Switches[3] != NULL);
@@ -19113,6 +19280,8 @@ void gevrAutoAdvanceHand(s32 hand)
 
         if (gevrGexMinesHold(hand))
             return;   /* GE-X's remote mines: the watch detonates them, the hand stays */
+        if (gevrModApiOutOfAmmo(hand, item))
+            return;   /* a mod keeps the empty gun in hand (out_of_ammo, gevr_modapi.c) */
         if (hand == GUNRIGHT && item == ITEM_REMOTEMINE && bondinvItemAvailable(ITEM_TRIGGER) && !VrGexGuns)
             gunRequestHandWeaponChange(hand, ITEM_TRIGGER, 1);
         else
@@ -19168,6 +19337,9 @@ static f32 s_gevrGestureTune[GEVR_GT_COUNT] = {
 #define GEVR_GRIP_B_REACH_CM 50.0f     /* grip use: the hand this near to what B would use */
 
 static s32 s_gevrGripGesture[2];   /* per controller: 0 idle, 1 a press to decide, 2 taken until let go, 3 aims */
+/* a mod's grip and release (gevr_modapi.c), told on the next game tick: the
+ * pad is read every retrace, scripts run on the tick */
+static s32 s_gevrModGripHeld[2], s_gevrModGripDown[2], s_gevrModGripUp[2];
 static s32 s_gevrGripPendAge[2];
 #define GEVR_GRIP_PEND_POLLS 30   /* pad reads, about half a second */
 
@@ -19180,6 +19352,9 @@ void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
         return;
     }
     gevrPullGripInput(ctrl, held);
+    if (held && !s_gevrModGripHeld[ctrl]) s_gevrModGripDown[ctrl] = 1;
+    if (!held && s_gevrModGripHeld[ctrl]) s_gevrModGripUp[ctrl] = 1;
+    s_gevrModGripHeld[ctrl] = held != 0;
     if (!held)
     {
         extern void gevrBodySlotGripLetGo(int ctrl);   /* gevr_bodyslots.c */
@@ -19587,6 +19762,20 @@ void gevrGripGestureTick(void)
                 else gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
             } else gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
         }
+        if ((s_gevrModGripDown[ctrl] || s_gevrModGripUp[ctrl])
+            && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+        {
+            /* a mod's grip once the game has decided it, then its release;
+             * let go and pressed again within a tick: the release first */
+            extern int gevrBodySlotHover(int ctrl);
+            const s32 anchor = gevrBodySlotHover(ctrl);
+            const s32 down = s_gevrModGripDown[ctrl], up = s_gevrModGripUp[ctrl];
+
+            s_gevrModGripDown[ctrl] = s_gevrModGripUp[ctrl] = 0;
+            if (up && down && s_gevrModGripHeld[ctrl]) gevrModApiRelease(ctrl, anchor);
+            if (down) gevrModApiGrip(ctrl, anchor, s_gevrGripGesture[ctrl] == 2);
+            if (up && !(down && s_gevrModGripHeld[ctrl])) gevrModApiRelease(ctrl, anchor);
+        }
     }
 }
 
@@ -19915,6 +20104,7 @@ static s32 s_gevrGexGripSpent;       /* the off hand's grip seated a magazine: h
 static s32 s_gevrReloadSeatTicks;
 static f32 s_gevrReloadSeatAt[3];
 static s32 s_gevrGexSeatedTicks[2];  /* the label's "in" after a magazine seats (gevrReloadLabel) */
+static s32 s_gevrGexReloadOpen[2];   /* a mod's reload_start sent, its reload_end not yet (gevrGexMagOut, gevrGexMagIn) */
 
 extern void sub_GAME_7F0649D8(enum GUNHAND hand);   /* gunfire.c: the reload's ammo move */
 extern void currentPlayerCreateRocket(GUNHAND hand); /* gun.c: the launcher's loaded rocket */
@@ -20309,6 +20499,8 @@ static void gevrGexMagOut(s32 hand, s32 state, const char *how)
     }
     gevrGexBuzz(0.5f);
     sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun's magazine %s", hand == GUNRIGHT ? "right" : "left", how);
+    gevrModApiReloadStart(hand, getCurrentPlayerWeaponId(hand));   /* reload_start (gevr_modapi.c) */
+    s_gevrGexReloadOpen[hand] = TRUE;
 }
 
 /* the magazine in the off hand let go: its rounds back to the reserve */
@@ -20420,6 +20612,7 @@ s32 gevrReloadDraw(s32 hand)
     item = getCurrentPlayerWeaponId(hand);
     if (!gevrReloadItemByHand(item)) return FALSE;
     saved = &s_gevrStoredMag[hand][item];
+    s_gevrGexReloadOpen[hand] = FALSE;   /* a gun drawn: the last one's reload is over */
     s_gevrGexMag[hand] = saved->valid && saved->missing ? GEVR_GEXMAG_OUT : GEVR_GEXMAG_IN;
     s_gevrGexMagItem[hand] = item;
     memset(&s_gevrRack[hand], 0, sizeof(s_gevrRack[hand]));
@@ -20438,6 +20631,13 @@ s32 gevrReloadDraw(s32 hand)
  * loaded at once from the reserve, by the game's own top-up */
 static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
 {
+    /* a mod's reload_end always follows a reload_start: a top-up at the belt with
+     * the magazine still in (or one drawn without it) sends its start here */
+    if (!s_gevrGexReloadOpen[hand])
+    {
+        gevrModApiReloadStart(hand, getCurrentPlayerWeaponId(hand));
+    }
+    s_gevrGexReloadOpen[hand] = FALSE;
     /* one already in and waiting for its rack (a touch at the belt): chambered, no rack */
     gevrRackChamber(&s_gevrRack[hand], &g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
     if (rounds >= 0)
@@ -20460,6 +20660,7 @@ static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
     gevrGexBuzz(0.6f);
     sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun's magazine %s (%d rounds)", hand == GUNRIGHT ? "right" : "left", how,
                  g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
+    gevrModApiReloadEnd(hand, getCurrentPlayerWeaponId(hand));   /* reload_end: a magazine seated */
 }
 
 /*
@@ -20669,6 +20870,10 @@ s32 gevrReloadGrabBelt(s32 ctrl)
 {
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
     if (!gevrReloadBeltHover(ctrl) || gevrReloadBeltAmmo(ctrl) != hand) return FALSE;
+    if (gevrModApiReloadAttempt(hand, getCurrentPlayerWeaponId(hand), get_ammo_in_hands_weapon(hand)))
+    {
+        return TRUE;   /* a mod declined it (reload_attempt): the squeeze is spent, nothing taken */
+    }
     gevrGexMagIn(hand, "gripped at the belt", -1);
     return TRUE;
 }
@@ -21365,7 +21570,8 @@ static void gevrGexRoundTick(s32 gunHand, f32 cm, const f32 grip0[3], s32 grip, 
     /* the pump (gevr_rack.h): shells in on an empty chamber wait for it. A fresh grip
      * at the shells is for a shell first: the saddle is within the fore-end's reach. */
     const s32 take = grip && fresh && !s_gevrGexGripSpent && *state != GEVR_GEXMAG_INHAND
-        && gevrReloadRoundAtHand(gunHand, off) && gevrReloadPickup(gunHand) > 0;
+        && gevrReloadRoundAtHand(gunHand, off) && gevrReloadPickup(gunHand) > 0
+        && !gevrModApiReloadAttempt(gunHand, roundItem, get_ammo_in_hands_weapon(gunHand));   /* a mod can decline it */
     if (*state == GEVR_GEXMAG_IN && s_gevrRack[gunHand].pending > 0 && (s_gevrRack[gunHand].held || !take)
         && gevrRackRun(gunHand, grip, fresh)) {
         s_gevrMagGrab = 0;
@@ -21637,7 +21843,9 @@ void gevrHandReloadTick(void)
                     }
                     break;
                 case GEVR_GEXMAG_OUT:
-                    if (grip && !s_gripWas[gunHand] && gevrGexAtBelt(gunHand, handAt) && get_ammo_in_hands_weapon(gunHand) > 0)
+                    if (grip && !s_gripWas[gunHand] && gevrGexAtBelt(gunHand, handAt) && get_ammo_in_hands_weapon(gunHand) > 0
+                        /* a fresh magazine from the reserve: a mod can decline it (reload_attempt) */
+                        && !gevrModApiReloadAttempt(gunHand, getCurrentPlayerWeaponId(gunHand), get_ammo_in_hands_weapon(gunHand)))
                     {
                         *st = GEVR_GEXMAG_INHAND; s_gevrGexHeldGun = gunHand;
                         s_gevrGexSeatArmed = TRUE;
@@ -21761,7 +21969,13 @@ void gevrHandReloadTick(void)
             {
                 if (gevrGexByHand(hand))
                 {
-                    gevrGexMagIn(hand, "loaded at the belt", -1);
+                    /* rounds from the reserve: a mod can decline them (reload_attempt);
+                     * a touch that only chambers a seated magazine takes none */
+                    if (get_ammo_in_hands_weapon(hand) <= 0
+                        || !gevrModApiReloadAttempt(hand, getCurrentPlayerWeaponId(hand), get_ammo_in_hands_weapon(hand)))
+                    {
+                        gevrGexMagIn(hand, "loaded at the belt", -1);
+                    }
                 }
                 else
                 {
@@ -23284,6 +23498,9 @@ void bondviewKillCurrentPlayer(void)
 #endif
         g_isBondKIA = 1;
         g_CurrentPlayer->bonddead = 1;
+#ifdef GEVR
+        gevrModPlayerDied();   /* a mod's player_died */
+#endif
 
         g_CurrentPlayer->previous_collision_info = g_CurrentPlayer->field_488;
 
@@ -23396,6 +23613,9 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
     if (gevrCoopForwardGuardDamage(damage_amount, vectorx, vectorz)) return;
     /* co-op revive: a downed player takes no more until a teammate brings them back */
     if (gevrCoopDowned(get_cur_playernum())) return;
+    /* a mod's before_damage (gevr_modgame.c): this headset's player's, before the game's own rules */
+    if (gevrModPlayerBeforeDamage(&damage_amount, playerid, affects_armor)) return;
+    const s32 gevrModBy = playerid;   /* the attacker as given: -1 a guard, gas, an autogun */
     /*
      * A guard, an autogun or gas has no player (-1), and the bookkeeping
      * below indexes the players with it: g_playerPlayerData[-1] and
@@ -23648,6 +23868,7 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                      g_CurrentPlayer->bonddead, g_AiDamageModifier, g_AiAccuracyModifier, g_GlobalTimerDelta, g_ClockTimer,
                      aimed, off, held, chance);
     }
+    gevrModPlayerDamaged(damage_amount, gevrModBy, affects_armor, gevrHealthBefore, gevrArmourBefore);   /* damage_applied */
 #endif
 }
 

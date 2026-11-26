@@ -2,6 +2,7 @@
  * presentation snapshots, not actors: all modes use the same local settings,
  * and respawns, AI removal and network authority never depend on physics. */
 #include "gevr_ragdoll_internal.h"
+#include <bondaicommands.h>
 #include <string.h>
 #include "model.h"
 #include "chr.h"
@@ -12,6 +13,7 @@
 #include "dyn.h"
 #include "system.h"
 #include "gevr_bean.h"
+#include "gevr_modblood.h"
 #include "chrobjdata.h"
 #include "matrixmath.h"
 #include "gun.h"
@@ -74,6 +76,8 @@ typedef struct RdSeen {
     ChrRecord *chr;
     Model *model;
     int suppressed, attempted, matrix, hitpart, hitTick, weapon, blastTick;
+    int headBurst;
+    float burstDir[3];
     float dir[3], blast[3], blastRadius, blastDamage;
 } RdSeen;
 static RdSeen s_seen[512];
@@ -166,7 +170,10 @@ int gevrRagdollNeedsPose(ChrRecord *chr)
     if (!VrRagdolls || s_failed || !chr || !chr->model || !chr->model->obj) return 0;
     RdSeen *s=rdSeen(chr,1);
     if (!s) return 0;
-    if (!rdDead(chr)) { s->suppressed=s->attempted=0; return 0; }
+    if (!rdDead(chr)) {
+        s->suppressed = s->attempted = s->headBurst = 0;
+        return 0;
+    }
     return !s->attempted && !s->suppressed && !(chr->chrflags & CHRFLAG_HIDDEN)
         && chr->model->obj->Skeleton == &skeleton_guard;
 }
@@ -222,11 +229,24 @@ void gevrRagdollNoteHit(ChrRecord *chr, int matrix, int hitpart, const float dir
     if (!VrRagdolls || !chr || !dir || gevrRagdollSuppress(chr)) return;
     RdSeen *s=rdSeen(chr,1);
     if (!s) return;
-    if(!rdDead(chr))s->suppressed=s->attempted=0;
+    if (!rdDead(chr)) s->suppressed = s->attempted = s->headBurst = 0;
     if(matrix<0 && s->matrix>=0 && s->hitpart==hitpart && s->hitTick==g_GlobalTimer)matrix=s->matrix;
     s->matrix=matrix; s->hitpart=hitpart; s->hitTick=g_GlobalTimer; s->weapon=weapon;
     memcpy(s->dir,dir,sizeof(s->dir));
     if (rdIsShotgun(weapon)) rdVolleyHit(chr, NULL, hitpart, dir); /* a hitpart until the body exists */
+}
+
+void gevrRagdollNoteShotDeath(ChrRecord *chr, int hitpart, const float dir[3], int weapon)
+{
+    if (!VrRagdolls || !VrDismemberment || !chr->prop || chr->prop->type != PROP_TYPE_CHR ||
+        hitpart != HIT_HEAD || !gevrModBloodFirearm(weapon) || (chr->chrflags & CHRFLAG_COUNT_DEATH_AS_CIVILIAN))
+        return;
+    const int chance = gevrModBloodHeadChance(chr->bodynum);
+    if (!chance) return;
+    RdSeen *seen = rdSeen(chr, 1);
+    if (!seen || !rdChance((float)chance)) return;
+    seen->headBurst = TRUE;
+    memcpy(seen->burstDir, dir, sizeof(seen->burstDir));
 }
 
 /* These relations live in shared definitions: relink for this instance before
@@ -752,6 +772,16 @@ void gevrRagdollCapture(ChrRecord *chr)
         s_pending.chr=NULL;
     }
     if(cut>=0)rdCut(slot,cut);
+    const int head = slot->body[2];
+    if (!blasted && seen && seen->headBurst && head >= 0 && gevrModBloodEnabled() &&
+        ((slot->cuts & (1u << head)) || rdCut(slot, head))) {
+        const Mtxf *joint = &slot->joints[head];
+        float centre[3];
+        slot->hiddenHead = TRUE;
+        for (int axis = 0; axis < 3; ++axis)
+            centre[axis] = joint->m[3][axis] + 7.f * joint->m[1][axis];
+        gevrModBloodHeadBurst(chr->prop->stan ? getTileRoom(chr->prop->stan) : -1, centre, seen->burstDir);
+    }
     if(blasted)rdBlastBody(slot,seen->blast,seen->blastRadius,seen->blastDamage);
     rdRooms(slot);
     slot->onscreen=rdOnScreen(slot);
@@ -935,6 +965,17 @@ static void rdStain(RdBody *b, int part, const float hit[3], const float dir[3])
     g_randomSeed=seed;
 }
 
+void gevrRagdollBloodStain(int handle, int part, const float hit[3], const float direction[3])
+{
+    for (int i = 0; i < RD_BODIES; ++i) {
+        RdBody *body = &s_bodies[i];
+        if (body->used && body->handle == handle) {
+            rdStain(body, part, hit, direction);
+            return;
+        }
+    }
+}
+
 /* The piece of body part 'part' and everything joined to it */
 static void rdPushPiece(RdBody *b, int part, const float v[3])
 {
@@ -1016,6 +1057,12 @@ static const u8 *rdPieces(RdBody *b)
     }
     return b->piece;
 }
+int gevrRagdollHidesHead(const Model *model)
+{
+    const RdBody *body = rdModel(model);
+    return body && body->hiddenHead;
+}
+
 int gevrRagdollModelCut(const Model *model) { RdBody *b=rdModel(model); return b ? (int)b->cuts : 0; }
 unsigned gevrRagdollModelBody(const Model *model) { RdBody *b=rdModel(model); return b ? b->serial : 0; }
 /* Bean's skin found a hole's rim (gevr_bean_caps.inc.h): drawn after the body */

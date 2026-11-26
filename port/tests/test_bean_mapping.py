@@ -136,6 +136,20 @@ def check_placement(results):
     print(f"Prop placement: {len(placed)} fitted props within 30% of GoldenEye's box, no jointed native lists")
 
 
+# mod.attach without tracking (gevr_avatar.c gevrAvatarModelAttachFrame): every
+# body on the guard skeleton with a Bean skin had its hand and torso joints checked
+# (gevr_bean_mapping_test.c ATTACHFRAME): the guns' nodes on the wrists, the rest
+# pose facing +Z, the skin drawn from those matrices
+def check_attach_frames(results):
+    seen = set()
+    for line in results:
+        seen.update(re.findall(r"ATTACHFRAME (\w+) hands", line))
+    for name in ("CdjbondZ", "Cgreatguard2Z", "CmaydayZ", "CjawsZ"):
+        assert name in seen, f"{name}: attachment frames not checked"
+    assert len(seen) >= 30, f"only {len(seen)} bodies' attachment frames checked"
+    print(f"Attachment frames without tracking: {len(seen)} Bean bodies' hand and torso joints checked")
+
+
 def main():
     if len(sys.argv) > 3:
         raise SystemExit(__doc__)
@@ -237,6 +251,7 @@ def main():
     check_screens(results)
     check_flash(results)
     check_placement(results)
+    check_attach_frames(results)
 
 
 if __name__ == "__main__":

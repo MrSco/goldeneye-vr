@@ -155,6 +155,7 @@ static PickResult pcChooseFile(const char *title, const char *patterns, std::str
 
 void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp
 void pcModsApplyCe(const std::string &path);
+extern "C" void gevrLauncherModPicked(FILE *f, const char *removeAfter);   // vr_launcher.cpp
 
 /*
  * The Quest's file pickers (MainActivity.openRomPicker and friends) copy the
@@ -198,6 +199,30 @@ bool pcOpenPicker(const char *method)
         return r != PICK_FAILED;
     }
 #endif
+    // A mod's zip (the Mods page, docs/mod-system.md): opened here, so a Windows
+    // path in any letters works, and installed from the open file by the
+    // launcher (vr_launcher.cpp gevrLauncherModsTick). Nothing is copied, except
+    // that iOS, Apple TV and Vision Pro hand over a copy of their own, deleted
+    // once it is installed.
+    if (!strcmp(method, "openModPicker")) {
+        FILE *f = nullptr;
+#ifdef _WIN32
+        std::wstring file;
+        const PickResult r = pcChooseFile(L"Mods (*.zip)\0*.zip\0All files\0*.*\0", L"Choose a mod's .zip", &file);
+        if (r == PICK_CHOSEN && (f = _wfopen(file.c_str(), L"rb")) != nullptr) gevrLauncherModPicked(f, nullptr);
+#else
+        std::string file;
+        const PickResult r = pcChooseFile("Choose a mod's .zip", "*.zip", &file);
+#ifdef GEVR_IOS
+        const char *copy = file.c_str();   // ios_picker.m's, tvos_upload.mm's or VosApp.swift's own copy
+#else
+        const char *copy = nullptr;        // the player's own file
+#endif
+        if (r == PICK_CHOSEN && (f = fopen(file.c_str(), "rb")) != nullptr) gevrLauncherModPicked(f, copy);
+#endif
+        sysLogPrintf(r == PICK_CHOSEN && !f ? 1 : 0, "launcher: mod zip %s", r != PICK_CHOSEN ? "not chosen" : f ? "chosen" : "unreadable");
+        return r != PICK_FAILED && (r != PICK_CHOSEN || f != nullptr);
+    }
     const char *dest = !strcmp(method, "openRomPicker") ? "picked.z64"
                      : !strcmp(method, "openGexPicker") ? "picked-gex.z64"
                      : !strcmp(method, "openGoldfingerPicker") ? "picked-goldfinger.z64"

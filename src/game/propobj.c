@@ -58,6 +58,7 @@
 #include "gevr_bean.h" /* monitor screens under Bean's meshes */
 #include "net_objects.h"
 #include "net_coop.h"
+#include "gevr_modapi.h"   /* mods' items area: item_pickup */
 extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern int netGetLocalSlot(void);
@@ -1208,6 +1209,14 @@ void objFreeEmbedmentOrProjectile(PropRecord *prop)
 void objFree(ObjectRecord* obj, s32 freeprop, s32 canregen)
 {
     PropRecord *child;
+
+#ifdef GEVR
+    {
+        extern void gevrModPickupFreed(ObjectRecord *obj);   /* gevr_modgame.c: a mod's pickup_removed */
+
+        gevrModPickupFreed(obj);
+    }
+#endif
 
     if (obj->type == PROPDEF_AUTOGUN)
     {
@@ -8791,6 +8800,15 @@ void propobjSetDropped(PropRecord *prop, DROPTYPE droptype)
 {
     PropRecord *parent = prop->parent;
 
+#ifdef GEVR
+    {
+        /* a mod's weapon_dropped: a weapon a chr held, about to fall (gevr_modgame.c) */
+        extern void gevrModWeaponDropped(PropRecord *prop);
+
+        gevrModWeaponDropped(prop);
+    }
+#endif
+
     if (parent)
     {
         ObjectRecord *obj = prop->obj;
@@ -11369,6 +11387,17 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
     {
         return TICKOP_NONE;
     }
+#ifdef GEVR
+    {
+        /* a mod's shared pickup: the host decides who takes it (gevr_modgame.c) */
+        extern s32 gevrModPickupHold(PropRecord *prop);
+
+        if (gevrModPickupHold(prop))
+        {
+            return TICKOP_NONE;
+        }
+    }
+#endif
 
     switch (obj->type)
     {
@@ -11647,6 +11676,12 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
         }
     }
 
+#ifdef GEVR
+    if (op != TICKOP_NONE)
+    {
+        gevrModPickupTaken((PropDefHeaderRecord *)obj);   /* a mod's item_pickup, before a freed pickup goes */
+    }
+#endif
     if ((op == TICKOP_FREE) && ((obj->runtime_bitflags & RUNTIMEBITFLAG_TAGGED) == 0))
     {
         objFree(obj, 0, (obj->state & RUNTIMEBITFLAG_REMOVE));

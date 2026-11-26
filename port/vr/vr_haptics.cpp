@@ -101,6 +101,9 @@ static HapticProfile s_profiles[] = {
     { GEVR_ACTION_SLOT_TAKE,        "Body Slot (Take)",    "Slot_Take",       HAPTIC_CAT_DAMAGE,     8, 8,  80,  80, 120.0f },
     { GEVR_ACTION_SLOT_DENY,        "Body Slot (Refused)", "Slot_Deny",       HAPTIC_CAT_DAMAGE,     5, 5, 100, 100,  90.0f },
     { GEVR_ACTION_SLOT_STEP,        "Body Slot (Step)",    "Slot_Step",       HAPTIC_CAT_DAMAGE,     2, 2,  20,  20, 200.0f },
+    // a mod's pulses (mod.hands.haptic): full strength scales them as the mod
+    // asks, and no pulse lasts longer than the duration
+    { GEVR_ACTION_MOD,              "Mods",                "Mods",            HAPTIC_CAT_DAMAGE,    10, 10, 500, 500, 160.0f },
 };
 
 static const int kNumProfiles = sizeof(s_profiles) / sizeof(s_profiles[0]);

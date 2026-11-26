@@ -54,6 +54,7 @@
 #include "system.h"
 #include "gevr_ghost.h"
 #include "gevr_romlayout.h"   /* GEVR_CAMPAIGN_COUNT */
+#include "gevr_modpack.h"
 
 extern bool netIsActive(void);
 extern s32 g_gevrStereo;
@@ -166,8 +167,16 @@ static const char *ghostCampaignTag(s32 campaign)
      * and overwrite GoldenEye's best (Mario Characters, campaign 4, had none) */
     static const char *const tags[] = { "ge", "gf", "tnd", "mirror", "mario" };
     typedef char tagsForEveryCampaign[sizeof(tags) / sizeof(tags[0]) == GEVR_CAMPAIGN_COUNT ? 1 : -1];
+    static char modTag[4 + GEVR_MOD_ID_MAX + 1];
+    const gevrModInfo *mod = gevrModActive();
 
     (void)sizeof(tagsForEveryCampaign);
+    /* a mod campaign's runs are its own, on whichever cartridge (docs/mod-system.md) */
+    if (mod && campaign == VrCampaign)
+    {
+        snprintf(modTag, sizeof(modTag), "mod-%s", mod->m.id);
+        return modTag;
+    }
     return campaign >= 0 && campaign < (s32)(sizeof(tags) / sizeof(tags[0])) ? tags[campaign] : "ge";
 }
 

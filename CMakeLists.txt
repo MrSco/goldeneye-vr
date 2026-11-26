@@ -442,6 +442,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 # src/game/gevr_mpoptions.c added 2026-11-24 (the in-match Multiplayer Options folder).
 # port/src/gevr_settings.c added 2026-11-05 (the settings table, docs/launcher-unify.md).
 # port/src/gevr_volumetric.c added 2026-11-23 (volumetric smoke & explosions, #249).
+# port/src/gevr_modattach_net.c added 2026-11-26 (mod.attach on the other players, #335).
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 # port/server: the dedicated server's main and the headset, renderer and
@@ -627,6 +628,22 @@ foreach(name 7zAlloc 7zBuf 7zCrc 7zCrcOpt 7zDec 7zFile 7zIn 7zStream Alloc Bcj2 
   list(APPEND SRC_LZMA "${CMAKE_SOURCE_DIR}/port/external/lzma/${name}.c")
 endforeach()
 
+# Lua 5.4 (port/external/lua, MIT): mods' scripts (port/src/gevr_modscript.c,
+# docs/mod-system.md). Only what a sandboxed mod runs: the core, the auxiliary
+# library and the base, coroutine, math, string, table and utf8 libraries; no io,
+# os, package or debug (port/external/lua/README.md).
+set(SRC_LUA)
+foreach(name lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject lopcodes lparser lstate lstring
+             ltable ltm lundump lvm lzio lauxlib lbaselib lcorolib lmathlib lstrlib ltablib lutf8lib)
+  list(APPEND SRC_LUA "${CMAKE_SOURCE_DIR}/port/external/lua/${name}.c")
+endforeach()
+# A library of its own: the game's include/ holds the N64's stdlib.h, stddef.h
+# and string.h, which Lua (written for the C library's) must not see. Every
+# target links ${LIBS}; Apple's archives merge it in by name (GEVR_*_DEPS).
+add_library(gevr_lua STATIC ${SRC_LUA})
+set_target_properties(gevr_lua PROPERTIES POSITION_INDEPENDENT_CODE ON)
+list(APPEND LIBS gevr_lua)
+
 # The patch half of HDiffPatch (port/external/hdiffpatch, MIT), Dab's Mod's copy
 # with its glue: applies the GoldenEye XBLA Community Edition updater the player
 # supplies to their imported release (port/src/gevr_bean_ce.c). Its files include
@@ -748,11 +765,11 @@ if(GEVR_PC)
     list(FILTER SRC_VOS_OBJC INCLUDE REGEX "\\.mm?$")
     set_source_files_properties(${SRC_VOS_OBJC} PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
       COMPILE_DEFINITIONS GEVR_IOS_NO_GL_SHIM=1)
-    set(GEVR_VOS_DEPS SDL2-static juice-static opus gevr_physics Jolt zlibstatic)
+    set(GEVR_VOS_DEPS SDL2-static juice-static opus gevr_physics Jolt zlibstatic gevr_lua)
     add_custom_command(TARGET gevr_visionos POST_BUILD
       COMMAND libtool -static -o "${CMAKE_BINARY_DIR}/libgevr_visionos_all.a" "$<TARGET_FILE:gevr_visionos>"
         $<TARGET_FILE:SDL2-static> $<TARGET_FILE:juice-static> $<TARGET_FILE:opus>
-        $<TARGET_FILE:gevr_physics> $<TARGET_FILE:Jolt> $<TARGET_FILE:zlibstatic>
+        $<TARGET_FILE:gevr_physics> $<TARGET_FILE:Jolt> $<TARGET_FILE:zlibstatic> $<TARGET_FILE:gevr_lua>
       COMMENT "libgevr_visionos_all.a: the game and its libraries in one archive")
     add_dependencies(gevr_visionos ${GEVR_VOS_DEPS})
     return()
@@ -781,11 +798,11 @@ if(GEVR_PC)
     set_source_files_properties(${SRC_IOS} PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
       COMPILE_DEFINITIONS GEVR_IOS_NO_GL_SHIM=1)
     # one archive for Xcode: the dependencies' objects merged in (libtool)
-    set(GEVR_IOS_DEPS SDL2-static juice-static opus gevr_physics Jolt zlibstatic)
+    set(GEVR_IOS_DEPS SDL2-static juice-static opus gevr_physics Jolt zlibstatic gevr_lua)
     add_custom_command(TARGET gevr_ios POST_BUILD
       COMMAND libtool -static -o "${CMAKE_BINARY_DIR}/libgevr_ios_all.a" "$<TARGET_FILE:gevr_ios>"
         $<TARGET_FILE:SDL2-static> $<TARGET_FILE:juice-static> $<TARGET_FILE:opus>
-        $<TARGET_FILE:gevr_physics> $<TARGET_FILE:Jolt> $<TARGET_FILE:zlibstatic>
+        $<TARGET_FILE:gevr_physics> $<TARGET_FILE:Jolt> $<TARGET_FILE:zlibstatic> $<TARGET_FILE:gevr_lua>
       COMMENT "libgevr_ios_all.a: the game and its libraries in one archive")
     add_dependencies(gevr_ios ${GEVR_IOS_DEPS})
     return()

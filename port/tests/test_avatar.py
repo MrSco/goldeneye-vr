@@ -45,6 +45,6 @@ if __name__ == "__main__":
         fixture = Path(temp) / "avatar_rig.c"
         fixture.write_text((ROOT / "port/tests/avatar_rig_native.c").read_text().replace("/* PRODUCTION_BUILDERS */", builders))
         binary = Path(temp) / "avatar_rig"
-        sources = [fixture, ROOT / "port/src/gevr_avatar.c", ROOT / "port/src/gevr_avatar_math.c"]
+        sources = [fixture, ROOT / "port/src/gevr_avatar.c", ROOT / "port/src/gevr_avatar_math.c", ROOT / "port/src/gevr_bodyslot.c"]
         subprocess.run(["gcc", *flags, "-Wno-incompatible-pointer-types", *map(str, sources), "-lm", "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True)

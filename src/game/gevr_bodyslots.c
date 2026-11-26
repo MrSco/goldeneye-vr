@@ -39,6 +39,8 @@
 #include "gevr_bodyslot.h"
 #include "gevr_bodyslots.h"
 #include "gevr_hand_reload.h"
+#include "gevr_modapi.h"      /* mods' hands area: hand_near, the torso's frame */
+#include "gevr_modscript.h"
 
 extern int VrBodySlots, VrBodySlotShow, VrBodySlotSize, VrLeftHandedMode;
 extern float VrBodySlotFit[GEVR_BODY_SLOTS][3];
@@ -477,6 +479,7 @@ static void gevrBodyHandUpdate(s32 ctrl)
         h->pick = gevrBodyDefaultPick(&s_bodyMru[slot], h->choices, h->n);
         h->dist = dist[slot];
         gevrBodyBuzz(ctrl, GEVR_ACTION_SLOT_HOVER);
+        gevrModApiHandNear(ctrl, slot);   /* a mod's hand_near (gevr_modapi.c) */
         gevrBodySlotFitFrom(&s_bodyFrame, slot, h->at, VrLeftHandedMode, loc);
         gevrBodyPickName(hand, h->pick, name, sizeof(name));
         sysLogPrintf(LOG_NOTE, "bodyslot: hover (%s) %s: %.0f below %.0f out %.0f ahead, %.2f r, takes %d %s (%d choice%s)",
@@ -547,8 +550,9 @@ void gevrBodySlotsTick(void)
             gevrBodyIdle(VrBodySlots ? "not in play" : "off");
         }
         /* Hand reload still needs the same torso with holsters disabled,
-         * while choosing a weapon, and while calibrating its belt. */
-        if (gevrHandReloadActive() && !g_CurrentPlayer->bonddead && !g_CurrentPlayer->watch_animation_state
+         * while choosing a weapon, and while calibrating its belt; so do a
+         * mod's hands (gevrBodyLocal) in stereo play. */
+        if ((gevrHandReloadActive() || (g_gevrStereo && gevrModScriptRunning())) && !g_CurrentPlayer->bonddead && !g_CurrentPlayer->watch_animation_state
             && !g_CurrentPlayer->mpmenuon && g_PlayerIsInTank != 1 && !gevrSpectating()
             && !gevrCoopLocalDowned() && D_800364CC > 1e-6f)
             s_bodyFrameValid = gevrBodyFrameUpdate();
@@ -1057,6 +1061,68 @@ static Gfx *gevrReloadBeltDraw(Gfx *gdl)
     return gdl;
 }
 
+/*
+ * mod.attach (gevr_modattach.c): a slot's frame, view space, at the viewmodel's
+ * scale (a gun model's units, 0.085 cm each at the player's gun size): the
+ * slot's centre, the body's left, up and ahead as the model's X, Y and Z, as
+ * an upright item's (gevrBodySlotRoot) without its grip offset. FALSE while
+ * the torso's frame isn't kept.
+ */
+s32 gevrBodySlotFrame(s32 slot, Mtxf *root)
+{
+    const f32 *R = s_bodyFrame.right, *U = s_bodyFrame.up, *F = s_bodyFrame.fwd;
+    f32 x[3], y[3], z[3], xv[3], yv[3], zv[3], cv[3], k;
+    s32 setting, online, i;
+
+    if (slot < 0 || slot >= GEVR_BODY_SLOTS || !s_bodyFrameValid)
+    {
+        return FALSE;
+    }
+    k = 0.085f * D_800364CC * gevrGunSizeNow(&setting, &online);
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = -R[i];
+        y[i] = U[i];
+        z[i] = F[i];
+    }
+    gevrBodyToView(x, 1.0f, xv);
+    gevrBodyToView(y, 1.0f, yv);
+    gevrBodyToView(z, 1.0f, zv);
+    gevrBodyToView(s_bodyCentre[slot], D_800364CC, cv);
+    for (i = 0; i < 3; i++)
+    {
+        root->m[0][i] = xv[i] * k;
+        root->m[1][i] = yv[i] * k;
+        root->m[2][i] = zv[i] * k;
+        root->m[3][i] = cv[i];
+    }
+    root->m[0][3] = root->m[1][3] = root->m[2][3] = 0.0f;
+    root->m[3][3] = 1.0f;
+    return TRUE;
+}
+
+/*
+ * mod.attach over the network (#335, gevr_modattach.c): a slot's centre from
+ * the eye, cm, in the torso's own terms (below, to the frame's right, ahead),
+ * from this player's fit or the default for its height, so another headset
+ * lays it on this player's copy (gevr_avatar.c gevrAvatarAttachFrame) where
+ * gevrBodySlotFrame puts it here.
+ */
+s32 gevrBodySlotAt(s32 slot, f32 out[3])
+{
+    f32 off[3];
+
+    if (slot < 0 || slot >= GEVR_BODY_SLOTS)
+    {
+        return FALSE;
+    }
+    gevrBodySlotOffsets(slot, VrBodySlotFit[slot], VrPlayerHeight, off);
+    out[0] = off[0];
+    out[1] = (f32) gevrBodySlotSide(slot, VrLeftHandedMode) * off[1];
+    out[2] = off[2];
+    return TRUE;
+}
+
 Gfx *gevrBodySlotsDraw(Gfx *gdl)
 {
     static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF, GEVR_BS_CHEST, GEVR_BS_BELT };
@@ -1065,6 +1131,12 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
     s32 i, inst = 0, set = FALSE;
 
     gdl = gevrReloadBeltDraw(gdl);
+    {
+        /* a mod's models on the hands and the body (mod.attach): with body slots off too */
+        extern Gfx *gevrModAttachDrawBody(Gfx *gdl);   /* gevr_modattach.c */
+
+        gdl = gevrModAttachDrawBody(gdl);
+    }
 
     if (!s_bodyLive || !s_bodyFrameValid || !VrBodySlotShow || g_gevrExtraPass || g_CurrentPlayer == NULL)
     {
@@ -1420,4 +1492,40 @@ int gevrBodySlotsOn(void)
 int gevrBodySlotHover(int ctrl)
 {
     return ctrl >= 0 && ctrl < 2 && s_bodyLive ? s_bodyHand[ctrl].slot : -1;
+}
+
+/* A level-frame point (cm, the eye at the origin) in the torso's frame: x
+ * toward the gun hand's side, y up, z ahead, from the frame's origin */
+static void gevrBodyToTorso(const f32 at[3], f32 out[3])
+{
+    const f32 d[3] = { at[0] - s_bodyFrame.origin[0], at[1] - s_bodyFrame.origin[1], at[2] - s_bodyFrame.origin[2] };
+    const f32 x = d[0] * s_bodyFrame.right[0] + d[1] * s_bodyFrame.right[1] + d[2] * s_bodyFrame.right[2];
+
+    out[0] = VrLeftHandedMode ? -x : x;
+    out[1] = d[0] * s_bodyFrame.up[0] + d[1] * s_bodyFrame.up[1] + d[2] * s_bodyFrame.up[2];
+    out[2] = d[0] * s_bodyFrame.fwd[0] + d[1] * s_bodyFrame.fwd[1] + d[2] * s_bodyFrame.fwd[2];
+}
+
+int gevrBodyLocalHand(int ctrl, float out[3])
+{
+    f32 at[3];
+
+    if (ctrl < 0 || ctrl > 1 || !s_bodyFrameValid || g_CurrentPlayer == NULL || D_800364CC <= 1e-6f
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || !gevrBodyHandAt(ctrl, at))
+    {
+        return FALSE;
+    }
+    gevrBodyToTorso(at, out);
+    return TRUE;
+}
+
+int gevrBodyLocalSlot(int slot, float out[3], float *radius)
+{
+    if (slot < 0 || slot >= GEVR_BODY_SLOTS || !s_bodyFrameValid)
+    {
+        return FALSE;
+    }
+    gevrBodyToTorso(s_bodyCentre[slot], out);
+    *radius = s_bodyRadius[slot];
+    return TRUE;
 }

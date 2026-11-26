@@ -16,6 +16,7 @@ static int VrMpLobby = 1;   /* the Lobby rule's default: the Host page's longer 
 static int VrMpStage=34,VrMpVisibility=1,VrMpWeaponSet=4;
 static int VrMpVrOnly;   /* the host's "VR players only" */
 static int VrCampaign;   /* GoldenEye: every mode offered (a hack campaign offers co-op only) */
+static char VrCampaignMod[64];   /* no mod campaign ("" none; one offers co-op only too) */
 #define GEVR_CAMPAIGN_GE 0
 static int VrMovementSpeed, VrMpMovementSpeed, VrSmoothTurnSpeed=120;
 static int VrNoKnockback=1, VrNoHitstun=1, VrDamageFlash=1, VrCoopFastReinforcements;

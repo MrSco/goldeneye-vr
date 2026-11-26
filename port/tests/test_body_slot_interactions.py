@@ -44,11 +44,10 @@ production = "\n".join([
     motion,
 ])
 poll = function(inputs[inputs.index("static bool gripWas[2];"):], "for (int c = 0; c < 2; c++)")
-start = inputs.index("            float slotSticks[2][2]")
-stick_poll = inputs[start:inputs.index("        // In menus either stick",start)].rstrip()
-stick_poll = stick_poll[:stick_poll.rfind("}")]
+stick_poll = function(inputs, "if (stereoplay && !fitting && !adjusting)")
+stick_poll = stick_poll[stick_poll.index("{") + 1:-1]
 production += "\nstatic void poll(void) { " + poll + " }"
-production += "\nstatic void sticks(void) { " + stick_poll + " }"
+production += "\nstatic void sticks(void) { bool slotSticksCaptured = false; " + stick_poll + " }"
 fixtures = {
     "body_slot_interactions_native.c": production,
     "body_slot_labels_native.c": "\n".join(function(gun, signature) for signature in (

@@ -229,12 +229,15 @@ def build(temp):
     exe = Path(temp) / ("sync_drive_test" + (".exe" if os.name == "nt" else ""))
     miniz = Path(temp) / "miniz.o"
     subprocess.run([shutil.which("gcc") or "gcc", "-O1", "-c", "port/vr/miniz/miniz.c", "-o", str(miniz)], cwd=ROOT, check=True)
+    sha256 = Path(temp) / "gevr_sha256.o"   # pc_http.cpp's download check (port/src/gevr_sha256.c)
+    subprocess.run([shutil.which("gcc") or "gcc", "-O1", "-Iport/include", "-Iport/src", "-c", "port/src/gevr_sha256.c", "-o", str(sha256)],
+                   cwd=ROOT, check=True)
     args = [shutil.which("g++") or "g++", "-std=c++20", "-O1", "-Wno-unused-function",
             "-DGEVR_PC=1", "-DGEVR_SYNC_TEST=1", "-DGEVR_SYNC_DRIVE=1", '-DGEVR_APP_VERSION="test"',
             "-Iport/pc", "-Iport/include", "port/tests/sync_native.cpp", "port/pc/gevr_sync_core.cpp",
             "port/pc/gevr_sync.cpp", "port/pc/gevr_sync_drive.cpp", "port/pc/gevr_sync_files.cpp",
             "port/pc/pc_http.cpp", "port/pc/pc_files.cpp",
-            str(miniz), "-o", str(exe)]
+            str(miniz), str(sha256), "-o", str(exe)]
     if os.name == "nt":
         args[1:1] = ["-include", "io.h"]
         args += ["-lwinhttp", "-lbcrypt"]

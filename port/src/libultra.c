@@ -14,6 +14,7 @@
 #include "audio.h"
 #include "fs.h"
 #include "gevr_romlayout.h"
+#include "gevr_modpack.h"
 #include "gevr_icloud.h"
 #include "gevr_sync.h"
 
@@ -459,6 +460,9 @@ static inline void osEepromSetPath(void)
 			// just a filename, look for it in the save dir
 			snprintf(eepromPath, FS_MAXPATH, "$S/%s", extPath);
 		}
+	} else if (gevrModActive()) {
+		/* a mod campaign: its own file (docs/mod-system.md, Saves and records) */
+		snprintf(eepromPath, FS_MAXPATH, "$S/eeprom-mod-%s.bin", gevrModActive()->m.id);
 	} else if (gevrRomIsVariant()) {
 		/* a hack's missions use the same save slots as GoldenEye's: its own file */
 		snprintf(eepromPath, FS_MAXPATH, "$S/eeprom-%s.bin", gevrRomActiveLayout()->tag);

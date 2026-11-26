@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gevr_avatar.h"
+#include "gevr_bodyslot.h"
 #include "net/net_core.h"
 #include "model.h"
 #include "player.h"
@@ -143,12 +144,113 @@ static void rig(float scale,int lefty,float yaw,float height) {
         /* Primary and both half-bend matrices were generated; no invalid axes. */
         for(int k=0;k<16;k++)assert(isfinite(((float *)&m.render_pos[(6+side)*3+2].pos)[k]));
     }
+    /* mod.attach on this player's copy (#335): a hand's frame at the tracked
+     * grip (X its left, Y up, Z the barrel), a body anchor's on the torso the
+     * body yaw turns, upright, its centre where gevrBodySlotCentre puts it */
+    {
+        const float unit=.085f,bodyAt[3]={65,20,-10},*at=remote.field_488.collision_position.f;
+        Mtxf f;float grip[3][3];
+        for(int role=0;role<2;role++) {
+            assert(gevrAvatarAttachFrame(1,1,role,bodyAt,unit,&f));
+            gevrPoseQuatMatrix(received.hand[role].q,grip);
+            for(int k=0;k<3;k++) {
+                near(f.m[0][k],-grip[0][k]*unit*scale);near(f.m[1][k],-grip[2][k]*unit*scale);near(f.m[2][k],-grip[1][k]*unit*scale);
+                near(f.m[3][k],(at[k]+received.head.pos[k]+received.hand[role].pos[k])*scale);
+            }
+        }
+        assert(gevrAvatarAttachFrame(1,2,0,bodyAt,unit,&f));
+        const float yr=-yaw*3.14159265358979323846f/180,F[3]={sinf(yr),0,cosf(yr)};
+        float R[3],origin[3];
+        for(int k=0;k<3;k++) {
+            near(f.m[1][k],(k==1)*unit*scale);near(f.m[2][k],F[k]*unit*scale);
+            R[k]=-f.m[0][k]/(unit*scale);
+            origin[k]=-7.5f*tilted[1][k]+8*tilted[2][k]+7.5f*(k==1)+8*F[k];
+        }
+        near(R[0]*F[0]+R[2]*F[2],0);near(R[1],0);near(R[0]*R[0]+R[2]*R[2],1);
+        for(int k=0;k<3;k++)near(f.m[3][k],(at[k]+received.head.pos[k]+origin[k]-65*(k==1)+20*R[k]-10*F[k])*scale);
+        assert(!gevrAvatarAttachFrame(1,0,0,bodyAt,unit,&f) && !gevrAvatarAttachFrame(1,1,2,bodyAt,unit,&f)
+               && !gevrAvatarAttachFrame(9,1,0,bodyAt,unit,&f));
+        weights[1]=0;assert(!gevrAvatarAttachFrame(1,1,0,bodyAt,unit,&f) && gevrAvatarAttachFrame(1,1,1,bodyAt,unit,&f));
+        weights[1]=1;weights[0]=0;assert(!gevrAvatarAttachFrame(1,2,0,bodyAt,unit,&f));weights[0]=1;
+        active=0;assert(!gevrAvatarAttachFrame(1,1,0,bodyAt,unit,&f));active=1;
+    }
     /* A second view builds from its own base, never the prior camera's pose. */
     m.render_pos=base;modelUpdateMatrices(&data,&m);gevrAvatarApply(&chr,&data);
     assert(gevrAvatarCollisionPose(&m)==base);
     active=0;m.render_pos=base;gevrAvatarApply(&chr,&data);assert(m.render_pos==base && !gevrAvatarCollisionPose(&m));active=1;
     chr.actiontype=ACT_DEAD;gevrAvatarApply(&chr,&data);assert(m.render_pos==base);chr.actiontype=ACT_INIT;
     nodes[6].Parent=&nodes[2];gevrAvatarApply(&chr,&data);assert(m.render_pos==base); /* unsupported rig */
+    clearFrame();
+}
+/* mod.attach without tracking (gevrAvatarModelAttachFrame): a flat player or a
+ * bot (no pose), and a VR copy's untracked hand, from the body as drawn. The
+ * rig relabelled the cartridge's way round (gevr_bean_mapping_test.c checks the
+ * bodies): the left arm 4-6-8 out at +X, the model facing +Z, the guns' nodes
+ * Switches[3] on the right wrist 9 and [5] on the left 8. */
+static void normed(const float *v,float *out) {float d=sqrtf(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);for(int k=0;k<3;k++)out[k]=v[k]/d;}
+static void untracked(float scale,float turn) {
+    Model m={0};ModelFileHeader header={0};ChrRecord chr={0};PropRecord prop={0};ModelRenderData data={0};
+    fixture(&m,&header,&chr,&prop,&data,scale);
+    static const int swap[10]={0,1,2,3,5,4,7,6,9,8};
+    for(int j=4;j<=9;j++)ro[j].Group.JointID=swap[j];
+    ModelNode *sw[8]={0};sw[3]=&nodes[8];sw[5]=&nodes[9];header.Switches=sw;header.numSwitches=8;
+    rootRw.unk14=turn*3.14159265358979323846f/180;
+    active=0;modelUpdateMatrices(&data,&m);gevrAvatarApply(&chr,&data);   /* no pose: the game's own body */
+    const float unit=.085f,bodyAt[3]={65,20,-10};
+    Mtxf f;float e[3];
+    assert(!gevrAvatarAttachFrame(1,1,0,bodyAt,unit,&f) && !gevrAvatarAttachFrame(1,2,0,bodyAt,unit,&f));
+    for(int role=0;role<2;role++) {
+        const Mtxf *h=modelFindNodeMtx(&m,role==GUNRIGHT?&nodes[8]:&nodes[9],0);
+        const float t=role==GUNLEFT?-1:1;
+        float x[3],y[3],z[3];
+        for(int k=0;k<3;k++) {x[k]=-t*h->m[1][k];y[k]=h->m[2][k];z[k]=-t*h->m[0][k];}
+        normed(x,x);normed(y,y);normed(z,z);
+        assert(gevrAvatarModelAttachFrame(&chr,1,role,bodyAt,unit,&f));
+        for(int k=0;k<3;k++) {
+            near(f.m[0][k],x[k]*unit*scale);near(f.m[1][k],y[k]*unit*scale);near(f.m[2][k],z[k]*unit*scale);
+            near(f.m[3][k],h->m[3][k]+4*scale*z[k]);   /* the grip, 4 cm ahead of the wrist */
+        }
+        assert(f.m[0][3]==0 && f.m[3][3]==1);
+    }
+    /* the two hands' frames on their own sides: the right hand's out at the model's -X */
+    {
+        Mtxf r,l;assert(gevrAvatarModelAttachFrame(&chr,1,GUNRIGHT,bodyAt,unit,&r) && gevrAvatarModelAttachFrame(&chr,1,GUNLEFT,bodyAt,unit,&l));
+        const Mtxf *root=&m.render_pos[0].pos;float side=0;
+        for(int k=0;k<3;k++)side+=(r.m[3][k]-l.m[3][k])*root->m[0][k];
+        assert(side<0);
+    }
+    /* the body: up the pelvis to the neck, right shoulder to shoulder, ahead the
+     * way the model faces (its root's +Z as drawn), turned with it */
+    {
+        const float *p1=modelFindNodeMtx(&m,&nodes[1],0)->m[3],*p3=modelFindNodeMtx(&m,&nodes[3],0)->m[3];
+        const float *left=modelFindNodeMtx(&m,&nodes[5],0)->m[3],*right=modelFindNodeMtx(&m,&nodes[4],0)->m[3];
+        float up[3],across[3],ahead[3];
+        for(int k=0;k<3;k++) {up[k]=p3[k]-p1[k];across[k]=right[k]-left[k];}
+        normed(up,up);normed(across,across);normed(m.render_pos[0].pos.m[2],ahead);
+        assert(gevrAvatarModelAttachFrame(&chr,2,GEVR_BS_HIP_GUN,bodyAt,unit,&f));
+        for(int k=0;k<3;k++) {
+            near(f.m[0][k],-across[k]*unit*scale);near(f.m[1][k],up[k]*unit*scale);near(f.m[2][k],ahead[k]*unit*scale);
+            e[k]=p3[k]+scale*(7.5f*up[k]+8*ahead[k]-65*up[k]+20*across[k]-10*ahead[k]);
+            near(f.m[3][k],e[k]);
+        }
+        const float yr=turn*3.14159265358979323846f/180;
+        near(ahead[0],sinf(yr));near(ahead[1],0);near(ahead[2],cosf(yr));
+    }
+    /* nothing to build one from */
+    assert(!gevrAvatarModelAttachFrame(&chr,0,0,bodyAt,unit,&f) && !gevrAvatarModelAttachFrame(&chr,1,2,bodyAt,unit,&f)
+           && !gevrAvatarModelAttachFrame(&chr,2,0,NULL,unit,&f) && !gevrAvatarModelAttachFrame(NULL,1,0,bodyAt,unit,&f));
+    header.Switches=NULL;assert(!gevrAvatarModelAttachFrame(&chr,1,0,bodyAt,unit,&f));header.Switches=sw;
+    sw[5]=NULL;assert(!gevrAvatarModelAttachFrame(&chr,1,GUNLEFT,bodyAt,unit,&f) && gevrAvatarModelAttachFrame(&chr,1,GUNRIGHT,bodyAt,unit,&f));
+    sw[5]=&nodes[9];
+    /* a VR copy with its left hand lost: its tracked arm posed, the other the
+     * game's; that hand's frame from the matrices as posed and drawn */
+    active=1;weights[2]=0;
+    RenderPosView *base=m.render_pos;
+    gevrAvatarApply(&chr,&data);
+    assert(m.render_pos!=base && !gevrAvatarAttachFrame(1,1,GUNLEFT,bodyAt,unit,&f) && gevrAvatarAttachFrame(1,1,GUNRIGHT,bodyAt,unit,&f));
+    assert(gevrAvatarModelAttachFrame(&chr,1,GUNLEFT,bodyAt,unit,&f));
+    for(int k=0;k<3;k++)near(f.m[3][k],m.render_pos[ro[9].Group.MatrixID0].pos.m[3][k]+4*f.m[2][k]/unit);
+    weights[2]=1;rootRw.unk14=0;m.render_pos=base;
     clearFrame();
 }
 static void capture(void) {
@@ -179,4 +281,4 @@ static void capture(void) {
     assert(fabsf(remainderf(pl.vv_theta-p.body_yaw,360))<=35.5f); /* a physical turn brings it round */
     baseYaw=0;pl.vv_theta=0;clearFrame();
 }
-int main(void) {rig(1,0,0,-10);rig(.2f,0,0,-40);rig(1,1,0,20);rig(1,0,90,-10);rig(.2f,1,350,20);capture();puts("avatar: production rig builders, both wrists, left-handed attachments, scale, collision pose and capture passed");return 0;}
+int main(void) {rig(1,0,0,-10);rig(.2f,0,0,-40);rig(1,1,0,20);rig(1,0,90,-10);rig(.2f,1,350,20);untracked(1,0);untracked(.2f,90);untracked(1,215);capture();puts("avatar: production rig builders, both wrists, left-handed attachments, scale, collision pose, untracked attachment frames and capture passed");return 0;}

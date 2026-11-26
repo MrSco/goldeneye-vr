@@ -17,6 +17,7 @@
 #include <PR/ultratypes.h>
 #include "gevr_watch_status.h"
 #include "vr_settings.h"
+#include "gevr_modpack.h"
 
 /* --- Comfort and control options ---------------------------------------- */
 
@@ -27,6 +28,7 @@ int  VrMotionThrowing     = 1;      /* throw grenades, knives and mines by arm m
 float VrMotionThrowPitch  = 0.0f;   /* vertical pitch offset in degrees for motion throws */
 float VrMotionThrowGazeAssist = 0.50f; /* 0..1 gaze direction assist for overhand throws */
 float VrMotionThrowStrength = 1.0f;   /* throw speed / strength multiplier (0.5 .. 2.0) */
+int  VrThrowGuide         = 0;      /* a trigger throw's guide line, flat or VR (int: game code reads it) */
 bool VrSeatedMode         = false;  /* play seated; height is taken from the ini */
 bool VrlaserDotForALL     = false;  /* laser dot on every weapon, not just the ones that have one */
 bool VrTwoHandAim         = false;  /* two-handed weapons aim along the line between both controllers */
@@ -69,6 +71,7 @@ int VrMpBotMode = 0, VrMpBotCount = 3, VrMpBotDifficulty = 2;   /* off; three bo
 int VrDetailedGuns = 1;     /* guards and other players hold the first-person gun models (gevr_heldgun.c) */
 int VrGexGuns = 0;          /* GoldenEye X's first-person models: guns, items, hands and the watch arm, on the
                                screen and in the headset (gevr_gexmodel.c, gun.c); off, as the original */
+char VrCampaignMod[GEVR_MOD_ID_MAX + 1] = "";   /* a mod campaign (docs/mod-system.md): its id; empty: none */
 int VrCampaign = 0;         /* 0 GoldenEye, 1 Goldfinger 64 (data/goldfinger64.z64), 2 Tomorrow Never Dies, 3 Mirror Mode, 4 Mario Characters (data/mario.z64) */
 int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
 int VrMpLobby = 1;    /* the host's Lobby rule: the pre-match lobby before each match (docs/match-lobby.md); on */

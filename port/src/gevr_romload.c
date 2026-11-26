@@ -35,6 +35,7 @@
 #include "gevr_romcheck.h"
 #include "gevr_rom_segments.h"
 #include "gevr_romlayout.h"
+#include "gevr_modpack.h"
 #include "gevr_texpack_preload.h"
 
 extern int VrCampaign;
@@ -118,7 +119,8 @@ static const char *const gevrRomNames[] = {
 /* gevrCampaignCoop for callers that cannot include gevr_romlayout.h (vr_pause_menu.cpp) */
 int gevrCampaignCoopOk(int campaign)
 {
-	return gevrCampaignCoop(campaign);
+	/* a mod campaign: when its manifest offers co-op (the lobby's content check holds the party to it) */
+	return gevrCampaignCoop(campaign) && (!gevrModActive() || gevrModActive()->m.coop);
 }
 
 int gevrRomPlayCampaign(void)
@@ -320,6 +322,8 @@ s32 romdataInit(void)
 	}
 
 	s_RomLastError[0] = '\0';
+	/* a mod campaign names its own cartridge (gevr_modpack.c) */
+	gevrModBoot();
 
 	if (VrCampaign < GEVR_CAMPAIGN_GE || VrCampaign >= GEVR_CAMPAIGN_COUNT) {
 		VrCampaign = GEVR_CAMPAIGN_GE;
@@ -374,6 +378,7 @@ s32 romdataInit(void)
 				fclose(f);
 			}
 		}
+		gevrModBaseFailed(want ? want->name : NULL);   /* its mod campaign is off too (and says so) */
 		free(data);
 		data = NULL;
 		gevrRomCampaignSet(GEVR_CAMPAIGN_GE);

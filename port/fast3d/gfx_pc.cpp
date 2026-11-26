@@ -90,6 +90,10 @@ static float s_beanRoomFogLine[2];
 static unsigned s_beanPaintUploads, s_beanPaintHits;
 extern "C" int gevrStatsPicture(const void *addr, const uint8_t **rgba, int *w, int *h);   // bondview2.c
 #include "gevr_bean.h"
+#include "gevr_modblood.h"
+#include "gevr_modassets.h"   /* a mod's textures (assets/textures) */
+#include "gevr_packmesh.h"
+#include "gevr_modpack.h"
 #include "gevr_romlayout.h"
 #include "gevr_oddjobhat.h"
 extern "C" int VrCampaign; /* vr_settings: the launcher's campaign */
@@ -199,7 +203,10 @@ void gfx_opengl_draw_vignette(float strength, float blink);   // gfx_opengl.cpp
 void gfx_opengl_draw_volumetric(int batchId);                 // gfx_opengl.cpp (issue #249)
 extern "C" float gevrStereoVignette(void);          // bondview2.c
 extern "C" float gevrTeleportBlink(void);           // gevr_teleport.c: the teleport's blink, 0..1
-void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
+void gfx_vr_scope_record(bool on, bool invert_y);
+void gfx_mod_optic_scope_record(const float* projection, bool invert_y);
+#include "gevr_modoptic.h"
+void gfx_mod_optic_surface(const GevrOpticSurface* surface, const float projection[16], bool invert_y);   // gfx_opengl.cpp (issue #40)
 void gfx_vr_scope_only(int hand);                   // GUNRIGHT 0 / GUNLEFT 1, -1 ends
 void gfx_vr_scope_render(void);
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation);
@@ -1659,7 +1666,16 @@ extern "C" int VrBeanFillTextures;   /* port/vr/vr_settings_defaults.c */
 static bool s_tpFillOnly;            /* the indexed pack is Bean's fill, not the chosen look */
 static bool s_tpHasPack;             /* a pack is indexed at all */
 
+static bool s_tpModLive;             /* the mod whose textures are indexed runs (gevr_modassets.h) */
+static bool s_tpPackOff;             /* the player switched HD off: only the mod's answer */
+
 static int tp_find(uint64_t key, uint8_t fmt, uint8_t siz) {
+    /* the run's mod's own pictures first, over every look; Bean's repaints are bound before this */
+    if (s_tpModLive) {
+        const int mod = gevrtp::findMod(key, fmt, siz);
+        if (mod >= 0) return mod;
+    }
+    if (s_tpPackOff) return -1;
     if (!gevrBeanIsEnabled()) return s_tpFillOnly ? -1 : gevrtp::find(key, fmt, siz, false);
     const int id = gevrtp::find(key, fmt, siz, true);
     return id >= 0 || !VrBeanFillTextures ? id : gevrtp::find(key, fmt, siz, false);
@@ -1891,6 +1907,8 @@ extern "C" void gevrTexpackStartEarly(void) {
         }
     }
     s_tpHasPack = !normal.empty();
+    /* the mod campaign's own textures (assets/textures), a layer over all of it */
+    const char *mod = gevrModAssetTextureDir();
     /*
      * No catalog for Bean: its pictures are the release's own, read from the
      * player's copy (gevr_bean_images.c), and the ROM's where it has none, as
@@ -1898,31 +1916,42 @@ extern "C" void gevrTexpackStartEarly(void) {
      * with Bean on, only an HD pack's images fill in, and only for what Bean
      * leaves at the cartridge's (tp_find).
      */
-    gevrtp::start(normal.c_str());
+    gevrtp::start(normal.c_str(), nullptr, mod);
 }
 
 /* Once a frame: start the pack, and swap in images as they finish decoding. */
 static void gevr_texpack_frame(void) {
     GevrProfileSection profile(GEVR_TIME_TEX_READY);
     static bool started = false;
-    static int lastBean = -1, lastFill = -1;
+    static int lastBean = -1, lastFill = -1, lastOff = -1, lastMod = -1;
     s_tpSyncBytes = 0;
     if (!started) {
         started = true;
         gevrTexpackStartEarly();   // (already running, from the launcher)
         gevrtp::waitIndex(5000);   // a name scan, normally done by now: nothing drawn needs looking up again
     }
+    /* the mod's textures while it runs (one that failed to start shows none), and through HD off */
+    const int modLive = gevrtp::hasMod() && gevrModActive() != NULL;
+    const int off = s_tpUserOff != 0;
     if (gevrtp::takeIndexReady()) {
         s_tpIndexed = true;
-        s_tpActive = !s_tpUserOff;
+        s_tpModLive = modLive != 0;
+        s_tpPackOff = off != 0;
+        s_tpActive = !off || modLive;
+        lastOff = off;
+        lastMod = modLive;
         gfx_texture_cache_clear();   // what was uploaded before the index existed looks again
     }
     const int bean = gevrBeanIsEnabled();
-    if (lastBean != bean || lastFill != VrBeanFillTextures || (s_tpIndexed && s_tpActive == (s_tpUserOff != 0))) {
+    if (lastBean != bean || lastFill != VrBeanFillTextures || (s_tpIndexed && (lastOff != off || lastMod != modLive))) {
         lastBean = bean;
         lastFill = VrBeanFillTextures;
+        lastOff = off;
+        lastMod = modLive;
         s_tpRepaintFill.clear();
-        s_tpActive = s_tpIndexed && !s_tpUserOff;
+        s_tpModLive = modLive != 0;
+        s_tpPackOff = off != 0;
+        s_tpActive = s_tpIndexed && (!off || modLive);
         s_tpUploads.clear();
         s_tpPending.clear();
         gfx_texture_cache_clear();   // every texture looks again: the pack's, or the game's own
@@ -2068,7 +2097,10 @@ static void import_texture(int i, int tile, bool is_rect) {
         int beanW = 0, beanH = 0;
         const void *frameAddr = gevrBeanTextureFrame(loaded_texture.addr, g_GlobalTimer / 60.0f);
         /* Mods: Oddjob's hat loads its pictures the same way (gevr_oddjobhat.c) */
-        if ((gevrBeanTexture(frameAddr, &beanRgba, &beanW, &beanH) || gevrHatTexture(frameAddr, &beanRgba, &beanW, &beanH))
+        if ((gevrBeanTexture(frameAddr, &beanRgba, &beanW, &beanH)
+             || gevrHatTexture(frameAddr, &beanRgba, &beanW, &beanH)
+             || gevrPackMeshTexture(frameAddr, &beanRgba, &beanW, &beanH)
+             || gevrModBloodTexture(frameAddr, &beanRgba, &beanW, &beanH))
             && beanRgba && beanW > 0 && beanH > 0) {
             /* UV normalization below uses the logical tile, not the 16x16
              * stand-in's byte count. Keep both axes in those same units. */
@@ -5425,6 +5457,51 @@ static void gfx_run_dl(Gfx* cmd) {
             // RSP commands:
             case G_NOOP: {
                 uint32_t tag_w1 = cmd->words.w1;
+                if (tag_w1 == GEVR_PACKMESH_DRAW_BEGIN || tag_w1 == GEVR_PACKMESH_DRAW_END) {
+                    // Pack texture blocks only load TMEM slot 0. Keep the caller's tile and
+                    // material state: a stock hand or attachment may draw immediately after us.
+                    static struct {
+                        uint32_t geometry, modeL, modeH, paletteFmt;
+                        uint64_t combine;
+                        bool texLod, texDetail;
+                        uint8_t firstTile, maxLod;
+                        decltype(rsp.texture_scaling_factor) scale;
+                        decltype(rdp.texture_to_load) pending;
+                        decltype(rdp.texture_tile) tiles;
+                        LoadedTexture loaded;
+                    } saved;
+                    if (tag_w1 == GEVR_PACKMESH_DRAW_BEGIN) {
+                        saved.geometry = rsp.geometry_mode;
+                        saved.modeL = rdp.other_mode_l;
+                        saved.modeH = rdp.other_mode_h;
+                        saved.paletteFmt = rdp.palette_fmt;
+                        saved.combine = rdp.combine_mode;
+                        saved.texLod = rdp.tex_lod;
+                        saved.texDetail = rdp.tex_detail;
+                        saved.firstTile = rdp.first_tile_index;
+                        saved.maxLod = rdp.tex_max_lod;
+                        saved.scale = rsp.texture_scaling_factor;
+                        saved.pending = rdp.texture_to_load;
+                        memcpy(saved.tiles, rdp.texture_tile, sizeof(saved.tiles));
+                        saved.loaded = rdp.loaded_texture[0];
+                    } else {
+                        rsp.geometry_mode = saved.geometry;
+                        rdp.other_mode_l = saved.modeL;
+                        rdp.other_mode_h = saved.modeH;
+                        rdp.palette_fmt = saved.paletteFmt;
+                        rdp.combine_mode = saved.combine;
+                        rdp.tex_lod = saved.texLod;
+                        rdp.tex_detail = saved.texDetail;
+                        rdp.first_tile_index = saved.firstTile;
+                        rdp.tex_max_lod = saved.maxLod;
+                        rsp.texture_scaling_factor = saved.scale;
+                        rdp.texture_to_load = saved.pending;
+                        memcpy(rdp.texture_tile, saved.tiles, sizeof(saved.tiles));
+                        rdp.loaded_texture[0] = saved.loaded;
+                        rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+                    }
+                    break;
+                }
                 if ((tag_w1 & 0xffff0000) == 0x47450000) {
                     if (tag_w1 == 0x4745ffff) {
                         if (gevrMenuTrace) {
@@ -5588,6 +5665,11 @@ static void gfx_run_dl(Gfx* cmd) {
                         gfx_vr_scope_record(true, gfx_rapi->get_clip_parameters().invert_y);
                         break;
 
+                    case GEVR_OPTIC_SCOPE_RECORD:   // lv.c: the game's scopes and a pack optic's lens
+                        gfx_flush();
+                        gfx_mod_optic_scope_record(rsp.P_matrix[0], gfx_rapi->get_clip_parameters().invert_y);
+                        break;
+
                     case VR_SCOPE_REC_END:
                         gfx_flush();
                         gfx_vr_scope_record(false, false);
@@ -5631,6 +5713,11 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
+                break;
+            case G_GEVR_OPTIC_SURFACE:   // gevr_modoptic.c: a pack optic's lens on its housing
+                gfx_flush();
+                gfx_mod_optic_surface((const GevrOpticSurface*)seg_addr(cmd->words.w1),
+                    rsp.P_matrix[0], gfx_rapi->get_clip_parameters().invert_y);
                 break;
             case G_GEVR_SKY_VTX:
                 memset(s_gevrPresentedFresh, 0, sizeof(s_gevrPresentedFresh));   // pre-projected: none presented
@@ -6879,6 +6966,9 @@ extern "C" void gfx_end_frame(void) {
         gfx_rapi->finish_render();
         gfx_wapi->swap_buffers_end();
     }
+#ifdef GEVR
+    gevrPackMeshCollect();
+#endif
 }
 
 extern "C" void gfx_set_target_fps(int fps) {

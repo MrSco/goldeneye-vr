@@ -15,6 +15,7 @@
 #ifdef GEVR
 #include <bondtypes.h> /* ModelFileHeader, for the model hook below */
 #include "gevr_model.h"
+#include "gevr_modassets.h"
 #include "gevr_romcheck.h"
 #include "gevr_romswap.h"
 #include "gevr_stage.h"
@@ -137,9 +138,27 @@ void load_resource(u8 *ptrdata, s32 bytes,  fileentry *srcfile,  resource_lookup
         }
         if (gevrModelPendingHeader != NULL)
         {
-            u32 converted = gevrModelConvert(ptrdata, lookupdata->poolRemaining, (u32)bytes,
-                    gevrModelPendingHeader->numSwitches, gevrModelPendingHeader->numtextures,
-                    srcfile->filename);
+            /*
+             * The run's mod's own file for this model (gevr_modassets.h),
+             * rebuilt already, in the cartridge's place; never in place of
+             * GoldenEye X's. One that doesn't fit or convert leaves the
+             * cartridge's here untouched, converted below as ever.
+             */
+            /* a mod's model for a hand's gun (gun.c, mod.weapon.model) names its own file */
+            const char *asset = gevrModAssetPendingName != NULL ? gevrModAssetPendingName : srcfile->filename;
+            u32 converted = gevrGexPendingFile == NULL && srcfile->filename != NULL && asset != NULL
+                ? gevrModAssetModel(asset, ptrdata, (u32)bytes,
+                                    gevrModelPendingHeader->numSwitches, gevrModelPendingHeader->numtextures)
+                : 0;
+
+            gevrModAssetLast = converted != 0;
+            gevrModAssetPendingUsed = converted != 0 && gevrModAssetPendingName != NULL;
+            if (converted == 0)
+            {
+                converted = gevrModelConvert(ptrdata, lookupdata->poolRemaining, (u32)bytes,
+                        gevrModelPendingHeader->numSwitches, gevrModelPendingHeader->numtextures,
+                        srcfile->filename);
+            }
 
             if (converted != 0)
             {

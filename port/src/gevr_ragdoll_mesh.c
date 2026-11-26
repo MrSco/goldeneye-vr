@@ -370,10 +370,13 @@ Gfx *rdDrawCaps(RdBody *rd,Gfx *gdl)
     gSPSetGeometryMode(gdl++,G_ZBUFFER|G_SHADE|G_SHADING_SMOOTH);
     if(rd->alpha<255) { gDPSetRenderMode(gdl++,G_RM_AA_ZB_XLU_SURF,G_RM_AA_ZB_XLU_SURF2); }
     else { gDPSetRenderMode(gdl++,G_RM_AA_ZB_OPA_SURF,G_RM_AA_ZB_OPA_SURF2); }
-    for(int i=0;i<rd->ncaps;i++)
+    for(int i=0;i<rd->ncaps;i++) {
+        if (rd->hiddenHead && rd->caps[i].childside && rd->caps[i].cut == rd->body[2]) continue;
         if(!rd->nbean || !rdBeanCovers(rd,&rd->caps[i]))gdl=rdFan(rd,&rd->caps[i],gdl);
+    }
     /* Bean's rims: a fan from their centre, in the skin's anchor space */
     for(int i=0;i<rd->nbean;i++) {
+        if (rd->hiddenHead && rd->bean[i].piece == rd->body[2] + 1) continue;
         RdCap cap={0};
         cap.matrix=rd->bean[i].matrix; cap.numedges=rd->bean[i].nedges;
         cap.edges=dynAllocate((size_t)cap.numedges*sizeof(*cap.edges));

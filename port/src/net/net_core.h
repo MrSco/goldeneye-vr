@@ -51,6 +51,9 @@ NetState netGetState(void);
 bool netIsActive(void);
 bool netIsHost(void);
 bool netIsDedicated(void);              /* a dedicated server: nobody plays here */
+/* mod.net (gevr_modapi.c): a mod's message (NET_MOD_*) to a slot or 0xFF
+ * everyone else, in a game; 1 when it went out */
+int netSendModMessage(int kind, int to, const char *mod, const char *channel, const void *data, int len);
 void netSetDedicated(bool dedicated);   /* port/server, at start */
 int netGetLocalSlot(void);
 int netLocalSlotCount(void);        /* local human players on this machine (0 dedicated, 1..4) */

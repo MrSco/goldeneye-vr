@@ -69,7 +69,8 @@ def build_core():
     keep.update({"netConfigSlots","netLobbyMinPlayers", "netCoopSession", "gevrCoopFastReinforcements"})
     keep.update({"netJoinStartsSpectating", "netReceiveStageReady", "netLobbyHostLaunchMatch", "netSendMatchStartTo", "netHordeActive", "netHordeRunning", "netAllPlayersLoaded", "netHordeAdmitPlayers", "netMpPlayerCount", "netGetPlayingCount",
                  "netHordeSetupBreak", "netHordeRestartPending", "netHordeHostCanStart", "netHordeHostStart", "netHordeStartWave"})
-    keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase","netHostRestartWarmup","netDedicatedSeat","netSetDedicated","netIsDedicated","netContentPart","netContentPartName","netContentWrite","netContentDiffers","netClientContentRefused","netTakeJoinRefusal"})
+    keep.update({"netSendModMessage","netReceiveMod","netReadModName"})   # mods' messages (NET_MSG_MOD)
+    keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase","netHostRestartWarmup","netDedicatedSeat","netSetDedicated","netIsDedicated","netContentPart","netContentPartName","netContentWrite","netContentDiffers","netClientContentRefused","netTakeJoinRefusal","netModPart","netSendModRequired","netReceiveModRequired","netReadPrintable","netModRefusalText","netModPlayRefusal","netModPlayRefusalText"})
     keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netRoundNoticeTextFit","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
     keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar","netRoundLoadStage","netRoundFullMap","netRoundMatchesLoadedMap"})
     keep.update({"netLocalInputClass","netInputClassName","netInputIsFlat","netGetFlatPlayerCount","netSendInputClass","netClientInputTick","netReceiveInputClass"})
@@ -349,6 +350,18 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_first_and_next_round_warmup_timers(self): self.assertEqual(self.core.test_core_warmup_lifecycle(),0)
     def test_dedicated_server_warmup_waits_for_a_person(self): self.assertEqual(self.core.test_core_dedicated_warmup(),0)
     def test_content_check_names_a_different_rom(self): self.assertEqual(self.core.test_core_content_check(),0)
+    def test_content_check_names_the_mod(self): self.assertEqual(self.core.test_core_content_mod(),0)
+    def test_mod_play_modes_refuse_joiner(self):
+        self.assertEqual(self.core.test_core_mod_play_modes(),0)
+        # the HELLO turns the joiner (and each guest seat) away by its class, after naming the mod
+        source=(ROOT/"port/src/net/net_core.c").read_text(encoding="utf-8")
+        hello=source[source.index("const uint32_t differs = netContentDiffers(&buf);"):source.index("/* The same name back on a new connection")]
+        self.assertIn("const uint32_t modPlay = netModPlayRefusal(input);",hello)
+        self.assertIn("netSendModRequired(peer);\n                    enet_peer_disconnect_later(peer, modPlay);",hello)
+        self.assertIn("netModPlayRefusal(seat_input[1 + e])",hello)
+    def test_mod_messages_routed_and_checked(self): self.assertEqual(self.core.test_core_mod_messages(),0)
+    def test_mod_shared_pickups_routed(self): self.assertEqual(self.core.test_core_mod_pickups(),0)
+    def test_mod_attachments_routed(self): self.assertEqual(self.core.test_core_mod_attach(),0)
     def test_flat_player_count_and_input_class_changes(self): self.assertEqual(self.core.test_core_flat_count(),0)
     def test_late_join_countdown_and_voted_map_warmup(self): self.assertEqual(self.core.test_core_warmup_join_and_votes(),0)
     def test_ready_vote_prompts_and_authenticated_notices(self): self.assertEqual(self.core.test_core_round_prompts(),0)

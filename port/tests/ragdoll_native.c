@@ -15,6 +15,17 @@
 int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance=40;
 static int hordeOn;
 int netHordeActive(void) { return hordeOn; }
+static int packHeadChance, packHeadBursts;
+int gevrModBloodEnabled(void) { return packHeadChance > 0; }
+int gevrModBloodFirearm(int item) { return item == ITEM_WPPK; }
+int gevrModBloodHeadChance(int body) { return body == BODY_Russian_Soldier ? packHeadChance : 0; }
+void gevrModBloodHeadBurst(int room, const float point[3], const float direction[3])
+{
+    (void)room;
+    assert(isfinite(point[0]) && isfinite(point[1]) && isfinite(point[2]));
+    assert(direction[2] == 1.0f);
+    ++packHeadBursts;
+}
 float VrDismemberDamage=2.0f; /* CE's defaults: the cut-rule checks are CE's */
 s32 lvlGetCurrentStageToLoad(void) { return LEVELID_DAM; }
 static float weaponDamage=1;
@@ -74,6 +85,7 @@ void modelApplyReorderRelations(Model *m,ModelNode *n) { (void)m;(void)n; }
 /* PRODUCTION_LOOKUPS */
 
 StandTile *firststaninroom[139];
+s32 getTileRoom(StandTile *tile) { return tile->room; }
 float inv_level_scale=1;
 s_room_info g_BgRoomInfo[MAXROOMCOUNT];
 s32 g_MaxNumRooms=3;
@@ -205,6 +217,38 @@ static void capture_nocheck(void)
 {
     sourceChr.actiontype=ACT_STAND;gevrRagdollNeedsPose(&sourceChr);
     sourceChr.actiontype=ACT_DIE;gevrRagdollCapture(&sourceChr);
+}
+
+static void packHeadBurstChecks(void)
+{
+    VrRagdolls = VrDismemberment = 1;
+    sourceProp.type = PROP_TYPE_CHR;
+    sourceChr.bodynum = BODY_Russian_Soldier;
+    const float direction[3] = {0, 0, 1};
+    packHeadChance = 100;
+    sourceChr.actiontype = ACT_STAND;
+    gevrRagdollNeedsPose(&sourceChr);
+    sourceChr.actiontype = ACT_DIE;
+    gevrRagdollNoteShotDeath(&sourceChr, HIT_HEAD, direction, ITEM_WPPK);
+    gevrRagdollCapture(&sourceChr);
+    RdBody *body = newest();
+    assert(body && body->body[2] >= 0 && (body->cuts & (1u << body->body[2])));
+    assert(gevrRagdollHidesHead(&body->model) && packHeadBursts == 1);
+    gevrRagdollCapture(&sourceChr);
+    assert(packHeadBursts == 1);
+
+    capture(0);  /* a reused actor without a fatal head hit */
+    assert(!gevrRagdollHidesHead(&newest()->model) && packHeadBursts == 1);
+    sourceChr.chrflags |= CHRFLAG_COUNT_DEATH_AS_CIVILIAN;
+    sourceChr.actiontype = ACT_STAND;
+    gevrRagdollNeedsPose(&sourceChr);
+    sourceChr.actiontype = ACT_DIE;
+    gevrRagdollNoteShotDeath(&sourceChr, HIT_HEAD, direction, ITEM_WPPK);
+    gevrRagdollCapture(&sourceChr);
+    assert(!gevrRagdollHidesHead(&newest()->model) && packHeadBursts == 1);
+    sourceChr.chrflags &= ~CHRFLAG_COUNT_DEATH_AS_CIVILIAN;
+    packHeadChance = 0;
+    gevrRagdollReset();
 }
 
 /* The CE tuning: skeleton table, shapes, hinges, cut rules, culling, layout check */
@@ -352,6 +396,7 @@ int main(void)
 {
     view=world=identity();for(int i=0;i<8;i++)g_playerPointers[i]=&players[i];
     sourceInit();floors();
+    packHeadBurstChecks();
     movingCollisionChecks();
     guardLiftChecks();
     portChecks();VrDismemberment=VrRagdolls=0;fflush(stdout);
