@@ -23,7 +23,7 @@ int gevrHatAvailable(void);
 
 /* gunfire.c, the flat screen only: how far each hand moves out while both
  * hold throwing knives, so the two hats' brims don't run into each other
- * (0 while the hat is off or missing) */
+ * (0 unless the held knife draws as the hat) */
 float gevrHatDualSpread(void);
 
 /* load_object_fill_header: notes the knife models' display list nodes */

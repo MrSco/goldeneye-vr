@@ -264,9 +264,15 @@ static void tuneCheck(void);
 
 float gevrHatDualSpread(void)
 {
-	if (!VrOddjobHat || !gevrHatAvailable()) return 0.0f;
-	tuneCheck();
-	return s_tune.spread;
+	/* only while the held knife really draws as the hat: the file loaded and
+	 * this ROM's knife one it was fitted to */
+	if (!VrOddjobHat || !s_hat.ok) return 0.0f;
+	for (int r = 0; r < HAT_MAX_REGS; r++)
+		if (s_models[r].kind == HAT_HELD && s_models[r].header) {
+			tuneCheck();
+			return s_tune.spread;
+		}
+	return 0.0f;
 }
 
 static int nodeOp(const ModelNode *n)

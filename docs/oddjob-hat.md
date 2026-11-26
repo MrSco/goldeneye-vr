@@ -120,7 +120,10 @@ top of the file's own fix, above).
 
 `flat` is for the flat screen only (PC, phone, the headset's 2D screen). With
 throwing knives in both hands, each hand moves this far out from the middle
-(viewmodel units; the knife's own place is 14 either side). The two brims
+(viewmodel units; the knife's own place is 14 either side), easing over
+about a quarter second as the second knife comes up. Nothing moves unless
+the held knife really draws as the hat (pack loaded, the ROM's knife one it
+was fitted to). The two brims
 overlap at 0, touch at 8 and stay clear at the default 10. From 14 they run
 under the ammo counters at 16:9; at 4:3 they reach the counters already at
 10, which stay readable on top. VR hands follow the controllers and never
