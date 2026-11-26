@@ -1173,10 +1173,13 @@ enum {
 struct LauncherModCampaign {
     std::string id, title, by, version;
     std::string reason;   // why it can't start now ("needs Goldfinger 64"); "" when it can
+    std::string modeReason;   // not in this Play mode ("This mod is for VR"); "" when it can
     int base = 0;
+    unsigned playModes = GEVR_MOD_PLAY_ALL;   // its manifest's (GEVR_MOD_PLAY_*)
     bool coop = false;    // its manifest offers online co-op
 };
 static std::vector<LauncherModCampaign> s_modCampaigns;
+static std::string gevrLauncherModOfflineWhy();   // the Friends panel's hint (below, by gevrLauncherCampaignOnline)
 
 static const LauncherModCampaign *gevrLauncherModCampaign(const char *id)
 {
@@ -1189,7 +1192,8 @@ static const LauncherModCampaign *gevrLauncherModCampaign(const char *id)
 // (gevrLauncherModsTick), and what the row asks of them.
 struct LauncherModRow {
     std::string id, title, by, version;
-    std::string reason;   // why it can't run (a broken install, a missing cartridge); "" when it can
+    std::string reason;   // why it can't run (a broken install, a missing cartridge, the Play mode); "" when it can
+    unsigned playModes = 0;   // its manifest's (GEVR_MOD_PLAY_*); 0 when it didn't load
     bool campaign = false;
 };
 static struct {
@@ -1242,10 +1246,12 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
             for (const LauncherModCampaign &m : s_modCampaigns) {
                 char label[128];
 
-                if (m.reason.empty()) snprintf(label, sizeof(label), "%s (mod)", m.title.c_str());
-                else snprintf(label, sizeof(label), "%s (%s)", m.title.c_str(), m.reason.c_str());
+                if (!m.reason.empty()) snprintf(label, sizeof(label), "%s (%s)", m.title.c_str(), m.reason.c_str());
+                else if (!m.modeReason.empty()) snprintf(label, sizeof(label), "%s (mod): %s", m.title.c_str(), m.modeReason.c_str());
+                else snprintf(label, sizeof(label), "%s (mod)", m.title.c_str());
                 ImGui::PushID(m.id.c_str());
-                ImGui::BeginDisabled(!m.reason.empty());
+                // listed, but not started where it can't run (a Play mode its manifest leaves out)
+                ImGui::BeginDisabled(!m.reason.empty() || !m.modeReason.empty());
                 if (ImGui::Selectable(label, chosen == &m) && chosen != &m) {
                     *campaign = m.base;
                     snprintf(mod, GEVR_MOD_ID_MAX + 1, "%s", m.id.c_str());
@@ -2293,11 +2299,12 @@ static void gevrFriendsSidebarWindow(bool onlineGame, const ImVec4 &gold, const 
     const char *lobby = netIsActive() ? netGetLobbyCode() : "";
     GevrFriendsUiContext ctx;
     ctx.canJoin = onlineGame && !netIsActive();
-    ctx.joinHint = !onlineGame ? (VrCampaignMod[0] ? "This mod campaign is for one player."
+    const std::string modOffline = gevrLauncherModOfflineWhy();
+    ctx.joinHint = !onlineGame ? (VrCampaignMod[0] ? modOffline.c_str()
                                                    : "Online play needs the chosen campaign's ROM installed.")
                                : "Leave your lobby to join another.";
     ctx.canInvite = onlineGame && (!netIsActive() || lobby[0]);
-    ctx.inviteHint = !onlineGame ? (VrCampaignMod[0] ? "This mod campaign is for one player."
+    ctx.inviteHint = !onlineGame ? (VrCampaignMod[0] ? modOffline.c_str()
                                                      : "Online play needs the chosen campaign's ROM installed.")
                      : lobby[0] ? "Invite them into your lobby."
                      : netIsActive() ? "This game has no internet lobby to invite into."
@@ -2418,6 +2425,7 @@ static void gevrLauncherModsRescan()
             row.by = info.m.by;
             row.version = info.m.version;
             row.campaign = info.m.kind == GEVR_MOD_CAMPAIGN;
+            row.playModes = info.m.playModes;
             if (row.campaign) {
                 LauncherModCampaign c;
                 c.id = info.m.id;
@@ -2425,6 +2433,7 @@ static void gevrLauncherModsRescan()
                 c.by = info.m.by;
                 c.version = info.m.version;
                 c.base = base = info.m.base;
+                c.playModes = info.m.playModes;
                 c.coop = info.m.coop != 0;
                 s_modCampaigns.push_back(c);
             }
@@ -2447,14 +2456,22 @@ static void gevrLauncherModsTick()
         gevrModStartup();   // here, on the launcher's thread, before any install
         gevrLauncherModsRescan();
     }
-    // a campaign mod needs its cartridge's ROM (s_campaignInstalled, checked once a second)
-    for (LauncherModCampaign &c : s_modCampaigns)
+    // a campaign mod needs its cartridge's ROM (s_campaignInstalled, checked once a second),
+    // and runs in the Play modes its manifest names (docs/mod-system.md, Play modes)
+    const unsigned playMode = gevrModSessionPlayMode();
+    for (LauncherModCampaign &c : s_modCampaigns) {
         c.reason = c.base >= 0 && c.base < GEVR_CAMPAIGN_COUNT && s_campaignInstalled[c.base]
                        ? std::string() : std::string("needs ") + gevrCampaignTitle(c.base);
+        const char *mode = gevrModPlayModeRefusal(c.playModes, playMode);
+        c.modeReason = mode ? mode : "";
+    }
     for (size_t i = 0; i < s_modsView.mods.size() && i < s_modRowBase.size(); i++) {
+        LauncherModRow &row = s_modsView.mods[i];
         const int base = s_modRowBase[i];
-        if (base >= 0) s_modsView.mods[i].reason = s_campaignInstalled[base] ? std::string()
-                                                       : std::string("needs ") + gevrCampaignTitle(base);
+        if (!row.playModes) continue;   // a broken install keeps what's wrong with it
+        const char *mode = gevrModPlayModeRefusal(row.playModes, playMode);
+        row.reason = base >= 0 && !s_campaignInstalled[base] ? std::string("needs ") + gevrCampaignTitle(base)
+                   : mode ? std::string(mode) : std::string();
     }
     // a mod campaign plays on its own cartridge: choosing another, adopting a
     // hack's ROM, a missing ROM's fallback or a listed game's campaign ends it
@@ -2574,7 +2591,18 @@ static void gevrLauncherModsTick()
 static bool gevrLauncherModReady()
 {
     const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
-    return !s_modInstall.running && (!VrCampaignMod[0] || (m && m->reason.empty()));
+    return !s_modInstall.running && (!VrCampaignMod[0] || (m && m->reason.empty() && m->modeReason.empty()));
+}
+
+// What to do about a mod made for the other Play mode: switch it here, or play
+// the mod on another device (a flat build has no stereo view).
+static std::string gevrLauncherModModeHint(const LauncherModCampaign &m)
+{
+    const unsigned can = m.playModes & gevrModBuildPlayModes();
+    if (can & GEVR_MOD_PLAY_VR) return "Set Play mode to Stereo VR, or choose another campaign.";
+    if (can & GEVR_MOD_PLAY_FLAT) return "Set Play mode to Flat screen, or choose another campaign.";
+    return (m.playModes & GEVR_MOD_PLAY_VR) ? "Play it on a headset, or choose another campaign."
+                                            : "Play it on a flat screen, or choose another campaign.";
 }
 
 // The line under START for a mod campaign: whose it is, what it needs, its terms.
@@ -2584,18 +2612,31 @@ static std::string gevrLauncherModFooter()
     if (s_modInstall.running) return "START waits for the mod being installed (Mods page).";
     if (!m) return std::string();
     if (!m->reason.empty()) return m->title + " " + m->reason + ": add its ROM with this menu.";
+    if (!m->modeReason.empty()) return m->title + ": " + m->modeReason + ". " + gevrLauncherModModeHint(*m);
     return m->title + " by " + m->by + (m->coop ? ": solo or co-op online (every player needs this mod), its own save."
                                                 : ": for one player, with its own save.");
 }
 
+// Why the chosen mod campaign has no online play, for the Online page and the
+// Friends panel: its Play mode, or a manifest without co-op.
+static std::string gevrLauncherModOfflineWhy()
+{
+    const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
+    if (m && !m->modeReason.empty()) return m->title + ": " + m->modeReason + ". " + gevrLauncherModModeHint(*m);
+    return "This mod campaign is for one player.";
+}
+
 // Online play: every cartridge's campaign, and a mod campaign whose manifest
-// offers co-op. The lobby's content check (net_core.c NET_CONTENT_MOD) holds
-// every player to the same mod build, and names it to one who hasn't it.
+// offers co-op, in this Play mode. The lobby's content check (net_core.c
+// NET_CONTENT_MOD) holds every player to the same mod build, and names it to
+// one who hasn't it; the host turns away a joiner the mod doesn't run for
+// (NET_DISCONNECT_MOD_PLAY).
 static bool gevrLauncherCampaignOnline()
 {
     const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
-    return gevrCampaignCoop(VrCampaign) && (!VrCampaignMod[0] || (m && m->coop));
+    return gevrCampaignCoop(VrCampaign) && (!VrCampaignMod[0] || (m && m->coop && m->modeReason.empty()));
 }
+
 static struct {
     int joinMethod = 0;   // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
     char directIp[64] = "192.168.1.";
@@ -3000,9 +3041,13 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
 
 void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
     if (VrCampaignMod[0] && !gevrLauncherCampaignOnline() && !netIsActive()) {
-        // a mod campaign whose manifest offers no co-op (gevrLauncherCampaignOnline)
-        ImGui::TextWrapped("This mod campaign is for one player: its author made it without online co-op. "
-                           "Choose another campaign beside START to play online.");
+        // a mod campaign whose manifest offers no co-op, or not in this Play mode (gevrLauncherCampaignOnline)
+        const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
+        if (m && !m->modeReason.empty())
+            ImGui::TextWrapped("%s", gevrLauncherModOfflineWhy().c_str());
+        else
+            ImGui::TextWrapped("This mod campaign is for one player: its author made it without online co-op. "
+                               "Choose another campaign beside START to play online.");
         return;
     }
     auto &joinMethod = s_mp.joinMethod;
