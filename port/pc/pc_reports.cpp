@@ -37,6 +37,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <cctype>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -209,6 +210,56 @@ int myPid()
 #endif
 }
 
+/* The folder of an exe's path, for comparing two runs' installs (case-folded on Windows). */
+std::string runFolder(std::string path)
+{
+#ifdef _WIN32
+    for (char &c : path) {
+        if (c == '/') c = '\\';
+        c = (char)tolower((unsigned char)c);
+    }
+    const size_t slash = path.rfind('\\');
+#else
+    const size_t slash = path.rfind('/');
+#endif
+    return slash == std::string::npos ? std::string() : path.substr(0, slash);
+}
+
+/* The marker's run still going: a live process started from this exe's folder.
+ * GoldenEyeVR.exe and GoldenEyeVR-VR.exe share gevr_prefs.txt, so one open
+ * while the other starts left the other's marker behind it (report f0743b24:
+ * the VR exe waited three minutes for Link, then took the flat game, still
+ * open in the launcher, for a crash). The folder check keeps a reused pid of
+ * some other program from hiding a real crash. */
+bool gameRunAlive(int pid)
+{
+    if (pid <= 0) return false;
+    std::string path;
+#ifdef _WIN32
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
+    if (!h) return false;
+    DWORD code = 0;
+    wchar_t buf[MAX_PATH * 4];
+    DWORD n = MAX_PATH * 4;
+    const bool alive = GetExitCodeProcess(h, &code) && code == STILL_ACTIVE
+        && QueryFullProcessImageNameW(h, 0, buf, &n);
+    CloseHandle(h);
+    if (!alive) return false;
+    path = narrow(std::wstring(buf, n));
+#else
+    char link[64], buf[4096];
+    snprintf(link, sizeof(link), "/proc/%d/exe", pid);
+    const ssize_t n = readlink(link, buf, sizeof(buf) - 1);
+    if (n <= 0) return false;
+    path.assign(buf, (size_t)n);
+    const std::string deleted = " (deleted)";   // an update replaced its exe: still this install's run
+    if (path.size() > deleted.size() && path.compare(path.size() - deleted.size(), deleted.size(), deleted) == 0)
+        path.resize(path.size() - deleted.size());
+#endif
+    const std::string dir = runFolder(path);
+    return !dir.empty() && dir == runFolder(exePath());
+}
+
 /* Build.MANUFACTURER + " " + Build.MODEL's place: the PC and its Windows. */
 std::string device()
 {
@@ -296,11 +347,16 @@ public:
         const bool rebooted = previousRun < bootAt
             || (previousBoot != 0 && llabs(bootAt - previousBoot) > 5000)
             || (previousElapsed != 0 && currentElapsed < previousElapsed);
-        if (previousRun) {
+        const int previousPid = (int)prefGetInt("debug_reports.run_pid", 0);
+        const bool stillOpen = previousRun && previousPid != myPid() && gameRunAlive(previousPid);
+        if (stillOpen) {
+            exitHistory_ += isoUtc(previousRun) + " foreground run still open (pid " + std::to_string(previousPid) + ")\n";
+            sysLogPrintf(0, "reports: the run from %s is still open (pid %d), not a crash", isoUtc(previousRun).c_str(), previousPid);
+        } else if (previousRun) {
             exitHistory_ += isoUtc(previousRun) + " foreground run without a clean exit" + (rebooted ? " (before a restart of the PC)" : "") + "\n";
         }
-        if (!hasCrash_ && !rebooted && unexpectedExit(previousRun, installTime_, offered, lastExit, bootAt)
-            && prefGetInt("debug_reports.run_pid", 0) != myPid()) {
+        if (!hasCrash_ && !rebooted && !stillOpen && unexpectedExit(previousRun, installTime_, offered, lastExit, bootAt)
+            && previousPid != myPid()) {
             crashTimestamp_ = previousRun;
             unexpectedExit_ = true;
             state_ = "offer";
@@ -311,6 +367,9 @@ public:
 
     void foreground(bool active)
     {
+        // Only the run that holds the marker clears it: with the other exe open
+        // too, its clean exit must not take away this run's.
+        if (!active && prefGetInt("debug_reports.run_pid", 0) != myPid()) return;
         long long elapsed = 0;
         const long long boot = bootTimeMs(&elapsed);
         prefSetInt("debug_reports.foreground_run", active ? wallMs() : 0);
