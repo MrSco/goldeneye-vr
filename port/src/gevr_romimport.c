@@ -25,6 +25,7 @@
 #include <sys/types.h>
 #include <zlib.h>
 #ifdef _WIN32
+#include <windows.h>
 #include <direct.h>
 #define MKDIR(p) _mkdir(p)
 #define RMDIR(p) _rmdir(p)
@@ -37,6 +38,12 @@
 #define ROM_MIN (8u << 20)      /* the smallest campaign ROM is 12 MB */
 #define ROM_MAX (64u << 20)     /* the largest a pick may hold */
 #define NEST_MAX (192u << 20)   /* a zip inside a zip, read into memory: every campaign zipped is ~100 MB */
+/* An archive this large is the release's (its .7z is 740 MB, its zip 372 MB);
+ * a smaller one holds ROMs or something else, and a .7z of ROMs is not read. */
+#define XBLA_MIN (200ull << 20)   /* above NEST_MAX: every zip read for ROMs is smaller */
+#define TAKE_MAX 64             /* ROMs one pick may stage: a zip of thousands of copies fills no disk */
+#define NOTE_NEEDS_BEAN ".needs-bean"   /* gevrRomImportTakeNote */
+#define NOTE_MODS_BUSY ".mods-busy"
 #define STAGING GEVR_ROM_IMPORT_DIR ".part"
 #define CE_ENTRY "CEUpdate/files.diff"   /* gevr_bean_ce.c CE_DIFF_ENTRY */
 #define CE_FILE "picked-ce.zip"
@@ -110,6 +117,19 @@ static int classify(const uint8_t *hdr, uint32_t size, const char **name, const 
 	return KIND_NONE;
 }
 
+int gevrRomImportReplace(const char *from, const char *to)
+{
+#ifdef _WIN32
+	/* rename() does not replace there, and remove-then-rename loses the old file if the move fails */
+	wchar_t wf[1100], wt[1100];
+	if (!MultiByteToWideChar(CP_UTF8, 0, from, -1, wf, 1100) || !MultiByteToWideChar(CP_UTF8, 0, to, -1, wt, 1100))
+		return 0;
+	return MoveFileExW(wf, wt, MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+	return rename(from, to) == 0;
+#endif
+}
+
 static int writeWhole(const char *path, const uint8_t *data, uint32_t size)
 {
 	char part[1100];
@@ -126,8 +146,7 @@ static int writeWhole(const char *path, const uint8_t *data, uint32_t size)
 		remove(part);
 		return 0;
 	}
-	remove(path);   /* Windows' rename does not replace */
-	if (rename(part, path) != 0) {
+	if (!gevrRomImportReplace(part, path)) {
 		remove(part);
 		return 0;
 	}
@@ -258,6 +277,8 @@ static void walkEntry(const struct src *s, const struct zent *e, struct walk *w,
 		if (data && entryRead(s, e, data, e->usize, 1)) romFound(w, data, e->usize, label);
 		else unknownFound(w, label);
 		free(data);
+	} else if (isPackage(head) || ((isZip(head) || isSeven(head)) && e->usize >= XBLA_MIN)) {
+		w->xbla = 1;   /* the release's package, or its own archive (gevr_bean_import.c zipRunNested) */
 	} else if (isZip(head) && depth == 0 && e->usize <= NEST_MAX) {
 		/* a zip of ROMs, or the CE updater, inside the zip picked */
 		struct src inner;
@@ -280,8 +301,8 @@ static void walkEntry(const struct src *s, const struct zent *e, struct walk *w,
 		}
 		w->ceNested = w->ceNested || ceBefore;
 		free(data);
-	} else if (isZip(head) || isSeven(head) || isPackage(head)) {
-		w->xbla = 1;   /* the release's package, or its own archive (gevr_bean_import.c zipRunNested) */
+	} else if (isZip(head) || isSeven(head)) {
+		unknownFound(w, label);   /* a .7z, or a zip deeper or larger than is read: named, not taken */
 	}
 }
 
@@ -349,7 +370,7 @@ static void walkFile(FILE *f, const char *label, struct walk *w)
 		unknownFound(w, label);
 		return;
 	}
-	if (isSeven(head) || isPackage(head)) {
+	if (isPackage(head) || (isSeven(head) && s.size >= XBLA_MIN)) {
 		w->xbla = 1;
 	} else if (isZip(head)) {
 		walkZip(&s, label, w, 0);
@@ -372,6 +393,8 @@ struct sorted {
 	char unknown[256];
 	char xbla[256];
 	char ce[256];
+	char needsBean[256];
+	char busy[256];
 };
 
 static void listAdd(char *list, size_t cap, const char *item)
@@ -428,10 +451,31 @@ static void sortUnknown(struct walk *w, const char *label)
 	listAdd(s->unknown, sizeof(s->unknown), shown(label));
 }
 
+static int endsWith(const char *name, const char *tail)
+{
+	const size_t n = strlen(name), t = strlen(tail);
+	return n > t && !strcmp(name + n - t, tail);
+}
+
+/* a picker's note (gevrRomImportTakeNote): "3-Updater.zip.needs-bean" -> "Updater.zip" */
+static int sortNote(const char *label, struct sorted *s)
+{
+	char name[256];
+	char *list = endsWith(label, NOTE_NEEDS_BEAN) ? s->needsBean : endsWith(label, NOTE_MODS_BUSY) ? s->busy : NULL;
+	size_t cap = list == s->needsBean ? sizeof(s->needsBean) : sizeof(s->busy);
+	if (!list) return 0;
+	snprintf(name, sizeof(name), "%s", shown(label));
+	*strrchr(name, '.') = 0;
+	listAdd(list, cap, name);
+	return 1;
+}
+
 static void sortFile(const char *dataDir, const char *path, const char *label, struct sorted *s)
 {
 	struct walk w;
-	FILE *f = fopen(path, "rb");
+	FILE *f;
+	if (sortNote(label, s)) return;
+	f = fopen(path, "rb");
 	memset(&w, 0, sizeof(w));
 	w.rom = sortRom;
 	w.unknown = sortUnknown;
@@ -482,6 +526,21 @@ static int isPart(const char *name)
 	return l >= 5 && strcmp(name + l - 5, ".part") == 0;
 }
 
+static int isDir(const char *path)
+{
+	struct stat st;
+	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+/* a sorted pick goes; one that cannot (locked, a folder) is hidden, so the sort does not run again for it */
+static void dropPick(const char *path, const char *dir, const char *name)
+{
+	char hidden[1400];
+	if (remove(path) == 0) return;
+	snprintf(hidden, sizeof(hidden), "%s/.%s", dir, name);
+	if (rename(path, hidden) != 0) remove(path);
+}
+
 int gevrRomImportPending(const char *dataDir)
 {
 	char dir[1024];
@@ -494,7 +553,10 @@ int gevrRomImportPending(const char *dataDir)
 	d = opendir(dir);
 	if (!d) return 0;
 	while ((e = readdir(d)) != NULL) {
+		char path[1400];
 		if (e->d_name[0] == '.' || isPart(e->d_name)) continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+		if (isDir(path)) continue;
 		any = 1;
 		break;
 	}
@@ -527,8 +589,9 @@ int gevrRomImportRun(const char *dataDir, char *summary, int summaryLen, int *go
 		while ((e = readdir(d)) != NULL) {
 			if (e->d_name[0] == '.' || isPart(e->d_name)) continue;
 			snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+			if (isDir(path)) continue;
 			sortFile(dataDir, path, e->d_name, &s);
-			remove(path);
+			dropPick(path, dir, e->d_name);
 		}
 		closedir(d);
 	}
@@ -542,6 +605,8 @@ int gevrRomImportRun(const char *dataDir, char *summary, int summaryLen, int *go
 		if (rename(picked, moved) == 0) {
 			sortFile(dataDir, moved, "the file chosen", &s);
 			remove(moved);
+		} else {
+			remove(picked);   /* a copy the picker made: sorting it again each second helps nobody */
 		}
 	}
 
@@ -553,15 +618,20 @@ int gevrRomImportRun(const char *dataDir, char *summary, int summaryLen, int *go
 			snprintf(summary, (size_t)summaryLen, "Added %s.", s.added);
 		else if (s.unknown[0])
 			snprintf(summary, (size_t)summaryLen, "No ROM this knows in %s.", s.unknown);
+		if (strstr(s.unknown, ".7z") || strstr(s.unknown, ".7Z"))
+			sentence(summary, (size_t)summaryLen, "A .7z of ROMs", "is not read here: unpack it, or zip the ROMs.");
 		sentence(summary, (size_t)summaryLen, s.xbla, "is GoldenEye XBLA: import it under Mods, XBLA / Bean.");
 		sentence(summary, (size_t)summaryLen, s.ce, "is the Community Edition updater: apply it under Mods, CE...");
+		sentence(summary, (size_t)summaryLen, s.needsBean,
+		         "holds the Community Edition updater, which patches Bean: choose your GoldenEye XBLA copy with it.");
+		sentence(summary, (size_t)summaryLen, s.busy, "was not taken while Mods was busy: choose it again once it is done.");
 	}
 	return s.filed;
 }
 
 /* ---- the take: what a picker does with each file chosen ------------------- */
 
-static int s_takeCount;
+static int s_takeCount, s_takeRoms;
 
 static void takeName(const char *label, char *out, size_t cap)
 {
@@ -581,9 +651,13 @@ static void takeName(const char *label, char *out, size_t cap)
 static void takeRom(struct walk *w, uint8_t *data, uint32_t size, const char *label)
 {
 	char name[256], path[1400];
+	if (s_takeRoms >= TAKE_MAX) return;
 	takeName(label, name, sizeof(name));
 	snprintf(path, sizeof(path), "%s/" STAGING "/%s", w->dataDir, name);
-	if (writeWhole(path, data, size)) ((struct gevrRomImportTake *)w->ctx)->staged++;
+	if (writeWhole(path, data, size)) {
+		((struct gevrRomImportTake *)w->ctx)->staged++;
+		s_takeRoms++;
+	}
 }
 
 /* a name only: the sort says it was not recognised */
@@ -606,6 +680,7 @@ void gevrRomImportTakeBegin(const char *dataDir)
 	DIR *d;
 	struct dirent *e;
 	s_takeCount = 0;
+	s_takeRoms = 0;
 	snprintf(dir, sizeof(dir), "%s/" STAGING, dataDir);
 	MKDIR(dataDir);
 	MKDIR(dir);
@@ -636,6 +711,19 @@ int gevrRomImportTake(FILE *src, const char *label, const char *dataDir, struct 
 	out->xbla = w.xbla;
 	out->ce = w.ce;
 	snprintf(out->cePath, sizeof(out->cePath), "%s", w.cePath);
+	return 1;
+}
+
+int gevrRomImportTakeNote(const char *dataDir, const char *label, int note)
+{
+	char name[256], path[1400];
+	FILE *f;
+	takeName(label, name, sizeof(name));
+	snprintf(path, sizeof(path), "%s/" STAGING "/%s%s", dataDir, name,
+	         note == GEVR_ROM_IMPORT_NOTE_NEEDS_BEAN ? NOTE_NEEDS_BEAN : NOTE_MODS_BUSY);
+	f = fopen(path, "wb");
+	if (!f) return 0;
+	fclose(f);
 	return 1;
 }
 
@@ -692,6 +780,17 @@ JNIEXPORT jstring JNICALL Java_com_gevr_port_MainActivity_nativeRomImportTake(JN
 	(*env)->ReleaseStringUTFChars(env, label, l);
 	(*env)->ReleaseStringUTFChars(env, dataDir, d);
 	return (*env)->NewStringUTF(env, out);
+}
+
+JNIEXPORT void JNICALL Java_com_gevr_port_MainActivity_nativeRomImportTakeNote(JNIEnv *env, jclass cls, jstring dataDir,
+		jstring label, jint note)
+{
+	const char *d = (*env)->GetStringUTFChars(env, dataDir, NULL);
+	const char *l = (*env)->GetStringUTFChars(env, label, NULL);
+	(void)cls;
+	gevrRomImportTakeNote(d, l, note);
+	(*env)->ReleaseStringUTFChars(env, label, l);
+	(*env)->ReleaseStringUTFChars(env, dataDir, d);
 }
 
 JNIEXPORT jint JNICALL Java_com_gevr_port_MainActivity_nativeRomImportTakeEnd(JNIEnv *env, jclass cls, jstring dataDir)

@@ -221,50 +221,74 @@ public:
         }
     }
 
-    /* The file the player picked for an own-copy pack (MainActivity.openXblaPicker). */
-    void importOwn(const std::string &id, const std::string &path)
+    /* The file the player picked for an own-copy pack (MainActivity.openXblaPicker). False when busy. */
+    bool importOwn(const std::string &id, const std::string &path)
     {
         std::lock_guard<std::mutex> lock(lock_);
         Pack *p = find(id);
-        if (!p || !p->own() || !busyId_.empty()) return;
+        if (!p || !p->own() || !busyId_.empty()) return false;
         errorId_.clear();
         cancelled_ = false;
         progress_ = 0;
         busyState_ = "importing";
         busyId_ = id;
-        worker_.post([this, id, path] { run(id, [this, id, path] { importFrom(id, path); }); });
+        worker_.post([this, id, path] {
+            run(id, [this, id, path] { importFrom(id, path); });
+            // a copy the launcher staged (Vision Pro's .import-pick*), unless the CE apply reads it next
+            std::lock_guard<std::mutex> lock(lock_);
+            if (pickTemp(path) && ceUsing_ != path) remove(path.c_str());
+        });
+        return true;
     }
 
     /*
      * The Play page's picker (ModManager.applyCeWhenReady): the updater applied
-     * now if Bean is in, or once the import picked with it is done. False when
-     * there is no Bean to apply it to.
+     * now if Bean is in, or once the import picked with it is done. 0 started,
+     * 1 no Bean to apply it to, 2 Mods busy with another pack.
      */
-    bool applyCeWhenReady(const std::string &path)
+    int applyCeWhenReady(const std::string &path)
     {
-        {
-            std::lock_guard<std::mutex> lock(lock_);
-            Pack *p = find("ge007-bean");
-            if (!p) return false;
-            if (busyId_ == p->id && busyState_ == "importing") {
-                pendingCe_ = path;
-                return true;
-            }
-            if (!installed(*p)) return false;
+        std::lock_guard<std::mutex> lock(lock_);
+        Pack *p = find("ge007-bean");
+        if (p && busyId_ == p->id && busyState_ == "importing") {
+            pendingCe_ = path;
+            ceUsing_ = path;
+            return 0;
         }
-        applyCe(path);
-        return true;
+        if (!p || !installed(*p)) {
+            if (pickTemp(path)) remove(path.c_str());
+            return 1;
+        }
+        return applyCeLocked(path) ? 0 : 2;   // applyCeLocked drops a picker's file it can't use
     }
 
     /*
      * The Community Edition updater the player picked (MainActivity.openCePicker):
      * applied to the imported Bean copy, into its ce/ folder (port/src/gevr_bean_ce.c).
      */
-    void applyCe(const std::string &path)
+    bool applyCe(const std::string &path)
     {
         std::lock_guard<std::mutex> lock(lock_);
+        return applyCeLocked(path);
+    }
+
+    /* A file the launcher's pickers made for a hand-off: removed once used (gevr_romimport.c, gevrKleptonPickPoll). */
+    static bool pickTemp(const std::string &path)
+    {
+        const size_t slash = path.find_last_of("/\\");
+        const std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
+        return name == "picked-ce.zip" || name.compare(0, 12, ".import-pick") == 0;
+    }
+
+private:
+    bool applyCeLocked(const std::string &path)
+    {
         Pack *p = find("ge007-bean");
-        if (!p || !installed(*p) || !busyId_.empty()) return;
+        if (!p || !installed(*p) || !busyId_.empty()) {
+            if (pickTemp(path)) remove(path.c_str());
+            return false;
+        }
+        ceUsing_ = path;
         errorId_.clear();
         cancelled_ = false;
         progress_ = -1;
@@ -278,15 +302,16 @@ public:
                 char msg[256] = "";
                 // the native side reads and closes it
                 const int applied = gevrBeanCeApply(f, beanDir.c_str(), msg, sizeof(msg));
-                // the updater the Play page's picker unpacked from a zip of everything (gevr_romimport.c)
-                if (path.size() >= 13 && path.compare(path.size() - 13, 13, "picked-ce.zip") == 0) remove(path.c_str());
+                if (pickTemp(path)) remove(path.c_str());   // unpacked or staged by the launcher's picker
                 if (applied < 0) throw HttpError{0, msg[0] ? msg : "failed"};
                 sysLogPrintf(0, "mods: applied the Community Edition to %s", id.c_str());
             });
+            std::lock_guard<std::mutex> lock(lock_);
+            if (ceUsing_ == path) ceUsing_.clear();
         });
+        return true;
     }
 
-private:
     /* ModManager.importFrom: the copy into a hidden folder, then into place. */
     void importFrom(const std::string &id, const std::string &path)
     {
@@ -360,16 +385,19 @@ private:
         } catch (...) {
             failed(id, "failed");
         }
+        std::lock_guard<std::mutex> lock(lock_);
+        progress_ = -1;
+        busyState_ = "none";
+        busyId_.clear();
+        // the Community Edition picked with the copy it patches (applyCeWhenReady),
+        // started before anything else can take the worker
         std::string ce;
-        {
-            std::lock_guard<std::mutex> lock(lock_);
-            progress_ = -1;
-            busyState_ = "none";
-            busyId_.clear();
-            ce.swap(pendingCe_);
+        ce.swap(pendingCe_);
+        if (ce.empty()) return;
+        if (!(ok && id == "ge007-bean" && applyCeLocked(ce))) {
+            if (ceUsing_ == ce) ceUsing_.clear();
+            if (pickTemp(ce)) remove(ce.c_str());
         }
-        // the Community Edition picked with the copy it patches (applyCeWhenReady)
-        if (!ce.empty() && ok && id == "ge007-bean") applyCe(ce);
     }
 
     void failed(const std::string &id, const std::string &why)
@@ -597,6 +625,7 @@ private:
     std::atomic<bool> cancelled_{false};
     std::string errorId_, errorMessage_;
     std::string pendingCe_;              // applyCeWhenReady: the updater waiting for the import
+    std::string ceUsing_;                // the updater queued or being applied: the import leaves that file
     bool checked_ = false;               // the latest releases were looked up this run
     SerialWorker worker_;                // last: its thread starts once the state above exists
 };
@@ -613,6 +642,6 @@ ModManager &mods()
 
 std::string pcModsStatus(void) { return mods().status(); }
 void pcModsCommand(const char *cmd) { mods().command(cmd ? cmd : ""); }
-void pcModsImportOwn(const char *id, const std::string &path) { mods().importOwn(id ? id : "", path); }
+bool pcModsImportOwn(const char *id, const std::string &path) { return mods().importOwn(id ? id : "", path); }
 void pcModsApplyCe(const std::string &path) { mods().applyCe(path); }
-bool pcModsApplyCeWhenReady(const std::string &path) { return mods().applyCeWhenReady(path); }
+int pcModsApplyCeWhenReady(const std::string &path) { return mods().applyCeWhenReady(path); }

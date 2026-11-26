@@ -59,13 +59,16 @@
 #include <GLES3/gl3.h>
 #ifdef GEVR_NATIVE_SERVICES
 #include <dlfcn.h>   // Klepton's file request, looked up by name
+#include <atomic>
+#include <mutex>
+#include <thread>
 /* No MainActivity (Klepton on Vision Pro, gevrAndroidJava 0): the PC's ports of
  * its Java services answer the same messages (port/pc/pc_services.cpp). */
 std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
-void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp: a Klepton pick's hand-off
+bool pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp: a Klepton pick's hand-off
 void pcModsApplyCe(const std::string &path);
-bool pcModsApplyCeWhenReady(const std::string &path);
+int pcModsApplyCeWhenReady(const std::string &path);   // 0 started, 1 no Bean, 2 busy
 #endif
 #else
 /* The PC game (docs/pc-platforms.md): desktop GL, and port/pc for what
@@ -461,7 +464,12 @@ namespace {
 int (*s_klImport)(const char *title, const char *extensions, const char *dest);
 int (*s_klImportStatus)(int ticket);
 int s_klTicket;
-std::string s_klMethod, s_klDest, s_klResult;
+std::string s_klMethod, s_klDest;
+// the pick's message, and whether a Play page pick is still being read (on a thread of its own)
+std::mutex s_klLock;
+std::string s_klResult;
+std::atomic<bool> s_klTaking{false};
+int s_klPickNo;
 }
 
 static bool gevrKleptonPick(const char *method)
@@ -482,8 +490,14 @@ static bool gevrKleptonPick(const char *method)
     const char *files = SDL_AndroidGetExternalStoragePath();
     std::string dest, title, extensions;
     if (!strcmp(method, "openRomPicker") && files) {
-        // anything: ROMs, zips, the XBLA copy, the CE updater (gevrKleptonPickPoll takes it)
-        dest = std::string(files) + "/.import-pick";
+        if (s_klTaking) {   // a second pick would clear the first's files half taken (gevrRomImportTakeBegin)
+            std::lock_guard<std::mutex> lock(s_klLock);
+            s_klResult = "Still reading the files you chose: try again in a moment.";
+            return true;
+        }
+        // anything: ROMs, zips, the XBLA copy, the CE updater (gevrKleptonPickPoll takes it); a name
+        // per pick, as the Bean import may still read the last one (pc_mods.cpp removes it after)
+        dest = std::string(files) + "/.import-pick-" + std::to_string(++s_klPickNo);
         title = "Choose ROMs, a .zip of them, your GoldenEye XBLA copy or the CE updater";
     } else if (rom) {
         dest = dataDir() + "/" + rom;
@@ -526,24 +540,36 @@ static void gevrKleptonPickPoll()
         else if (s_klMethod == "openRomPicker") {
             // the Play page's pick, taken as MainActivity.takeMainPick takes it
             // (gevr_romimport.h): ROMs to the sort, the XBLA copy and the CE
-            // updater read from the staged copy where it is
-            const std::string data = dataDir();
-            struct gevrRomImportTake t;
-            gevrRomImportTakeBegin(data.c_str());
-            gevrRomImportTake(fopen(s_klDest.c_str(), "rb"), "the file chosen", data.c_str(), &t);
-            const int staged = gevrRomImportTakeEnd(data.c_str());
-            if (t.xbla) pcModsImportOwn("ge007-bean", s_klDest);   // the Play page shows how far it is
-            const std::string ce = t.cePath[0] ? std::string(t.cePath) : t.ce ? s_klDest : std::string();
-            const bool ceOk = ce.empty() || pcModsApplyCeWhenReady(ce);
-            if (!t.xbla && !t.ce) remove(s_klDest.c_str());   // else the next pick replaces it
-            if (staged == 0) {   // nothing for the ROM check: the message ends the pick
-                s_klResult = !ceOk ? "The Community Edition patches Bean: choose your GoldenEye XBLA copy too."
-                    : t.xbla ? "Importing Bean from your GoldenEye XBLA copy."
-                    : !ce.empty() ? "Applying the Community Edition."
-                    : "Nothing this knows in that: choose ROMs, a .zip of them or your GoldenEye XBLA copy.";
-            }
+            // updater read from the staged copy where it is. Off the frame: a
+            // zip of everything takes seconds.
+            const std::string data = dataDir(), pick = s_klDest;
+            s_klTaking = true;
+            std::thread([data, pick] {
+                struct gevrRomImportTake t;
+                gevrRomImportTakeBegin(data.c_str());
+                gevrRomImportTake(fopen(pick.c_str(), "rb"), "the file chosen", data.c_str(), &t);
+                // handed on before the pick ends, so what could not be is said with the ROMs
+                const bool bean = t.xbla && pcModsImportOwn("ge007-bean", pick);   // the Play page shows how far it is
+                if (t.xbla && !bean) gevrRomImportTakeNote(data.c_str(), "the file chosen", GEVR_ROM_IMPORT_NOTE_MODS_BUSY);
+                const std::string ce = t.cePath[0] ? std::string(t.cePath) : t.ce ? pick : std::string();
+                const int ceResult = ce.empty() ? -1 : pcModsApplyCeWhenReady(ce);
+                if (ceResult > 0) {
+                    gevrRomImportTakeNote(data.c_str(), "the file chosen",
+                                          ceResult == 1 ? GEVR_ROM_IMPORT_NOTE_NEEDS_BEAN : GEVR_ROM_IMPORT_NOTE_MODS_BUSY);
+                }
+                if (!bean && ceResult != 0) remove(pick.c_str());   // else Mods removes it once read
+                const int staged = gevrRomImportTakeEnd(data.c_str());
+                if (staged == 0) {   // nothing for the ROM check: the message ends the pick
+                    std::lock_guard<std::mutex> lock(s_klLock);
+                    s_klResult = bean ? "Importing Bean from your GoldenEye XBLA copy."
+                        : ceResult == 0 ? "Applying the Community Edition."
+                        : "Nothing this knows in that: choose ROMs, a .zip of them or your GoldenEye XBLA copy.";
+                }
+                s_klTaking = false;
+            }).detach();
         }
     } else {
+        std::lock_guard<std::mutex> lock(s_klLock);
         s_klResult = status == 2 ? "No file chosen." : "Could not copy that file.";
     }
 }
@@ -620,7 +646,7 @@ static bool adoptHackFile(const char *pickedName, const char *finalName, const c
     const std::string picked = dataDir() + "/" + pickedName;
     struct stat st;
     if (stat(picked.c_str(), &st) != 0) return false;
-    if (hackHeaderOk(picked, tag) && rename(picked.c_str(), (dataDir() + "/" + finalName).c_str()) == 0) {
+    if (hackHeaderOk(picked, tag) && gevrRomImportReplace(picked.c_str(), (dataDir() + "/" + finalName).c_str())) {
         message = okText;
         vr_log("launcher: %s adopted", finalName);
         return true;
@@ -639,6 +665,7 @@ std::string gevrTakePickResult()
     if (!gevrAndroidJava) {   // no MainActivity: Klepton's picker, if one is up
 #ifdef GEVR_NATIVE_SERVICES
         gevrKleptonPickPoll();
+        std::lock_guard<std::mutex> lock(s_klLock);
         out.swap(s_klResult);
 #endif
         return out;
@@ -1416,7 +1443,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
             if (f) fclose(f);
             const bool isGex = read && st.st_size == 0x2000000 && (unsigned char)head[0] == 0x80
                 && (unsigned char)head[1] == 0x37 && memcmp(head + 0x20, "GoldenEye X", 11) == 0;
-            if (isGex && rename(picked.c_str(), (dataDir() + "/gex.z64").c_str()) == 0) {
+            if (isGex && gevrRomImportReplace(picked.c_str(), (dataDir() + "/gex.z64").c_str())) {
                 s_gexMessage = "GoldenEye X ROM chosen.";
                 s_gexRom = 1;
                 vr_log("launcher: GoldenEye X ROM adopted");
@@ -3559,9 +3586,10 @@ static std::string gevrBeanImportLine(Uint32 now)
         } else if (!running.empty()) {
             const bool ce = running == "patching";
             running.clear();
-            line = f[6] == "installed" ? (ce ? "Community Edition applied." : "Bean imported: choose it under Mods.")
-                 : f[8].empty() ? (ce ? "The Community Edition stopped: see Mods." : "The Bean import stopped: see Mods.")
-                 : "Bean: " + f[8];
+            // a failure leaves an installed Bean "installed", with the reason as the message
+            line = !f[8].empty() ? "Bean: " + f[8]
+                 : f[6] == "installed" ? (ce ? "Community Edition applied." : "Bean imported: choose it under Mods.")
+                 : (ce ? "The Community Edition stopped: see Mods." : "The Bean import stopped: see Mods.");
         }
         break;
     }
@@ -3677,7 +3705,9 @@ extern "C" void gevrLauncherRun(void)
             vr_log("launcher: ROM import sorted %d (%s)", r.filed, r.summary.c_str());
             if (!r.summary.empty()) {
                 message = r.summary;
-                romError = r.filed == 0;
+                // an error only when ROMs were the point: a pick of notes alone (the CE
+                // updater without Bean) is said without opening the ROM section
+                romError = r.filed == 0 && r.summary.compare(0, 18, "No ROM this knows ") == 0;
                 importSummaryShown = true;
                 pickOutcome = r.summary;
             }
@@ -3723,10 +3753,8 @@ extern "C" void gevrLauncherRun(void)
             if (stat(picked.c_str(), &st) == 0) {
                 RomInfo r = probeRom(picked);
                 launcherSession.romSelectionFinished();
-#ifdef _WIN32
-                if (r.good) remove((dataDir() + "/ge.z64").c_str());   // Windows' rename does not replace
-#endif
-                if (r.good && rename(picked.c_str(), (dataDir() + "/ge.z64").c_str()) == 0) {
+                // replaces it on Windows too, where rename() would not and remove-first could lose both
+                if (r.good && gevrRomImportReplace(picked.c_str(), (dataDir() + "/ge.z64").c_str())) {
                     if (!importSummaryShown) message = "ROM chosen.";
                     romError = false;
                     gevrCloudKick();   // to the player's other Apple devices

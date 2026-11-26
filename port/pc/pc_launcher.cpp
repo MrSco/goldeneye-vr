@@ -235,9 +235,9 @@ static PickResult pcChooseFiles(const char *title, const char *patterns, std::ve
 }
 #endif
 
-void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp
+bool pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp: false when Mods is busy
 void pcModsApplyCe(const std::string &path);
-bool pcModsApplyCeWhenReady(const std::string &path);
+int pcModsApplyCeWhenReady(const std::string &path);   // 0 started, 1 no Bean, 2 busy
 
 // What the launcher says when a pick left nothing for its ROM check (MainActivity.pickResult).
 static std::string s_pickNote;
@@ -270,7 +270,7 @@ static FILE *pcOpenRead(const std::string &utf8)
 static void pcTakeMainPick(const std::vector<std::string> &files)
 {
     const std::string data = fsFullPath("$B");
-    std::string xbla, ce;
+    std::string xbla, ce, ceLabel;
     gevrRomImportTakeBegin(data.c_str());
     for (const std::string &file : files) {
         struct gevrRomImportTake t;
@@ -281,22 +281,29 @@ static void pcTakeMainPick(const std::vector<std::string> &files)
         }
         gevrRomImportTake(f, file.c_str(), data.c_str(), &t);
         if (t.xbla && xbla.empty()) xbla = file;
-        if (ce.empty() && t.cePath[0]) ce = t.cePath;
-        else if (ce.empty() && t.ce) ce = file;
+        if (ce.empty() && (t.cePath[0] || t.ce)) {
+            ce = t.cePath[0] ? std::string(t.cePath) : file;
+            ceLabel = file;
+        }
+    }
+    // Handed on before the pick ends, so what could not be is said with the
+    // ROMs: a note goes in with them for the sort's summary. Their progress is
+    // on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine).
+    const bool bean = !xbla.empty() && pcModsImportOwn("ge007-bean", xbla);
+    if (!xbla.empty() && !bean) gevrRomImportTakeNote(data.c_str(), xbla.c_str(), GEVR_ROM_IMPORT_NOTE_MODS_BUSY);
+    const int ceResult = ce.empty() ? -1 : pcModsApplyCeWhenReady(ce);   // drops a picked-ce.zip it can't use
+    if (ceResult > 0) {
+        gevrRomImportTakeNote(data.c_str(), ceLabel.c_str(),
+                              ceResult == 1 ? GEVR_ROM_IMPORT_NOTE_NEEDS_BEAN : GEVR_ROM_IMPORT_NOTE_MODS_BUSY);
     }
     const int staged = gevrRomImportTakeEnd(data.c_str());
-    // their progress is on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine)
-    if (!xbla.empty()) pcModsImportOwn("ge007-bean", xbla);
-    std::string note;
-    if (!ce.empty() && !pcModsApplyCeWhenReady(ce)) note = "The Community Edition patches Bean: choose your GoldenEye XBLA copy too.";
     if (staged == 0) {   // nothing for the ROM check: the message ends the pick
-        s_pickNote = !note.empty() ? note
-            : !xbla.empty() ? "Importing Bean from your GoldenEye XBLA copy."
-            : !ce.empty() ? "Applying the Community Edition."
+        s_pickNote = bean ? "Importing Bean from your GoldenEye XBLA copy."
+            : ceResult == 0 ? "Applying the Community Edition."
             : "Nothing this knows in that: choose ROMs, a .zip of them or your GoldenEye XBLA copy.";
     }
     sysLogPrintf(0, "launcher: main pick: %d file(s), %d for the sort%s%s", (int)files.size(), staged,
-                 xbla.empty() ? "" : ", the XBLA copy", ce.empty() ? "" : ", the Community Edition");
+                 bean ? ", the XBLA copy" : "", ceResult == 0 ? ", the Community Edition" : "");
 }
 
 /*

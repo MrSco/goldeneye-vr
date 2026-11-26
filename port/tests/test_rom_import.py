@@ -143,14 +143,21 @@ def main():
         imp = d / "picked-import"
         imp.mkdir()
         (imp / "0-ge.z64").write_bytes(GE)
-        (imp / "1-GoldenEye XBLA.7z").write_bytes(b"7z\xbc\xaf\x27\x1c" + b"\0" * 64)
+        # a small .7z is ROMs, not the release (whose .7z is 740 MB): named, not sent to the Bean import
+        (imp / "1-GoldenEye 007 (USA).7z").write_bytes(b"7z\xbc\xaf\x27\x1c" + b"\0" * 64)
         (imp / "2-30BA9271").write_bytes(b"LIVE" + b"\0" * 64)
+        (imp / "3-Updater.zip.needs-bean").write_bytes(b"")
+        (imp / "4-retail.zip.mods-busy").write_bytes(b"")
+        (imp / "a folder").mkdir()   # skipped, not sorted again each second
         r = run(exe, d)
         assert r["filed"] == "1", r
-        assert r["summary"].startswith("Added GoldenEye 007 (US). "), r
-        assert r["summary"].endswith(" is GoldenEye XBLA: import it under Mods, XBLA / Bean."), r
-        assert " GoldenEye XBLA.7z, 30BA9271 is GoldenEye XBLA" in r["summary"], r
-        assert "Not recognised" not in r["summary"], r
+        assert r["summary"] == ("Added GoldenEye 007 (US). Not recognised: GoldenEye 007 (USA).7z. "
+                                "A .7z of ROMs is not read here: unpack it, or zip the ROMs. "
+                                "30BA9271 is GoldenEye XBLA: import it under Mods, XBLA / Bean. "
+                                "Updater.zip holds the Community Edition updater, which patches Bean: "
+                                "choose your GoldenEye XBLA copy with it. "
+                                "retail.zip was not taken while Mods was busy: choose it again once it is done."), r
+        assert r["after"] == "0", r
 
         d = fresh(base, "xbla-alone")
         (d / "picked.z64").write_bytes(b"PIRS" + b"\0" * 64)
@@ -186,9 +193,25 @@ def main():
             z.writestr("GoldenEye XBLA/files/new/char/boilerbond/default.bin", b"bond", zipfile.ZIP_DEFLATED)
             z.writestr("gex.z64", GEX, zipfile.ZIP_DEFLATED)
         (src / "readme.txt").write_bytes(b"hello")
+        # the release's package in a small zip inside a zip: still the release
+        pkg_zip = io.BytesIO()
+        with zipfile.ZipFile(pkg_zip, "w") as z:
+            z.writestr("30BA9271F0A3A12F", b"LIVE" + bytes(4096), zipfile.ZIP_DEFLATED)
+        with zipfile.ZipFile(src / "pkgzip.zip", "w") as z:
+            z.writestr("release/package.zip", pkg_zip.getvalue(), zipfile.ZIP_STORED)
+        # a zip in a zip in a zip is not read: named, not sent to the Bean import
+        with zipfile.ZipFile(src / "deeper.zip", "w") as z:
+            z.writestr("middle.zip", roms_zip.getvalue(), zipfile.ZIP_STORED)
+        deeper = (src / "deeper.zip").read_bytes()
+        (src / "deeper.zip").unlink()
+        with zipfile.ZipFile(src / "deeper.zip", "w") as z:
+            z.writestr("outer/inner.zip", deeper, zipfile.ZIP_STORED)
+        # a small .7z: ROMs this can't read, not the release
+        (src / "roms.7z").write_bytes(b"7z\xbc\xaf\x27\x1c" + bytes(1000))
         out = subprocess.run([str(exe), "take", str(d), str(src / "everything.zip"),
                               str(src / "CommunityEditionUpdaterV6.zip"), str(src / "unpacked.zip"),
-                              str(src / "readme.txt")], check=True, capture_output=True, text=True).stdout
+                              str(src / "readme.txt"), str(src / "pkgzip.zip"), str(src / "deeper.zip"),
+                              str(src / "roms.7z")], check=True, capture_output=True, text=True).stdout
         t = dict(line.split(" ", 1) for line in out.strip().splitlines())
         ce_path = (d / "picked-ce.zip")
         # xbla ce staged cePath
@@ -197,14 +220,19 @@ def main():
         assert t["file1"] == "0 1 0 -", t
         assert t["file2"] == "1 0 1 -", t
         assert t["file3"] == "0 0 1 -", t
-        assert t["moved"] == "5", t
-        assert not (d / "picked-import.part").exists() or not list((d / "picked-import.part").iterdir())
+        assert t["file4"] == "1 0 0 -", t
+        assert t["file5"] == "0 0 1 -", t
+        assert t["file6"] == "0 0 1 -", t
+        assert t["moved"] == "7", t
+        assert not (d / "picked-import.part").exists(), "the staging folder is removed"
         staged = sorted(p.name for p in (d / "picked-import").iterdir())
-        assert staged == ["0-GoldenEye 007 (USA).z64", "1-Mirror.z64", "2-Mario.z64", "3-gex.z64", "4-readme.txt"], staged
+        assert staged == ["0-GoldenEye 007 (USA).z64", "1-Mirror.z64", "2-Mario.z64", "3-gex.z64", "4-readme.txt",
+                          "5-middle.zip", "6-roms.7z"], staged
         r = run(exe, d)
         assert r["filed"] == "4" and r["gotGe"] == "1", r
         assert r["summary"] == ("Added GoldenEye 007 (US), Mirror Mode (Wreck), Mario Characters, GoldenEye X. "
-                                "Not recognised: readme.txt."), r
+                                "Not recognised: readme.txt, middle.zip, roms.7z. "
+                                "A .7z of ROMs is not read here: unpack it, or zip the ROMs."), r
         assert (d / "picked.z64").read_bytes() == GE and (d / "picked-gex.z64").read_bytes() == GEX
         assert (d / "mirror.z64").read_bytes() == MIRROR and (d / "mario.z64").read_bytes() == MARIO
         print("rom import: OK")

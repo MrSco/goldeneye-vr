@@ -59,6 +59,20 @@ void gevrRomImportTakeBegin(const char *dataDir);
 int gevrRomImportTake(FILE *src, const char *label, const char *dataDir, struct gevrRomImportTake *out);
 int gevrRomImportTakeEnd(const char *dataDir);
 
+/*
+ * What became of a file the picker could not hand on, for the sort to say
+ * with the ROMs (before End; the pick's message can't, as the sort's summary
+ * replaces it): NEEDS_BEAN, the CE updater with no Bean installed or
+ * importing; MODS_BUSY, the release or the updater while Mods was busy with
+ * another pack.
+ */
+#define GEVR_ROM_IMPORT_NOTE_NEEDS_BEAN 1
+#define GEVR_ROM_IMPORT_NOTE_MODS_BUSY 2
+int gevrRomImportTakeNote(const char *dataDir, const char *label, int note);
+
+/* from replaces to; Windows' rename() does not (MoveFileEx). 1 when it did. */
+int gevrRomImportReplace(const char *from, const char *to);
+
 #ifdef __cplusplus
 }
 #endif

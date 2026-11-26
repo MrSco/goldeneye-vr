@@ -127,6 +127,10 @@ static int cancelled(struct job *j)
 
 static void phase(struct job *j, uint64_t goal, int lo, int hi)
 {
+	if (j->nested) {   // the archive inside: the second half of the bar, after unpacking it (zipRunNested)
+		lo = 50 + lo / 2;
+		hi = 50 + hi / 2;
+	}
 	j->done = 0;
 	j->goal = goal;
 	j->lo = lo;

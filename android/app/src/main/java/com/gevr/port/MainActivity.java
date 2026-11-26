@@ -208,9 +208,16 @@ public class MainActivity extends SDLActivity {
      * sorts them by header (port/src/gevr_romimport.c).
      */
     public void openRomPicker() {
+        if (taking) {   // a second pick would clear the first's files half taken (gevrRomImportTakeBegin)
+            pickResult = "Still reading the files you chose: try again in a moment.";
+            return;
+        }
         pickTarget = "picked.z64";
         openDocument(REQUEST_PICK_ROM, true);
     }
+
+    /** takeMainPick is reading a pick (seconds for a zip of everything). */
+    private volatile boolean taking;
 
     /** The Mods page: the player's GoldenEye X ROM, copied to data/picked-gex.z64. */
     public void openGexPicker() {
@@ -323,7 +330,14 @@ public class MainActivity extends SDLActivity {
             }
         }
         if (!uris.isEmpty() && "picked.z64".equals(pickTarget)) {
-            new Thread(() -> takeMainPick(uris), "rom-copy").start();
+            taking = true;
+            new Thread(() -> {
+                try {
+                    takeMainPick(uris);
+                } finally {
+                    taking = false;
+                }
+            }, "rom-copy").start();
         } else if (!uris.isEmpty()) {
             final Uri uri = uris.get(0);
             new Thread(() -> copyPickedRom(uri), "rom-copy").start();
@@ -393,6 +407,7 @@ public class MainActivity extends SDLActivity {
     private static native void nativeRomImportTakeBegin(String dataDir);
     private static native String nativeRomImportTake(int fd, String label, String dataDir);
     private static native int nativeRomImportTakeEnd(String dataDir);
+    private static native void nativeRomImportTakeNote(String dataDir, String label, int note);
 
     /**
      * The Play page's picker (port/src/gevr_romimport.c gevrRomImportTake):
@@ -408,6 +423,7 @@ public class MainActivity extends SDLActivity {
         dir.mkdirs();
         nativeRomImportTakeBegin(data);
         Uri xbla = null, ce = null;
+        String xblaLabel = null, ceLabel = null;
         for (int i = 0; i < uris.size(); i++) {
             final Uri u = uris.get(i);
             final String label = pickName(u, i);
@@ -432,25 +448,39 @@ public class MainActivity extends SDLActivity {
             }
             final String[] f = r.split("\t", -1);
             if (f.length < 4) continue;
-            if ("1".equals(f[0]) && xbla == null) xbla = u;
-            if (ce == null && !f[2].isEmpty()) ce = Uri.fromFile(new File(f[2]));
-            else if (ce == null && "1".equals(f[1])) ce = u;
+            if ("1".equals(f[0]) && xbla == null) {
+                xbla = u;
+                xblaLabel = label;
+            }
+            if (ce == null && (!f[2].isEmpty() || "1".equals(f[1]))) {
+                ce = !f[2].isEmpty() ? Uri.fromFile(new File(f[2])) : u;
+                ceLabel = label;
+            }
+        }
+        // Handed on before the pick ends, so what could not be is said with the
+        // ROMs: a note goes in with them for the sort's summary. Their progress
+        // is on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine).
+        boolean bean = false, ceStarted = false;
+        if (xbla != null && mods != null) {
+            bean = mods.importOwn("ge007-bean", xbla);
+            if (!bean) nativeRomImportTakeNote(data, xblaLabel, 2);   // GEVR_ROM_IMPORT_NOTE_MODS_BUSY
+        }
+        if (ce != null) {
+            final int r = mods != null ? mods.applyCeWhenReady(ce) : ModManager.CE_NEEDS_BEAN;
+            ceStarted = r == ModManager.CE_STARTED;
+            if (!ceStarted) {
+                nativeRomImportTakeNote(data, ceLabel, r == ModManager.CE_BUSY ? 2 : 1);
+                ModManager.dropPickedCe(ce);
+            }
         }
         final int staged = nativeRomImportTakeEnd(data);
-        // their progress is on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine)
-        if (xbla != null && mods != null) mods.importOwn("ge007-bean", xbla);
-        String note = null;
-        if (ce != null && (mods == null || !mods.applyCeWhenReady(ce))) {
-            note = "The Community Edition patches Bean: choose your GoldenEye XBLA copy too.";
-        }
         if (staged == 0) {   // nothing for the ROM check: the message ends the pick
-            pickResult = note != null ? note
-                : xbla != null ? "Importing Bean from your GoldenEye XBLA copy."
-                : ce != null ? "Applying the Community Edition."
+            pickResult = bean ? "Importing Bean from your GoldenEye XBLA copy."
+                : ceStarted ? "Applying the Community Edition."
                 : "Nothing this knows in that: choose ROMs, a .zip of them or your GoldenEye XBLA copy.";
         }
         Log.i(TAG, "Main pick: " + uris.size() + " file(s), " + staged + " for the sort"
-                + (xbla != null ? ", the XBLA copy" : "") + (ce != null ? ", the Community Edition" : ""));
+                + (bean ? ", the XBLA copy" : "") + (ceStarted ? ", the Community Edition" : ""));
     }
 
     private long copyUri(Uri uri, File to) throws java.io.IOException {
