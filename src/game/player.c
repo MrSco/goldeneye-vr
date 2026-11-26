@@ -752,13 +752,19 @@ void shuffle_player_ids(void) {
         PLAYER_ID ordered[MAX_PLAYER_COUNT];
         s32 count = 0;
         s32 local_n = netLocalSlotCount();
+        /* a dedicated server has no local human: its own seat goes first, as
+         * before split screen, so its pass runs the world's work every frame
+         * (lv.c lvlRender); without it the server's bots barely fought */
+        s32 me = netGetLocalSlot();
+        if (local_n == 0 && me >= 0 && me < MAX_PLAYER_COUNT && netSlotOccupied(me)) ordered[count++] = me;
+        else me = -1;
         for (i = 0; i < local_n; i++) {
             s32 sl = netSlotOfLocalSeat(i);
             if (sl >= 0 && sl < MAX_PLAYER_COUNT && netSlotOccupied(sl)) ordered[count++] = sl;
         }
         for (i = 0; i < MAX_PLAYER_COUNT; i++) {
             PLAYER_ID pid = array_PLAYER_IDs[i];
-            if (netSlotOccupied(pid) && !gevrNetSlotIsLocalHuman(pid)) ordered[count++] = pid;
+            if (pid != me && netSlotOccupied(pid) && !gevrNetSlotIsLocalHuman(pid)) ordered[count++] = pid;
         }
         for (i = 0; i < MAX_PLAYER_COUNT; i++) {
             PLAYER_ID pid = array_PLAYER_IDs[i];

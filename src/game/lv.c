@@ -986,7 +986,10 @@ Gfx* lvlRender(Gfx* DL)
             {
                 extern int gevrNetSlotIsLocalHuman(int slot);
                 extern bool netSlotOccupied(int slot);
-                if (netIsActive() && !gevrNetSlotIsLocalHuman(playernum))
+                extern int netGetLocalSlot(void);
+                /* the local view: this machine's humans, or a dedicated server's own
+                 * seat (no human, but its pass runs the world's once-a-frame work) */
+                if (netIsActive() && !gevrNetSlotIsLocalHuman(playernum) && playernum != netGetLocalSlot())
                 {
                     /* Online only local human viewports are drawn; remote and bot
                      * copies get their view pass without the drawing. */
