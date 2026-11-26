@@ -21,7 +21,16 @@ typedef struct {
     int gone;                           /* removed: a REMOVE to send, then free */
 } Owned;
 
+/* the pack gun body each hand draws, as the others were told */
+typedef struct {
+    char mod[64];
+    GevrAttachRecord r;                 /* a GUNBODY; item 0 the hand's own */
+    unsigned pending;
+    int told;                           /* the others may hold a pack body for this hand */
+} Body;
+
 static Owned s_owned[GEVR_ATTNET_OWNED];
+static Body s_body[2];
 static char s_clear[MODS][64];          /* mods whose CLEAR waits */
 static int s_clears;
 static unsigned s_ask;                  /* the host's asks waiting: a bit a slot */
@@ -68,20 +77,48 @@ static int setOk(const GevrAttachRecord *r)
     for (i = 0; i < 3; i++) {
         if (!limit(r->body[i], GEVR_ATTNET_BODY)) return 0;
     }
+    /* an optic only on a pack mesh on the gun; folded only with a housing;
+     * a housing or a mode only with an optic */
+    if ((r->optic != 0 && r->optic != 1) || (r->folded != 0 && r->folded != 1)) return 0;
+    if (r->optic && (r->on != GEVR_ATTNET_GUN || r->like[0])) return 0;
+    if (r->mode < 0 || r->mode >= GEVR_ATTNET_MODES || (!r->optic && (r->mode || r->housing[0]))) return 0;
+    if (r->folded && !r->housing[0]) return 0;
+    if (r->housing[0] && !gevrAttachNetNameOk(r->housing)) return 0;
     return gevrAttachNetNameOk(r->model) && (!r->like[0] || gevrAttachNetNameOk(r->like));
+}
+
+/* a GUNBODY's fields within the limits: a gun's body or the hand's own */
+static int gunBodyOk(const GevrAttachRecord *r)
+{
+    int i, j;
+
+    if (r->where < 0 || r->where > 1 || r->item < 0 || r->item > 255) return 0;
+    if ((r->fitted != 0 && r->fitted != 1) || (r->muzzled != 0 && r->muzzled != 1)) return 0;
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 3; j++) {
+            if (!limit(r->frame[i][j], i == 3 ? GEVR_ATTNET_ORIGIN : GEVR_ATTNET_AXIS)) return 0;
+        }
+    }
+    for (i = 0; i < 3; i++) {
+        if (!limit(r->muzzle[i], GEVR_ATTNET_ORIGIN)) return 0;
+    }
+    if (r->item == 0) return !r->fitted && !r->muzzled && !r->model[0];
+    return gevrAttachNetNameOk(r->model);
 }
 
 static int recordBytes(const GevrAttachRecord *r)
 {
     switch (r->op) {
     case GEVR_ATTNET_SET:
-        return setOk(r) ? GEVR_ATTNET_SET_BYTES + (int)strlen(r->model) + (int)strlen(r->like) : -1;
+        return setOk(r) ? GEVR_ATTNET_SET_BYTES + (int)strlen(r->model) + (int)strlen(r->like) + (int)strlen(r->housing) : -1;
     case GEVR_ATTNET_REMOVE:
         return r->id >= 1 ? 5 : -1;
     case GEVR_ATTNET_CLEAR:
         return 1;
     case GEVR_ATTNET_ASK:
         return r->slot >= 0 && r->slot < GEVR_ATTNET_SLOTS ? 2 : -1;
+    case GEVR_ATTNET_GUNBODY:
+        return gunBodyOk(r) ? GEVR_ATTNET_GUNBODY_BYTES + (int)strlen(r->model) : -1;
     default:
         return -1;
     }
@@ -151,13 +188,25 @@ int gevrAttachNetEncode(unsigned char *out, int cap, int stage, const GevrAttach
             *p++ = (unsigned char)r[i].on;
             *p++ = (unsigned char)r[i].where;
             *p++ = (unsigned char)r[i].node;
-            *p++ = (unsigned char)(r[i].shown ? 1 : 0);
+            *p++ = (unsigned char)((r[i].shown ? 1 : 0) | (r[i].optic ? 2 : 0) | (r[i].folded ? 4 : 0));
             for (j = 0; j < 4; j++) {
                 for (k = 0; k < 3; k++) p = putFloat(p, r[i].frame[j][k]);
             }
             for (k = 0; k < 3; k++) p = putFloat(p, r[i].body[k]);
+            *p++ = (unsigned char)r[i].mode;
             p = putName(p, r[i].model);
             p = putName(p, r[i].like);
+            p = putName(p, r[i].housing);
+            break;
+        case GEVR_ATTNET_GUNBODY:
+            *p++ = (unsigned char)r[i].where;
+            *p++ = (unsigned char)r[i].item;
+            *p++ = (unsigned char)((r[i].fitted ? 1 : 0) | (r[i].muzzled ? 2 : 0));
+            for (j = 0; j < 4; j++) {
+                for (k = 0; k < 3; k++) p = putFloat(p, r[i].frame[j][k]);
+            }
+            for (k = 0; k < 3; k++) p = putFloat(p, r[i].muzzle[k]);
+            p = putName(p, r[i].model);
             break;
         case GEVR_ATTNET_REMOVE:
             p = put32(p, (unsigned)r[i].id);
@@ -206,7 +255,7 @@ int gevrAttachNetDecode(const unsigned char *data, int len, int *stage, GevrAtta
         r->op = *p++;
         switch (r->op) {
         case GEVR_ATTNET_SET:
-            if (end - p < GEVR_ATTNET_SET_BYTES - 3) return -1;   /* less the op and the names' lengths */
+            if (end - p < GEVR_ATTNET_SET_BYTES - 4) return -1;   /* less the op and the names' lengths */
             {
                 const unsigned id = get32(p);
 
@@ -217,14 +266,32 @@ int gevrAttachNetDecode(const unsigned char *data, int len, int *stage, GevrAtta
             r->on = p[0];
             r->where = p[1];
             r->node = p[2];
-            if (p[3] > 1) return -1;
-            r->shown = p[3];
+            if (p[3] > 7) return -1;
+            r->shown = p[3] & 1;
+            r->optic = (p[3] >> 1) & 1;
+            r->folded = (p[3] >> 2) & 1;
             p += 4;
             for (j = 0; j < 4; j++) {
                 for (k = 0; k < 3; k++, p += 4) r->frame[j][k] = getFloat(p);
             }
             for (k = 0; k < 3; k++, p += 4) r->body[k] = getFloat(p);
-            if (!getName(&p, end, r->model) || !getName(&p, end, r->like) || !setOk(r)) return -1;
+            r->mode = *p++;
+            if (!getName(&p, end, r->model) || !getName(&p, end, r->like) || !getName(&p, end, r->housing)
+                || !setOk(r)) return -1;
+            break;
+        case GEVR_ATTNET_GUNBODY:
+            if (end - p < GEVR_ATTNET_GUNBODY_BYTES - 2) return -1;   /* less the op and the name's length */
+            r->where = p[0];
+            r->item = p[1];
+            if (p[2] > 3) return -1;
+            r->fitted = p[2] & 1;
+            r->muzzled = (p[2] >> 1) & 1;
+            p += 3;
+            for (j = 0; j < 4; j++) {
+                for (k = 0; k < 3; k++, p += 4) r->frame[j][k] = getFloat(p);
+            }
+            for (k = 0; k < 3; k++, p += 4) r->muzzle[k] = getFloat(p);
+            if (!getName(&p, end, r->model) || !gunBodyOk(r)) return -1;
             break;
         case GEVR_ATTNET_REMOVE:
             if (end - p < 4) return -1;
@@ -331,6 +398,64 @@ void gevrAttachNetRemove(int id)
     }
 }
 
+void gevrAttachNetRefreshOptic(int (*state)(int id, int *mode, int *folded, char housing[GEVR_ATTNET_NAME + 1]))
+{
+    int i;
+
+    for (i = 0; state != NULL && i < GEVR_ATTNET_OWNED; i++) {
+        Owned *o = &s_owned[i];
+        GevrAttachRecord s;
+
+        if (o->id == 0 || o->gone || o->r.on != GEVR_ATTNET_GUN || o->r.like[0]) continue;
+        s = o->r;
+        s.mode = s.folded = 0;
+        memset(s.housing, 0, sizeof(s.housing));
+        s.optic = state(o->id, &s.mode, &s.folded, s.housing) != 0;
+        s.housing[GEVR_ATTNET_NAME] = '\0';
+        s.folded = s.folded != 0;
+        if (!s.optic || recordBytes(&s) < 0) {
+            /* none bound, or not one to tell (a mode or housing out of bounds): none */
+            s.optic = s.mode = s.folded = 0;
+            memset(s.housing, 0, sizeof(s.housing));
+        }
+        if (s.optic != o->r.optic || s.mode != o->r.mode || s.folded != o->r.folded || strcmp(s.housing, o->r.housing)) {
+            o->r = s;
+            changed(o);
+        }
+    }
+}
+
+int gevrAttachNetGunBody(const char *mod, int hand, const GevrAttachRecord *r)
+{
+    Body *b;
+    GevrAttachRecord s;
+
+    if (hand < 0 || hand > 1) return 0;
+    b = &s_body[hand];
+    memset(&s, 0, sizeof(s));
+    s.op = GEVR_ATTNET_GUNBODY;
+    s.where = hand;
+    if (r != NULL) {
+        if (mod == NULL || !mod[0] || strlen(mod) >= sizeof(b->mod)) return 0;
+        s.item = r->item;
+        s.fitted = r->fitted != 0;
+        s.muzzled = r->muzzled != 0;
+        if (s.fitted) memcpy(s.frame, r->frame, sizeof(s.frame));
+        if (s.muzzled) memcpy(s.muzzle, r->muzzle, sizeof(s.muzzle));
+        if (strlen(r->model) > GEVR_ATTNET_NAME) return 0;
+        strcpy(s.model, r->model);
+        if (s.item < 1 || recordBytes(&s) < 0) return 0;
+    } else if (!b->told || !b->r.item) {
+        return 1;   /* the hand's own, and the others hold (or are told) nothing else */
+    }
+    if (b->told && !memcmp(&b->r, &s, sizeof(s)) && !strcmp(b->mod, r != NULL ? mod : b->mod)) return 1;   /* no change */
+    if (r != NULL) strcpy(b->mod, mod);
+    b->r = s;
+    b->told = 1;
+    b->pending = ALL;
+    return 1;
+}
+
 void gevrAttachNetRefreshBody(int (*at)(int where, float out[3]))
 {
     int i, k;
@@ -367,6 +492,14 @@ void gevrAttachNetReset(int tell)
         o->pending = 0;
         o->gone = 0;
     }
+    for (i = 0; i < 2; i++) {
+        Body *b = &s_body[i];
+
+        for (k = 0; tell && b->told && k < s_clears && strcmp(s_clear[k], b->mod); k++) {
+        }
+        if (tell && b->told && k == s_clears && s_clears < MODS) strcpy(s_clear[s_clears++], b->mod);
+        memset(b, 0, sizeof(*b));
+    }
     if (!tell) s_clears = 0;
     s_ask = 0;
 }
@@ -378,7 +511,7 @@ int gevrAttachNetWorn(void)
     for (i = 0; i < GEVR_ATTNET_OWNED; i++) {
         if (s_owned[i].id != 0) return 1;
     }
-    return 0;
+    return s_body[0].told || s_body[1].told;
 }
 
 void gevrAttachNetAnswer(int slot)
@@ -388,6 +521,9 @@ void gevrAttachNetAnswer(int slot)
     if (slot < 0 || slot >= GEVR_ATTNET_SLOTS) return;
     for (i = 0; i < GEVR_ATTNET_OWNED; i++) {
         if (s_owned[i].id != 0 && !s_owned[i].gone) s_owned[i].pending |= 1u << slot;
+    }
+    for (i = 0; i < 2; i++) {
+        if (s_body[i].told && s_body[i].r.item) s_body[i].pending |= 1u << slot;   /* a pack body, not the hand's own */
     }
 }
 
@@ -404,6 +540,19 @@ void gevrAttachNetAskFor(const char *mod, int slot)
 static int pack(unsigned dest, const char *mod, int stage, unsigned char *out, GevrAttachRecord *r)
 {
     int i, n = 0, bytes = 2;
+
+    /* the hands' gun bodies first: what the parts on the gun are fitted to */
+    for (i = 0; i < 2; i++) {
+        Body *b = &s_body[i];
+
+        if (!b->told || !(b->pending & dest) || strcmp(b->mod, mod)) continue;
+        if (dest != ALL && (b->pending & ALL)) continue;   /* the broadcast carries it */
+        r[n] = b->r;
+        bytes += recordBytes(&r[n]);
+        n++;
+        b->pending &= dest == ALL ? 0u : ~dest;
+        if (!b->pending && !b->r.item) b->told = 0;   /* the hand's own, told to everyone: nothing held */
+    }
 
     for (i = 0; i < GEVR_ATTNET_OWNED && n < GEVR_ATTNET_RECORDS; i++) {
         Owned *o = &s_owned[i];
@@ -432,6 +581,11 @@ static const char *waiting(unsigned dest)
 {
     int i;
 
+    for (i = 0; i < 2; i++) {
+        const Body *b = &s_body[i];
+
+        if (b->told && (b->pending & dest) && (dest == ALL || !(b->pending & ALL))) return b->mod;
+    }
     for (i = 0; i < GEVR_ATTNET_OWNED; i++) {
         const Owned *o = &s_owned[i];
 

@@ -1843,18 +1843,24 @@ end)
           "an id this mod didn't attach: false, nothing touched")
 
 
-def attach_record(op, id=0, on=0, where=0, node=0, shown=1, origin=(0, 0, 0), body=(0, 0, 0), model="", like="", slot=0):
+def attach_record(op, id=0, on=0, where=0, node=0, shown=1, origin=(0, 0, 0), body=(0, 0, 0), model="", like="", slot=0,
+                  optic=0, mode=0, folded=0, housing="", item=0, fitted=0, muzzled=0, muzzle=(0, 0, 0)):
     """one record of a NET_MOD_ATTACH message (gevr_modattach_net.h)"""
     import struct
     b = bytes([op])
     if op == 1:
         frame = [1, 0, 0, 0, 1, 0, 0, 0, 1, *origin]
-        b += struct.pack("<IBBBB", id, on, where, node, shown) + struct.pack("<15f", *frame, *body)
-        b += bytes([len(model)]) + model.encode() + bytes([len(like)]) + like.encode()
+        b += struct.pack("<IBBBB", id, on, where, node, shown | optic << 1 | folded << 2) + struct.pack("<15f", *frame, *body)
+        b += bytes([mode, len(model)]) + model.encode() + bytes([len(like)]) + like.encode()
+        b += bytes([len(housing)]) + housing.encode()
     elif op == 2:
         b += struct.pack("<I", id)
     elif op == 4:
         b += bytes([slot])
+    elif op == 5:
+        fit = [2, 0, 0, 0, 2, 0, 0, 0, 2, *origin] if fitted else [0] * 12
+        b += bytes([where, item, fitted | muzzled << 1]) + struct.pack("<15f", *fit, *(muzzle if muzzled else (0, 0, 0)))
+        b += bytes([len(model)]) + model.encode()
     return b
 
 
@@ -1875,16 +1881,31 @@ def attach_sent(out):
             op = data[p]
             p += 1
             if op == 1:
-                id_, on, where, node, shown = struct.unpack_from("<IBBBB", data, p)
+                id_, on, where, node, flags = struct.unpack_from("<IBBBB", data, p)
                 p += 8
                 v = struct.unpack_from("<15f", data, p)
                 p += 60
+                mode = data[p]
+                p += 1
                 model = data[p + 1:p + 1 + data[p]].decode()
                 p += 1 + data[p]
                 like = data[p + 1:p + 1 + data[p]].decode()
                 p += 1 + data[p]
-                recs.append(("set", id_, on, where, node, shown, tuple(round(x) for x in v[9:12]),
-                             tuple(round(x) for x in v[12:15]), model, like))
+                housing = data[p + 1:p + 1 + data[p]].decode()
+                p += 1 + data[p]
+                rec = ("set", id_, on, where, node, flags & 1, tuple(round(x) for x in v[9:12]),
+                       tuple(round(x) for x in v[12:15]), model, like)
+                if flags & 6 or mode or housing:
+                    rec += (("optic", flags >> 1 & 1, mode, flags >> 2 & 1, housing),)
+                recs.append(rec)
+            elif op == 5:
+                hand, item, flags = data[p], data[p + 1], data[p + 2]
+                v = struct.unpack_from("<15f", data, p + 3)
+                p += 63
+                model = data[p + 1:p + 1 + data[p]].decode()
+                p += 1 + data[p]
+                recs.append(("body", hand, item, flags, tuple(round(x) for x in v[9:12]), tuple(round(x) for x in v[12:15]),
+                             model))
             elif op == 2:
                 recs.append(("remove", struct.unpack_from("<I", data, p)[0]))
                 p += 4
