@@ -313,6 +313,83 @@ int gevrAvatarAttachFrame(int slot,int on,int where,const float bodyAt[3],float 
     return 1;
 }
 
+/* up, then ahead without up, then left without both: unit and square, each
+ * axis kept on its own side (never a cross product: a mirrored matrix stays
+ * as the game draws it) */
+static int squareAxes(float *up,float *ahead,float *left) {
+    if(!unit(up))return 0;
+    float d=dot(ahead,up);for(int k=0;k<3;k++)ahead[k]-=d*up[k];
+    if(!unit(ahead))return 0;
+    float u=dot(left,up),a=dot(left,ahead);for(int k=0;k<3;k++)left[k]-=u*up[k]+a*ahead[k];
+    return unit(left);
+}
+
+/*
+ * gevr_modattach.c (mod.attach without tracking): the frame
+ * gevrAvatarAttachFrame gives, from the player's body model as just drawn
+ * instead of its tracked pose: chr->model's matrices in this view (chrRenderProp
+ * calls this after drawjointlist, before they go to fixed point), the very
+ * ones the body was drawn from: the N64 and GE-X lists, and Bean's skin,
+ * whose GPU palette reads the same render_pos (gevr_bean_gpu.inc.h).
+ *  - A hand (on 1, where its weapon role): the node that hand's gun hangs on
+ *    (propobj.c chrEquipWeapon: Switches[3] the right, Switches[5] the left,
+ *    under the wrists, joints 9 and 8), the left one turned half about its Z
+ *    as chrRenderHeldWeapon turns it. Its axes as the held gun's
+ *    (gevr_heldgun.c gevrHeldGunFit: the barrel -X, up +Z, the gun's left -Y),
+ *    so a part sits on that hand as on the gun it holds; at the grip, 4 cm
+ *    ahead of the wrist, where gevrAvatarApply puts a tracked grip.
+ *  - The body (on 2, bodyAt its centre from the eye, cm, as for the tracked
+ *    pose): the torso from the rig's joints (findRig; GE JointID = PD part + 1:
+ *    1 the pelvis, 3 the neck, 4 and 5 the left and right upper arms): up the
+ *    pelvis to the neck, right the left shoulder to the right, ahead
+ *    up x right; the eye GEVR_BODY_NECK_* above and ahead of the neck, as
+ *    gevrBodyFrameBuild puts it over a tracked torso; the anchor's centre
+ *    from there in the torso's terms, as for the tracked pose.
+ * Lengths in cm are the view's (the world-to-view matrix's scale). 0 without
+ * that node or rig, or a matrix with no axes.
+ */
+int gevrAvatarModelAttachFrame(ChrRecord *chr,int on,int where,const float bodyAt[3],float unit,Mtxf *out) {
+    Model *m=chr?chr->model:NULL;
+    if(!m || !m->obj || !m->render_pos || !out)return 0;
+    Mtxf *w2v=camGetWorldToScreenMtxf();
+    float view=w2v?sqrtf(dot(w2v->m[0],w2v->m[0])):0,x[3],y[3],z[3],p[3];
+    if(!isfinite(view) || view<1e-6f)return 0;
+    if(on==1) {
+        if(where<0 || where>1 || !m->obj->Switches)return 0;
+        ModelNode *hand=m->obj->Switches[where==GUNRIGHT?3:5];
+        const Mtxf *h=hand?modelFindNodeMtx(m,hand,0):NULL;
+        if(!h)return 0;
+        const float turn=where==GUNLEFT?-1:1;   /* the left hand's half turn about Z */
+        for(int k=0;k<3;k++) {
+            x[k]=-turn*h->m[1][k];y[k]=h->m[2][k];z[k]=-turn*h->m[0][k];p[k]=h->m[3][k];
+        }
+    } else if(on==2) {
+        ModelNode *nodes[16];const Mtxf *joint[6];
+        if(!bodyAt || !findRig(m,nodes))return 0;
+        for(int j=1;j<=5;j++)if(!(joint[j]=modelFindNodeMtx(m,nodes[j],0)))return 0;
+        float right[3];
+        for(int k=0;k<3;k++) {
+            y[k]=joint[3]->m[3][k]-joint[1]->m[3][k];
+            right[k]=joint[5]->m[3][k]-joint[4]->m[3][k];
+        }
+        cross(y,right,z);   /* ahead: up x right, as the world's right x up is behind */
+        for(int k=0;k<3;k++)x[k]=-right[k];
+        if(!squareAxes(y,z,x))return 0;
+        for(int k=0;k<3;k++)
+            p[k]=joint[3]->m[3][k]+view*(GEVR_BODY_NECK_UP_CM*y[k]+GEVR_BODY_NECK_AHEAD_CM*z[k]
+                                        -bodyAt[0]*y[k]-bodyAt[1]*x[k]+bodyAt[2]*z[k]);
+    } else return 0;
+    if(on==1) {
+        if(!squareAxes(y,z,x))return 0;
+        for(int k=0;k<3;k++)p[k]+=4*view*z[k];   /* the grip ahead of the wrist */
+    }
+    for(int k=0;k<3;k++) {
+        out->m[0][k]=x[k]*unit*view;out->m[1][k]=y[k]*unit*view;out->m[2][k]=z[k]*unit*view;out->m[3][k]=p[k];
+    }
+    out->m[0][3]=out->m[1][3]=out->m[2][3]=0;out->m[3][3]=1;
+    return 1;
+}
+
 /*
  * gevr_forcepull.c online: where another player's hand is in the world, for
  * a gun flying to it (docs/force-pull.md "Online"). hand is a weapon role
