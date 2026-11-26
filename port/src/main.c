@@ -446,6 +446,15 @@ int main(int argc, const char **argv)
 #endif
 #endif
     sysInitArgs(argc, argv);
+#if defined(GEVR_PC) && !defined(GEVR_IOS)
+    {
+        /* one game per folder: the flat and VR exes share its settings, saves
+         * and logs (port/pc/pc_instance.cpp, report f0743b24); before the VR
+         * exe's wait for the headset, and before anything is written */
+        extern void pcSingleInstance(void);
+        pcSingleInstance();
+    }
+#endif
 #ifdef GEVR_PC
     if (sysArgCheck("--input-script")) {
         /* a test script (port/pc/pc_testinput.c) runs while someone uses the

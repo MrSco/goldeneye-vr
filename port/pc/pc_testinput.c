@@ -35,6 +35,9 @@
  *                            y down positive as SDL has it, for 900 ms
  *   40000 quit
  *   40000 crash              a deliberate access violation (the crash report test)
+ *   40000 restart            the launcher's restart (gevrRestartToLauncher), once:
+ *                            it leaves restart.done in the folder, and the new
+ *                            run, playing the same script, skips it then
  *   35000 pick C:/x/y z.zip  the answer of the next file picker (pc_launcher.cpp
  *                            pcOpenPicker), the rest of the line; "pick -" is
  *                            Cancel. A scripted run never opens the Open dialog:
@@ -97,7 +100,7 @@ static void windowDump(const char *name)
 
 #define TI_MAX 512
 
-enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH, TI_PICK, TI_MOUSE, TI_WINDOWDUMP };
+enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH, TI_PICK, TI_MOUSE, TI_WINDOWDUMP, TI_RESTART };
 
 struct ticmd {
 	u32 at;
@@ -194,6 +197,7 @@ static void tiLoad(void)
 		else if (!strcmp(word, "quit")) c->kind = TI_QUIT;
 		else if (!strcmp(word, "windowdump")) { c->kind = TI_WINDOWDUMP; snprintf(c->name, sizeof(c->name), "%s", n >= 3 ? arg : "window"); }
 		else if (!strcmp(word, "crash")) c->kind = TI_CRASH;
+		else if (!strcmp(word, "restart")) c->kind = TI_RESTART;
 		else if (!strcmp(word, "text")) { c->kind = TI_TEXT; snprintf(c->name, sizeof(c->name), "%s", arg); }
 		else if (!strcmp(word, "pick")) {
 			/* the rest of the line, spaces and all */
@@ -313,6 +317,19 @@ void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock)
 			sysLogPrintf(LOG_NOTE, "input script: crash");
 			*(volatile int *)(uintptr_t)8 = 1;
 			break;
+		case TI_RESTART: {
+			FILE *done = fopen("restart.done", "rb");
+			if (done) {
+				fclose(done);
+				sysLogPrintf(LOG_NOTE, "input script: restart already done");
+				break;
+			}
+			if ((done = fopen("restart.done", "wb")) != NULL) fclose(done);
+			sysLogPrintf(LOG_NOTE, "input script: restart");
+			extern void gevrRestartToLauncher(void);   /* port/vr/vr_launcher.cpp */
+			gevrRestartToLauncher();
+			break;
+		}
 		}
 		sysLogPrintf(LOG_NOTE, "input script: %u ms: command %d", now, c->kind);
 	}

@@ -199,7 +199,14 @@ policy cases, the redaction patterns, the gzip member, the crash record, the upd
   the exe's write time; boot detection uses `GetTickCount64` (no boot count on
   Windows). The game log is the Quest's `gevr.log` / `gevr.prev.log` beside the
   exe (port/src/system.c), and the tail of `vr_debug.txt` stands in for
-  logcat. The device line is "PC Windows <version> x64". The upload address is
+  logcat. One game runs per folder (port/pc/pc_instance.cpp, report f0743b24):
+  the flat and VR exes share these files, so the run holds `gevr_run.lock`
+  until it ends, and a second start (either exe) brings the open one's window
+  forward, says which is open, and ends before it writes anything; a restart
+  (`GEVR_RESTART_OF`, set by pcRestartSelf) waits up to 20 s for the old run.
+  A marker whose pid is still a live game from this folder is not offered as
+  a crash. The script's `restart` command tries the restart once (`restart.done`).
+  The device line is "PC Windows <version> x64". The upload address is
   `GEVR_REPORTS_URL` when set (a real report becomes an issue in the reports
   repo: tests use a local mock). A scripted run (`--input-script`, with a new
   `crash` command) skips sysFatalError's message box. A pad's two stick clicks
