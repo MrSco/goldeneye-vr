@@ -2402,8 +2402,70 @@ static int l_attachPlace(lua_State *L)
     return 1;
 }
 
+/* optic(id, { profile = "x.opt", folded = "x-folded.bin" }): a pack optic
+ * profile (GEVROPT4, assets/models/) on a pack-mesh attachment, drawn as a
+ * lens on it (docs/mod-system.md); false takes it off. True when bound. */
+static int l_attachOptic(lua_State *L)
+{
+    const int at = attachOwned(L, luaL_checkinteger(L, 1));
+    const char *profile = NULL, *folded = NULL;
+    size_t n;
+
+    if (lua_isboolean(L, 2) && !lua_toboolean(L, 2)) {
+        if (at >= 0) gevrModGameOpticBind(s_attachOwners[at].id, NULL, NULL);
+        lua_pushboolean(L, at >= 0);
+        return 1;
+    }
+    luaL_checktype(L, 2, LUA_TTABLE);
+    lua_getfield(L, 2, "profile");
+    if (lua_type(L, -1) == LUA_TSTRING) profile = lua_tolstring(L, -1, &n);
+    if (!profile || n <= 4 || n > 63 || memcmp(profile + n - 4, ".opt", 4)
+        || !modelNameOk(profile, n - 4)) {
+        return luaL_error(L, "mod.attach.optic: profile requires a flat .opt file name");
+    }
+    if (lua_getfield(L, 2, "folded") != LUA_TNIL) {
+        if (lua_type(L, -1) == LUA_TSTRING) folded = lua_tolstring(L, -1, &n);
+        if (!folded || !modelNameOk(folded, n)) {
+            return luaL_error(L, "mod.attach.optic: folded requires a flat model file name");
+        }
+    }
+    lua_pushboolean(L, at >= 0 && gevrModGameOpticBind(s_attachOwners[at].id, profile, folded));
+    return 1;
+}
+
+/* opticMode(id[, mode[, zoom]]): sets the mode (from 1) and zoom when
+ * given; answers the mode, zoom, modes, kind ("collimator", "scope",
+ * "night", "thermal") and whether that mode is folded, or nil */
+static int l_attachOpticMode(lua_State *L)
+{
+    static const char *const kinds[] = { "", "collimator", "scope", "night", "thermal" };
+    const int at = attachOwned(L, luaL_checkinteger(L, 1));
+    int mode, count, kind, folded;
+    float zoom;
+
+    if (at < 0 || !gevrModGameOpticGet(s_attachOwners[at].id, &mode, &zoom, &count, &kind, &folded)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (!lua_isnoneornil(L, 2)) {
+        const lua_Integer want = luaL_checkinteger(L, 2);
+        const lua_Number z = luaL_optnumber(L, 3, 0);
+        if (want < 1 || want > count) return luaL_argerror(L, 2, "a mode from 1 to the optic's modes");
+        gevrModGameOpticSet(s_attachOwners[at].id, (int)want - 1, (float)z);
+        gevrModGameOpticGet(s_attachOwners[at].id, &mode, &zoom, &count, &kind, &folded);
+    }
+    lua_pushinteger(L, mode + 1);
+    lua_pushnumber(L, zoom);
+    lua_pushinteger(L, count);
+    lua_pushstring(L, kind >= 1 && kind <= 4 ? kinds[kind] : "");
+    lua_pushboolean(L, folded);
+    return 5;
+}
+
 static const luaL_Reg s_attachFuncs[] = {
     { "add", l_attachAdd },
+    { "optic", l_attachOptic },
+    { "opticMode", l_attachOpticMode },
     { "remove", l_attachRemove },
     { "show", l_attachShow },
     { "place", l_attachPlace },

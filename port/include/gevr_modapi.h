@@ -500,6 +500,13 @@ int gevrModGameDetach(int id);
 int gevrModGameAttachShow(int id, int shown);
 int gevrModGameAttachPlace(int id, const float offset[4][4]);   /* a new offset, from the next frame */
 void gevrModGameAttachReset(void);   /* none attached (a new mission, a mod stopped) */
+/* mod.attach.optic (gevr_modoptic.c): a pack optic profile on an attachment
+ * (NULL unbinds), with its folded housing (a pack mesh, or NULL); 1 when bound */
+int gevrModGameOpticBind(int id, const char *profile, const char *folded);
+/* its mode (from 0), zoom, modes, kind (GEVR_OPTIC_*) and whether that mode
+ * is folded; 0 for an attachment with no optic */
+int gevrModGameOpticGet(int id, int *mode, float *zoom, int *count, int *kind, int *folded);
+int gevrModGameOpticSet(int id, int mode, float zoom);   /* zoom 0: the mode's lowest */
 /* gevr_modattach.c: a guard's attachment gone with its body (chr.c
  * chrpropCleanupForRemoval): its id isn't any mod's now */
 void gevrModApiAttachGone(int id);

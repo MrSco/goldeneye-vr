@@ -3,6 +3,7 @@
 #include "gevr_reload_input.h"
 #include "gevr_hand_reload.h"
 #include "gevr_locomotion.h"
+#include "gevr_modoptic.h"
 #endif
 #include "system.h"
 #include <ultra64.h>
@@ -1097,10 +1098,14 @@ Gfx* lvlRender(Gfx* DL)
                 /* issue #40: the world, up to the gun, is kept for the sniper scope */
                 extern s32 gevrScopeBegin(void);
 
-                gevrScopeRec = gevrScopeBegin();
+                extern s32 gevrModOpticWantScope(void);   /* gevr_modoptic.c: a pack optic's lens */
+
+                const s32 opticScope = gevrModOpticWantScope();
+                gevrScopeRec = gevrScopeBegin() || opticScope;
                 if (gevrScopeRec)
                 {
-                    gDPNoOpTag(DL++, 0x565D0000); /* VR_SCOPE_REC_BEGIN */
+                    /* GEVR_OPTIC_SCOPE_RECORD: the game's scopes and a slot for the lens */
+                    gDPNoOpTag(DL++, opticScope ? GEVR_OPTIC_SCOPE_RECORD : 0x565D0000); /* VR_SCOPE_REC_BEGIN */
                 }
             }
 #endif

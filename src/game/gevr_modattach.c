@@ -61,6 +61,13 @@ extern void matrix_4x4_7F058C64(void);
 extern void matrix_4x4_7F058C88(void);
 extern s32 gevrModAttachHandFrame(s32 hand, Mtxf *root);   /* bondview2.c */
 extern s32 gevrBodySlotFrame(s32 slot, Mtxf *root);        /* gevr_bodyslots.c */
+/* gevr_modoptic.c: an attachment's lens (mod.attach.optic) */
+extern void gevrModOpticCheckCarrier(int id, s32 hand);
+extern void gevrModOpticDrawn(int id, s32 hand, const Mtxf *pose);
+extern Gfx *gevrModOpticEmit(Gfx *gdl, s32 hand);
+extern int gevrModOpticFolded(int id);
+extern void gevrModOpticUnbind(int id);
+extern void gevrModOpticReset(void);
 
 #define ATT_BUFSIZE   0x23000    /* as a hand's gun buffer (gevr_heldgun.c HG_BUFSIZE) */
 #define ATT_MODELSIZE 0xF000     /* and its model region */
@@ -83,6 +90,7 @@ typedef struct
 {
     s32 id;                      /* 0 free */
     AttachFile *file;
+    AttachFile *folded;          /* an optic's folded housing (mod.attach.optic), or NULL */
     s32 on, where, shown;
     s32 node;                    /* on the gun: the matrix of its model it rides; on a guard: the part */
     ChrRecord *chr;              /* on a guard: its record, kept past its id's retiring */
@@ -344,9 +352,41 @@ int gevrModGameDetach(int id)
 
     if (a != NULL)
     {
+        gevrModOpticUnbind(a->id);
         a->id = 0;
     }
     return a != NULL;
+}
+
+/* mod.attach.optic: the attachment (a pack mesh) and, when given, its folded
+ * housing (another pack mesh, drawn while a folded mode is selected) */
+int gevrModAttachOpticHousing(int id, const char *folded)
+{
+    Attachment *a = attachFind(id);
+    AttachFile *f;
+
+    if (a == NULL || a->on != GEVR_MODATTACH_GUN || a->file->mesh == NULL) return 0;
+    if (folded == NULL || !folded[0]) {
+        a->folded = NULL;
+        return 1;
+    }
+    if ((f = attachLoad(folded, "")) == NULL || f->mesh == NULL) return 0;
+    a->folded = f;
+    return 1;
+}
+
+/* gevr_modoptic.c: an attachment's anchor and its laid offset */
+int gevrModAttachInfo(int id, int *on, int *where, int *node, int *shown, Mtxf *offset)
+{
+    const Attachment *a = attachFind(id);
+
+    if (a == NULL) return 0;
+    *on = a->on;
+    *where = a->where;
+    *node = a->node;
+    *shown = a->shown;
+    *offset = a->offset;
+    return 1;
 }
 
 int gevrModGameAttachPlace(int id, const float offset[4][4])
@@ -388,7 +428,9 @@ void gevrModGameAttachReset(void)
     for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
     {
         s_attach[i].id = 0;
+        s_attach[i].folded = NULL;
     }
+    gevrModOpticReset();
     for (i = 0; i < GEVR_MODAPI_ATTACH_MODELS; i++)
     {
         s_files[i].model[0] = '\0';
@@ -409,8 +451,10 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     s32 i;
 
     if (a->file->mesh != NULL) {
+        /* an optic with its magnifier swung aside draws its folded housing */
+        const GevrModMesh *mesh = a->folded != NULL && gevrModOpticFolded(a->id) ? a->folded->mesh : a->file->mesh;
         matrix_4x4_multiply(anchor, &a->offset, &pose);
-        Gfx *end = gevrModMeshDraw(gdl, &pose, a->file->mesh);
+        Gfx *end = gevrModMeshDraw(gdl, &pose, mesh);
         if (drawnPose != NULL && end != gdl) *drawnPose = pose;
         return end;
     }
@@ -508,6 +552,7 @@ Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun
 
         if (a->id != 0 && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand && a->node < gun->obj->numMatrices)
         {
+            gevrModOpticCheckCarrier(a->id, hand);
             node = ((Mtxf *) gun->render_pos)[a->node];
             Gfx *end = attachDraw(gdl, templ, a, &node, &a->drawnPose);
             if (end != gdl) {
@@ -516,11 +561,13 @@ Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun
                 a->drawnMirrored = attachMirrored(&a->drawnPose);
                 a->drawnGun = gun->obj;
                 a->drawnGunMesh = gevrModGunMesh(hand);
+                gevrModOpticDrawn(a->id, hand, &a->drawnPose);   /* its lens, at the pose just drawn */
             }
             gdl = end;
         }
     }
-    return gdl;
+    /* the gun's lenses, in this hand's draw, after all its parts (gevr_modoptic.c) */
+    return gevrModOpticEmit(gdl, hand);
 }
 
 /* chr.c chrRenderProp, after a chr's body and what's stuck to it, in each of

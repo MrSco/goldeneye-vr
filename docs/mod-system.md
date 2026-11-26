@@ -1155,6 +1155,55 @@ in-game screen). We maintain the adapters, not the mods.
     headset, so in co-op each headset's mod attaches the same (a guard's
     id is the same on every headset).
 
+### Pack optics
+
+A pack can put its own lens and reticle on a gun attachment. For example,
+a science-fiction campaign can switch between its own low-power glass and
+a wide dot sight using the same attachment. The game draws the lens in
+the same hand pass as the housing, including on a mirrored left-hand gun.
+The ordinary `mod.weapon.scope` API still controls the game's own scope.
+
+- `mod.attach.optic(id, { profile = "glass.opt", folded = "glass-folded.bin" })`
+  binds a profile in `assets/models/` to an owned pack mesh on a gun.
+  `folded` is optional and replaces the housing in modes marked folded.
+  The first mode is selected on bind. It returns true on success. Bad or
+  missing assets return false and keep any existing binding. Pass false
+  instead of a table to unbind. Hiding the attachment hides the lens.
+  Removing the attachment or changing its carrier retires the binding.
+- `mod.attach.opticMode(id[, mode[, zoom]])` returns the selected mode
+  (one-based), zoom, mode count, kind (`collimator`, `scope`, `night` or
+  `thermal`) and whether the mode is folded. It returns nil if there is
+  no owned binding. Pass a mode to select it and optionally a zoom. Zoom
+  is clamped to the mode's range and defaults to its minimum.
+- In VR, looking through a configurable lens enables a short right-stick
+  click to change mode. Hold the stick button and move it up or down to
+  change zoom. A lens showing a magnified scene uses the shared scope view
+  capture. If two stock scopes are already active, their views take priority.
+  Thermal is a first pass that colours the scene by brightness. A follow-up
+  will add character and environment heat. Night view still needs headset
+  validation.
+
+#### Optic profile byte layout
+
+All integers and floats are 32-bit little-endian. A file starts with the
+eight bytes `GEVROPT4` followed by an unsigned mode count (1?12). Each mode
+contains the following fields in order.
+
+1. A flags word with the kind in bits 0?7 (1 through 4 in the order
+   above), folded in bit 8, palette in bits 9?10, and first focal plane
+   in bit 11. Keep the remaining bits clear.
+2. An outline point count (3?64), then reticle width and height (1?1024).
+3. The lens centre and right, up and forward vectors (three floats each),
+   two positive half sizes, two texture coordinates for the reticle
+   centre, the collimator's texture units per radian, and minimum and
+   maximum zoom (both at least 1).
+4. The outline's pairs of floats, given in order around the centre as
+   fractions of the half sizes, followed by the reticle as RGBA8 pixels.
+
+The lens coordinates use the pack mesh's authored frame (metres, X
+right, Y forward, Z up). The outline must describe a fan from the
+centre. A valid file ends immediately after the last reticle.
+
 ### Pickup swaps
 
 `pickup_spawning` rewrites a pickup's setup record before the game places

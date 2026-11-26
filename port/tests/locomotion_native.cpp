@@ -56,7 +56,7 @@ static bool s_eyePresent, s_eyeRec, s_flatRec, s_eyeReady, s_eyeSpilled, s_eyeCl
 static int s_eyeHand=-1, boundProgram=1, current_framebuffer=0;
 static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16], s_eyePresentDelta[16];
 static std::vector<ShaderProgram*> s_eyePresentationPrograms;
-static std::vector<int> s_eyeDraws, s_eyeVolBatches;
+static std::vector<int> s_eyeDraws, s_eyeVolBatches, s_eyeOptics;
 static uint32_t s_eyeKept, s_eyeMerged;
 static int VrShowStats;
 static void vr_log(const char*, ...) {}
