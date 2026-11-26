@@ -2,8 +2,8 @@
 
 Status 2026-11-25: steps 1 to 4 built. Settings, saves and ROMs (and, opted
 in, texture packs) sync through the player's Google Drive once they link it
-(launcher, Play > Sync). Steps 3 and 4 are tested against a stand-in for
-Google, not yet live.
+(launcher, Play > Sync). Settings, saves, ROMs and packs have been checked
+live on the owner's Drive; step 4's page against a stand-in for Google.
 
 User idea, 2026-11-25: give the devices without iCloud (Quest, Steam Frame,
 Android, PC flat, PC VR) the same sync as [iCloud sync](icloud-sync.md):
@@ -272,7 +272,11 @@ value back: each uploads only what differs from what it last synced.
    Google verification process" though the account was a test user; the
    same code worked a few minutes later.
 3. Done 2026-11-25: ROMs and packs (above), tests against the stand-in.
-   Live check against the owner's Drive still to do.
+   Live on the owner's Drive the same day (after the review fixes): a 5 MB
+   ROM in resumable pieces and a pack zip from a PC folder to a Quest-layout
+   folder (ROM into files/data, pack into texture-packs), identical by
+   SHA-256, and nothing moving on the next pass. The test files were then
+   deleted from the Drive.
 4. Done 2026-11-25: the QR code and Open in the browser, device names, the
    saves set aside with Use this one, both devices of a player kept in one
    match. Not done: the one-tap browser sign-in (needs Desktop and iOS OAuth
