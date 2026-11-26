@@ -6543,8 +6543,14 @@ void netPoll(void) {
                 enet_packet_destroy(event.packet);
                 break;
             }
+            /* ENet's own timeout (the six seconds enet_peer_timeout set at the connect):
+             * gone as surely as a goodbye. Unhandled, a vanished player kept the slot
+             * (in the pre-match lobby, which has no silence clock, for good), and the
+             * freed ENet peer kept its slot in peer->data, so the next joiner to get
+             * that peer had its HELLO ignored. */
+            case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
             case ENET_EVENT_TYPE_DISCONNECT: {
-                NET_LOG("Peer disconnected.");
+                NET_LOG("Peer %s.", event.type == ENET_EVENT_TYPE_DISCONNECT_TIMEOUT ? "timed out" : "disconnected");
                 char departed_ip[64] = "";
                 enet_address_get_ip(&event.peer->address, departed_ip, sizeof(departed_ip));
                 netIceForgetPeer(departed_ip);
