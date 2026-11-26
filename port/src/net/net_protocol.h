@@ -134,6 +134,10 @@ typedef enum {
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
 #define NET_DISCONNECT_NO_ROOM 0x47454e52u  /* 'GENR': not enough open slots for all local players */
+/* 'GEP' | the turner-away's GEVR_NET_VERSION (its low byte): a peer on another
+ * protocol (a different release). Additive, no bump: a build without it shows
+ * nothing, as before; one with it tells its player whose game needs the update. */
+#define NET_DISCONNECT_VERSION 0x47455000u
 
 /* NET_MSG_LOCAL_GUEST ops & results (protocol 28) */
 enum {

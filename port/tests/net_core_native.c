@@ -800,6 +800,27 @@ EXPORT int test_core_content_check(void) {
     CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CAMPAIGN | 2u));
     why = netTakeJoinRefusal();
     CHECK(why && strstr(why, "Tomorrow Never Dies 64") && strstr(why, "START"));
+    /* another protocol: the reason carries the host's, so the message says whose game needs the update */
+    CHECK((NET_DISCONNECT_VR_ONLY & 0xFFFFFF00u) != NET_DISCONNECT_VERSION && (NET_DISCONNECT_HAND_RELOAD & 0xFFFFFF00u) != NET_DISCONNECT_VERSION);
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_VERSION | ((GEVR_NET_VERSION + 1) & 0xFFu)));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "newer version") && strstr(why, "Update this game") && s_state == NET_STATE_OFFLINE);
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_VERSION | ((GEVR_NET_VERSION - 1) & 0xFFu)));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "older version") && strstr(why, "host needs to update"));
+    /* no reason: only after this join's HELLO went out (an unreachable host never had it), only while connecting */
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    s_hello_sent = false;
+    CHECK(!netClientContentRefused(&hit_peers[0], 0) && !netTakeJoinRefusal());
+    s_hello_sent = true;s_state = NET_STATE_CLIENT_LOBBY;
+    CHECK(!netClientContentRefused(&hit_peers[0], 0) && !netTakeJoinRefusal());
+    s_state = NET_STATE_CONNECTING;
+    CHECK(netClientContentRefused(&hit_peers[0], 0));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "turned the connection away") && strstr(why, "another version") && !s_server_peer);
+    s_hello_sent = false;
     return 0;
 }
 /* Who plays flat: the host's count for the lobby list and the LAN beacon,
