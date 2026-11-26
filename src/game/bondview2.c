@@ -345,6 +345,13 @@ static void gevrStereoLook(struct coord3d *look, struct coord3d *up)
     up->y = -up->y;
 }
 
+/* gevr_avatar.c: the body's heading as others see it. The stick turns the
+ * body; the headset's own turn on top of it only turns the head. */
+float gevrStereoBaseYaw(void)
+{
+    return s_gevrBaseYaw;
+}
+
 /* Shared with voice: exactly the camera's head + stick/body basis. */
 void gevrVoiceListenerBasis(float forward[3], float up[3])
 {

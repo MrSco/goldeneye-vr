@@ -6,9 +6,11 @@ automatically when a peer sends valid tracked poses; bots, flat players,
 unsupported rigs and dead players retain the existing animations.
 
 Both hands move even when the offhand is empty. The head follows yaw, pitch and
-roll independently of the gun. A slower torso heading lets a player glance to
-the side without immediately turning their entire body. Walking and sustained
-turns bring the torso around; separation is limited to 65 degrees. The upper
+roll independently of the gun. The right stick turns the whole body, head and
+torso together; only the headset's own turn moves the head. A slower torso
+heading lets a player glance to the side without immediately turning their
+entire body. Walking and sustained physical turns bring the torso around;
+separation is limited to 65 degrees. The upper
 body also follows the camera's rise/offset, bounded to 35 cm per axis, while
 legs retain the existing walking/crouching/floor placement.
 
