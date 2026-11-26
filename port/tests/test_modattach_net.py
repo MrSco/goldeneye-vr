@@ -1,0 +1,201 @@
+"""mod.attach on the other players' headsets (#335, docs/mod-system.md "Network"):
+port/src/gevr_modattach_net.c as it is, the owner's side driving a mirror of
+what each other headset holds. A flip while both players are there reaches
+the other; a player who joins gets the whole state (the host's ask, then that
+player alone); a removal on a gun swap, a detach and a stop reach them; sends
+go on change, at most GEVR_ATTNET_SENDS a second, packed; every malformed
+message is refused whole. An optic's housing state rides its SET, and each
+hand's pack gun body its own GUNBODY record: set, reset, swapped, joined,
+stopped. Then where it sits: NET_MOD_ATTACH in net_protocol.h and
+net_core.c, the API's calls in gevr_modapi.c, and the draws on the other
+player's copy in the game (its optic housing and its pack gun body too).
+Run: python port/tests/test_modattach_net.py
+"""
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+FAILS = []
+
+
+def check(cond, what):
+    if not cond:
+        FAILS.append(what)
+        print("FAIL:", what)
+
+
+def function(source, signature):
+    start = source.index(signature)
+    body = source.index("{", start)
+    depth, i = 1, body + 1
+    while depth:
+        depth += {"{": 1, "}": -1}.get(source[i], 0)
+        i += 1
+    return source[start:i]
+
+
+def native():
+    cc = os.environ.get("CC") or shutil.which("gcc") or "cc"
+    sanitize = [] if os.name == "nt" else ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
+    with tempfile.TemporaryDirectory(prefix="gevr-modattach-net-") as temp:
+        exe = Path(temp) / ("modattach_net.exe" if os.name == "nt" else "modattach_net")
+        subprocess.run([cc, "-std=gnu11", "-O1", "-g", "-Wall", "-Werror", *sanitize, "-I" + str(ROOT / "port/include"),
+                        str(ROOT / "port/tests/modattach_net_native.c"), str(ROOT / "port/src/gevr_modattach_net.c"),
+                        "-lm", "-o", str(exe)], check=True)
+        out = subprocess.run([str(exe)], capture_output=True, text=True, timeout=120)
+        check(out.returncode == 0 and "modattach_net: ok" in out.stdout,
+              "the bytes, the owner's sends and the mirror: " + out.stdout + out.stderr)
+
+
+def placement():
+    proto = (ROOT / "port/src/net/net_protocol.h").read_bytes().decode()
+    check("NET_MOD_ATTACH = 6," in proto and "#define NET_MOD_ATTACH_BYTES 1024" in proto,
+          "NET_MOD_ATTACH, a new kind of NET_MSG_MOD, and its limit")
+    core = (ROOT / "port/src/net/net_core.c").read_bytes().decode()
+    send = function(core, "int netSendModMessage(")
+    check("if (kind == NET_MOD_ATTACH && (!data || len < 2 || len > NET_MOD_ATTACH_BYTES)) return 0;" in send
+          and "kind >= NET_MOD_DROP && kind <= NET_MOD_GONE" in send,
+          "sent with its length checked; a pickup's rules don't take it")
+    recv = function(core, "static void netReceiveMod(")
+    check(recv.index("} else if (kind == NET_MOD_ATTACH) {") < recv.index("if (netIsHost()) {")
+          and "len < 2 || len > NET_MOD_ATTACH_BYTES || netbufReadLeft(buf) != len" in recv
+          and recv.index("NET_MOD_HOST_RELAY_A_SECOND") < recv.index("gevrModNetAttach(mod,"),
+          "read with its length checked before the host's relay and its rate, delivered after")
+    api = (ROOT / "port/src/gevr_modapi.c").read_bytes().decode()
+    add = function(api, "static int l_attachAdd(lua_State *L)")
+    check(add.index("id = gevrModGameAttach(&a);") < add.index("attachTell(mod, id, &a);"),
+          "told once attached, with the id the mod gets")
+    tell = function(api, "static void attachTell(")
+    check("!netIsActive() || a->on == GEVR_MODATTACH_GUARD" in tell, "online only; never a guard's")
+    check("gevrAttachNetRemove(" in function(api, "static int l_attachRemove(")
+          and "gevrAttachNetShow(" in function(api, "static int l_attachShow(")
+          and "gevrAttachNetPlace(" in function(api, "static int l_attachPlace("),
+          "remove, show and place told as they change")
+    reset = function(api, "void gevrModApiReset(void)")
+    check(reset.index("gevrModGameAttachReset();") < reset.index("gevrAttachNetReset(netIsActive() && gevrModScriptStage() >= 0);"),
+          "a stop in a mission tells the others (a CLEAR)")
+    got = function(api, "void gevrModNetAttach(")
+    check("gevrAttachNetDecode(" in got and got.index("if (n < 0) {") < got.index("s_attachHeld++")
+          and "(from == netGetHostSlot() || from < 0)" in got and "netIsDedicated()" in got,
+          "checked whole before it's held; an ask only the host's; a dedicated server draws no one")
+    apply = function(api, "static void attachApply(")
+    check("stage != (gevrModScriptStage() & 0xFF) || !gevrModScriptOn(mod)" in apply,
+          "applied only if it's this mission's and its mod runs here")
+    frame = function(api, "static void attachNetFrame(void)")
+    check("!netLobbySlotConnected(slot)" in frame and "gevrModGameAttachRemoteGone(slot, 0);" in frame,
+          "a player who leaves takes theirs along")
+    check("if (netIsActive() && s_gunBodyAny) {" in frame and "gevrModGameGunBody(i, r.model" in frame
+          and "gevrAttachNetGunBody(NULL, i, NULL);" in frame and "gevrAttachNetRefreshOptic(attachOpticState);" in frame,
+          "each frame online: the hands' pack bodies (only once a mod set one) and the optics told as they change")
+    check("if (set && name != NULL) gunBodyTold(L, hand);" in function(api, "static int l_gunModel(lua_State *L)")
+          and "s_gunBodyAny = 0;" in function(api, "void gevrModApiReset(void)"),
+          "a pack body set by a mod; forgotten at a reset")
+    check("gevrModGameAttachRemoteOptic(from, r[i].id, r[i].optic ? r[i].housing : NULL, r[i].mode, r[i].folded);" in apply
+          and "gevrModGameSwappable(r[i].item)" in apply and "gevrModGameAttachRemoteBody(from, r[i].where, r[i].item" in apply,
+          "applied: an optic's housing with its attachment, a gun body for a gun this cartridge has")
+    flush = function(api, "void gevrModApiNetFlush(void)")
+    check(flush.index("attachJoined(slot);") < flush.index('gevrModScriptEvent("peer_ready"'), "the host's ask at peer_ready")
+    game = (ROOT / "src/game/gevr_modattach.c").read_bytes().decode()
+    gun = function(game, "Gfx *gevrModAttachDrawPlayerGun(")
+    check("a->id < 0 && a->owner == slot" in gun and "node = ((Mtxf *) gun->render_pos)[a->node];" in gun
+          and "attachDraw(gdl, templ, a, &node, NULL, TRUE)" in gun,
+          "another player's on its gun: the held model's matrix as drawn, through the one attachment draw")
+    body = function(game, "Gfx *gevrModAttachDrawPlayer(ChrRecord *chr")
+    check("fadealpha < 0xFF" in body and body.index("gevrAvatarAttachFrame(slot, a->on, a->where, at, unit, &frame)")
+          < body.index("gevrAvatarModelAttachFrame(chr, a->on, a->where, at, unit, &frame)"),
+          "another player's on a hand or the body: the frames its tracked pose gives, else its body model's as drawn")
+    own = function(game, "static s32 attachOwnBody(")
+    check("gevrTpDrawsOwnBody(slot)" in own and "g_gevrExtraPass" in own and "attachLocal()" in own
+          and "gevrBodySlotAt(a->where, mine)" in body,
+          "this player's own on its own body where the flat third person draws it, at its own fit")
+    local = function(game, "Gfx *gevrModAttachDrawGun(")
+    check("a->id > 0" in local and "a->id <= 0" in function(game, "Gfx *gevrModAttachDrawBody(Gfx *gdl)"),
+          "this player's own draws leave another player's alone")
+    one = function(game, "static Gfx *attachDraw(")
+    scale = function(game, "static void attachWorldScale(Mtxf *pose)")
+    check("if (world && !(templ->flags & 1)) return gdl;" in one and "attachWorldScale(&pose);" in one
+          and "D_80032310[0] / 65536.0f" in scale,
+          "a pack mesh in a body's passes: once, at the level's scale")
+    check("a->id < 0 ? a->remoteFolded : gevrModOpticFolded(a->id)" in one,
+          "another player's optic: its folded housing as that player's is told, never this player's own optic's")
+    guard = function(game, "Gfx *gevrModAttachDrawGuard(")
+    check("attachDraw(gdl, &objdata, a, &node, NULL, TRUE)" in guard,
+          "a guard's pack mesh in the body's passes too: once, at the level's scale")
+    pbody = function(game, "Gfx *gevrModAttachDrawPlayerBody(")
+    check(pbody.index("*replaced = TRUE;") < pbody.index("if (templ->flags & 1)") < pbody.index("attachWorldScale(&pose);")
+          < pbody.index("gevrModMeshDraw(gdl, &pose, b->file->mesh)") < pbody.index("modelDrawGunHand(&rd, gun,")
+          < pbody.index("modelDrawGunFlash(&rd, gun);"),
+          "another player's pack gun body: the mesh once at the level's scale, the hand's lists and its flash as its own")
+    check("b->item == item" in function(game, "static RemoteBody *attachPlayerBody(")
+          and "attachRemoteSlot(chr)" in function(game, "static RemoteBody *attachPlayerBody("),
+          "drawn only for the gun it was told for, on another player's copy alone")
+    rbody = function(game, "int gevrModGameAttachRemoteBody(")
+    check("attachLoadRemote(model, \"\")" in rbody and "f->mesh == NULL" in rbody and "slot == netGetLocalSlot()" in rbody,
+          "its file one of the shared files, a pack mesh only, never this player's own slot")
+    ropt = function(game, "int gevrModGameAttachRemoteOptic(")
+    check("attachLoadRemote(housing, \"\")" in ropt and "at->file->mesh == NULL" in ropt,
+          "an optic's housing: a shared pack mesh on a pack mesh on the gun")
+    gone = function(game, "void gevrModGameAttachRemoteGone(int slot, int id)")
+    check("memset(s_remoteBody[slot], 0, sizeof(s_remoteBody[slot]));" in gone,
+          "a player's leaving or CLEAR takes its gun bodies along")
+    check("memset(s_remoteBody, 0, sizeof(s_remoteBody));" in function(game, "void gevrModGameAttachReset(void)"),
+          "a mission's or a stop's reset: none kept")
+    add = function(game, "int gevrModGameAttach(const GevrModAttach *a)")
+    check(add.index("if (s_attach[i].id == 0)") < add.index("if (s_attach[i].id < 0)"),
+          "this player's own find a free place first, then set another player's aside")
+    remote = function(game, "static AttachFile *attachLoadRemote(")
+    check("unused <= ATT_REMOTE_FILES_FREE" in remote, "another player's never takes the last model files")
+    held = (ROOT / "src/game/gevr_heldgun.c").read_bytes().decode()
+    draw = function(held, "Gfx *gevrHeldGunDraw(")
+    check(draw.index("subdraw(&rd, &inst->model);") < draw.index("gevrModAttachDrawPlayerGun(rd.gdl, &rd, chr, hand, &inst->model)")
+          < draw.index("bondviewTransformManyPosToViewMatrix(inst->model.render_pos"),
+          "drawn after the held gun, while its matrices are still floats")
+    check(draw.index("gevrModAttachDrawPlayerBody(rd.gdl, &rd, chr, hand, inst->file->item, &inst->model, &packBody)")
+          < draw.index("if (!packBody)") < draw.index("subdraw(&rd, &inst->model);"),
+          "a pack gun body in place of the held gun's model, the gun drawn only without one")
+    compute = function(held, "s32 gevrHeldGunCompute(")
+    check("gevrModAttachPlayerMuzzle(chr, hand, item, packMuzzle.f)" in compute,
+          "the copy's flash at its pack body's authored muzzle")
+    gun_c = (ROOT / "src/game/gun.c").read_bytes().decode()
+    now = function(gun_c, "s32 gevrModGunBodyNow(")
+    check("gevrModGunFittedItem(hand)" in now, "the owner's body: only a pack mesh the hand draws now, for its gun")
+    chr = (ROOT / "src/game/chr.c").read_bytes().decode()
+    render = function(chr, "Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)")
+    check(render.index("gevrModAttachDrawGuard(chr, &mrData, chrfadealpha, mrData.gdl);")
+          < render.index("gevrModAttachDrawPlayer(chr, &mrData, chrfadealpha, mrData.gdl);")
+          < render.index("bondviewTransformManyPosToViewMatrix(chr->model->render_pos, chr->model->obj->numMatrices);"),
+          "a hand's and the body's after the body, in its passes")
+    avatar = (ROOT / "port/src/gevr_avatar.c").read_bytes().decode()
+    frame = function(avatar, "int gevrAvatarAttachFrame(")
+    check("netGetAvatarPose(slot,&pose,weight)" in frame and "gevrBodyFrameBuild(&f,&torso,hp,fwd,head[1],head[0]);" in frame
+          and "weight[where+1]<=0" in frame and "weight[0]<=0" in frame,
+          "the tracked pose's grip or torso, none untracked")
+    model = function(avatar, "int gevrAvatarModelAttachFrame(")
+    check("m->obj->Switches[where==GUNRIGHT?3:5]" in model and "findRig(m,nodes)" in model
+          and "modelFindNodeMtx(m,hand,0)" in model and "camGetWorldToScreenMtxf()" in model,
+          "without tracking: the gun's hand node and the rig's torso joints as the body was drawn")
+    slots = (ROOT / "src/game/gevr_bodyslots.c").read_bytes().decode()
+    at = function(slots, "s32 gevrBodySlotAt(s32 slot, f32 out[3])")
+    check("gevrBodySlotOffsets(slot, VrBodySlotFit[slot], VrPlayerHeight, off);" in at
+          and "gevrBodySlotSide(slot, VrLeftHandedMode)" in at,
+          "a body anchor's centre from this player's own fit, as gevrBodySlotCentre lays it")
+
+
+def main():
+    native()
+    placement()
+    if FAILS:
+        print("%d failure(s)" % len(FAILS))
+        sys.exit(1)
+    print("PASS: mod.attach on the other players: the message's bytes and refusals, sends on change at the rate, "
+          "a flip, a join's whole state, a removal and a stop reaching the others; an optic's housing state and the "
+          "hands' pack gun bodies with them; NET_MOD_ATTACH's place in the network and the API; the draws on the "
+          "other player's gun (its pack body, its optic housing), hands and body, and a guard's pack mesh")
+
+
+if __name__ == "__main__":
+    main()

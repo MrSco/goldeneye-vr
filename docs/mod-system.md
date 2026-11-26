@@ -1006,6 +1006,59 @@ in-game screen). We maintain the adapters, not the mods.
     starts.
   - A mod stopped on one headset is stopped on all of them
     (`NET_MOD_OFF`; see Multiplayer).
+  - What a player wears (`mod.attach` on the gun, a hand or the body, an
+    optic's housing state with it) and the pack gun body each hand draws
+    (`mod.weapon.model` with a pack mesh) go to the others as
+    `NET_MOD_ATTACH` (#335; under Assets, part two, "On the other
+    players"). No call: the engine sends it.
+    - The message: `u16 n` and `n` bytes (2 to `NET_MOD_ATTACH_BYTES`,
+      1024) after the mod's id, laid out in `port/include/gevr_modattach_net.h`:
+      the sender's stage, a count (1 to 32), then records. `SET`: the
+      owner's id (1 to 0x7FFFFFFF), the anchor (gun 0, hand 1, body 2), its
+      hand or body anchor, the gun node (0 to 255; 0 off the gun), shown,
+      the frame (12 floats: the model's axes in the anchor's frame and its
+      origin, the API's limits), a body anchor's centre from the eye (3
+      floats, cm, below, to the right and ahead, within 250), the model's
+      file and its `like` (flat model file names as `mod.attach.add` takes
+      them), and its optic (`mod.attach.optic`): bound or not, the selected
+      mode (0 to 11), whether that mode folds the housing, and the folded
+      housing's file ("" none). An optic only on a pack mesh on the gun, a
+      fold only with a housing, a mode or housing only with an optic.
+      `REMOVE`: the id. `CLEAR`: all of the sender's of that mod, its gun
+      bodies too. `ASK`: a slot (the host's alone: send what you wear to
+      that player). `GUNBODY`: a hand (0 right, 1 left), the gun it stands
+      in for (an item, 1 to 255; 0 the hand's own model again), whether a
+      fit and a muzzle are set, the fit (12 floats: axes within 100, origin
+      within 4000), the muzzle (3 floats within 4000), and the pack mesh's
+      file (a flat name; "" with item 0). Nothing else of the body: no
+      support point, no textures, no lens.
+    - Anyone's, to everyone or to one, routed and rate-limited as
+      `NET_MOD_DATA` is (the host checks the sender by its peer and relays at
+      most 64 a second of each player's, everything `NET_MSG_MOD` together).
+      `net_core.c` checks the length; the receiver checks every record
+      (`gevrAttachNetDecode()`), and a message with anything outside the
+      limits, an unknown record, a name that isn't a flat model file's or
+      bytes left over or missing is dropped whole, logged once a mission.
+    - The owner sends on change, never each frame: a record when one is
+      attached, shown or hidden, placed or removed, when its optic is
+      bound, unbound (a gun swap retires it) or flips mode (the stick's
+      click or `opticMode`; zoom isn't sent), when a hand's pack gun body
+      is set, changes fit, goes back to the hand's own (`nil`, or a gun
+      with none in the hand) or follows a gun swap, and when a body
+      anchor's centre (the player's own fit) moves more than half a cm;
+      the same state again sends nothing. A hand's own model is told only
+      after a pack body was. Packed, and at most 8 messages a
+      second (`GEVR_ATTNET_SENDS`): a state that changes faster reaches the
+      others as its latest. A mod stopped in a mission sends a `CLEAR`.
+    - Held as messages are, and applied at the next frame in play only if
+      its stage is this mission's and its mod runs here. A mission loading
+      drops the last one's, and the others' attachments go with it.
+    - Joining: at `peer_ready` the host sends that player what its own
+      player wears (its pack gun bodies and optics' state too), and, if it
+      has heard anyone else wearing something or holding a pack body this
+      mission, asks them (`ASK`) to send theirs to that player alone.
+      With no one wearing anything nothing is sent. A player who leaves
+      (its connection gone) takes its attachments along.
 - **The UI.** A mod's page is a sub-tab under the in-game screen's
   Mods/Fun tab, beside the section's own rows (now under Options): the
   hold-Menu screen, the solo panel and the online match screen's Settings
@@ -1086,7 +1139,8 @@ in-game screen). We maintain the adapters, not the mods.
   weapons area above. Attachments: `src/game/gevr_modattach.c`.
   - `mod.attach.add{ model, like, on, hand, at, turn, scale }` draws the
     pack's `assets/models/<model>` on the local player's gun, a hand or the
-    body. `like` names the cartridge model file it's built over (a G gun
+    body (in co-op the others see it on that player too: "On the other
+    players" below). `like` names the cartridge model file it's built over (a G gun
     or P prop file, its header: `Gak47Z`, `PcartonZ`), as `assets/models`'
     replacements keep the cartridge's header. Loaded once a mission
     through `load_resource`, into a buffer of its own as
@@ -1108,7 +1162,11 @@ in-game screen). We maintain the adapters, not the mods.
     isn't drawn on a gun model without that matrix. `"hand"` with `hand`: on that controller's grip (VR). A
     body anchor (`hip_gun`, `hip_off`, `back_gun`, `back_off`, `chest`,
     `belt`, as `mod.hands.anchor`): on the slot's centre on the torso, kept
-    while a mod runs even with body slots off (VR). `"guard"` with
+    while a mod runs even with body slots off (VR). Where a player's body
+    is drawn without tracking (that player's copy on the others' headsets
+    when it's flat or a bot, the flat third person's own body), both go on
+    the body model as drawn instead: see "Without tracking" under "On the
+    other players". A flat first-person view draws neither. `"guard"` with
     `guard` (a guard's id) and `part`, one of the body parts the game's
     hits name (`bondaicommands.h` `HITTARGET`): `chest`, `head`,
     `pelvis`, `left_shoulder`, `right_shoulder`, `left_arm`,
@@ -1150,10 +1208,99 @@ in-game screen). We maintain the adapters, not the mods.
     gun's animation, so a model built over one is drawn rigid at its root,
     as the body slots draw a gun: build parts over a prop file. Nothing on
     an attachment moves of itself.
-  - The gun, the hands and the body: the local player's view only;
-    another player sees none, and a guard's gun none. A guard's: on this
-    headset, so in co-op each headset's mod attaches the same (a guard's
-    id is the same on every headset).
+  - The gun, the hands and the body: a guard's gun none. A guard's: on
+    this headset, so in co-op each headset's mod attaches the same (a
+    guard's id is the same on every headset). Drawn in the guard body's
+    passes: a pack mesh once, in the solid pass, at the level's scale, as
+    on another player.
+  - **On the other players** (#335): in co-op, what a player wears on the
+    gun, a hand or the body is drawn on that player's copy on every other
+    headset, with its state: shown or hidden, its place (`place`, a
+    variant as a part shown and another hidden, a folded sight as its new
+    frame), its anchor and gun node. Only that: the other player sees the
+    part, never its owner's lens or scope view. The engine sends it (see
+    Network, `NET_MOD_ATTACH`); nothing for a mod to call, and nothing
+    sent while no one wears anything. Off unless a mod attaches: the base
+    game and co-op without mods draw and send exactly as before.
+    - On the gun: on the first-person model the copy holds
+      (`gevr_heldgun.c`, the detailed guns), at its root or the node, as
+      it's drawn there. That model isn't animated, so a node is where its
+      rest pose puts it. Not while the copy holds the game's own small
+      model (detailed guns off, the body fading at range).
+    - The gun's pack body: while a player's hand draws a pack mesh in
+      place of its gun (`mod.weapon.model(hand, item, file, { frame,
+      muzzle })`), the copy draws the same file (from its own copy of the
+      mod's pack) in place of that item's model (`gevr_heldgun.c`
+      `gevrHeldGunDraw()`, `gevr_modattach.c`
+      `gevrModAttachDrawPlayerBody()`): on the model's root and the fit,
+      through the same pack-mesh draw, with the model's hand lists kept as
+      the owner's hand keeps them (`model.c` `modelGunHandList`: on the
+      copy the hands are the avatar's, so none show) and, with an authored
+      muzzle, the copy's flash there. Only for the gun it was told for, so
+      a swap shows the item's own model until the new state arrives. Parts
+      on the gun then sit on the body as they do on the owner's headset. A
+      body built over the cartridge's model (not a pack mesh) isn't sent:
+      the copy shows the item's own model.
+    - An optic (`mod.attach.optic`): its housing's state alone. The copy
+      draws the folded housing while the owner's selected mode folds it,
+      the attachment's own model otherwise; the lens, its magnified view
+      and reticle stay the owner's.
+    - On a hand or the body: at the frames that player's tracked pose
+      gives (`gevr_avatar.c` `gevrAvatarAttachFrame()`): a hand at its
+      tracked grip, a body anchor on the torso the body's yaw turns, at
+      its centre from the owner's own fit (or the default for its height),
+      at a gun model's units and the match's gun size, as the owner's
+      headset builds them.
+    - Without tracking (a flat player, a bot, a VR player's hand or head
+      while it isn't tracked): the same anchors on that player's body
+      model as it was just drawn (`gevr_avatar.c`
+      `gevrAvatarModelAttachFrame()`), so every mode shows them. The
+      matrices are the body's own for this view, read in `chrRenderProp()`
+      before they go to fixed point: the ones its N64 lists and Bean's
+      GPU-skinned body were drawn from (a GE-X body is the cartridge's).
+      Nothing new is animated.
+      - A hand: the node the game hangs that hand's gun on
+        (`chrEquipWeapon()`: `Switches[3]` the right, `Switches[5]` the
+        left, on the wrists, joints 9 and 8), the left one turned half
+        about its Z as the game turns its gun. Its axes are the held gun's
+        (`gevr_heldgun.c` `gevrHeldGunFit()`: X the hand's left, Y up, Z
+        along the barrel), at the grip 4 cm ahead of the wrist, where the
+        avatar puts a tracked grip. A part sits on that hand as it sits on
+        the gun the hand holds.
+      - The body: the torso from the rig's joints (GoldenEye's JointID is
+        Perfect Dark's part + 1: 1 the pelvis, 3 the neck, 4 and 5 the
+        left and right upper arms): up from the pelvis to the neck, right
+        from the left shoulder to the right, ahead the way the model faces.
+        The eye is placed above and ahead of the neck as the tracked torso
+        places it (`GEVR_BODY_NECK_*`). The anchor's centre is laid from
+        there in the torso's terms, from the owner's own fit or the default
+        for its height, as for the tracked pose. A torso bent by the
+        animation carries its anchors with it.
+      - The cartridge's bodies and Bean's skins on them are checked against
+        this (`test_bean_mapping.py`): the guns' nodes are under the
+        wrists, the rest pose faces +Z with its left at +X, and the skin
+        is drawn from those matrices.
+    - This player's own on its own body: in the flat third person
+      (`gevr_thirdperson.c`), this player's hand and body parts are drawn
+      on the body it sees, as "Without tracking" lays them, the body
+      anchors at this player's own fit. First person is unchanged: the
+      flat view draws none, and VR draws them at the controllers and the
+      torso as before.
+    - Drawn in the body's passes (`chr.c` `chrRenderProp()`), in each
+      view of the copy, through the same draw as the owner's (a pack mesh
+      through the C10 display list, once, in the solid pass).
+    - The limits are shared: 128 attached and 64 model files, every
+      player's together on a headset. This player's own always find a
+      place (another player's is set aside for one, logged), and another
+      player's loads a new file only while 16 stay free for this player's;
+      another player's folded housings and pack gun bodies are files of
+      those 64 too (a body takes no attachment's place). This player's own
+      gun bodies load as they always have, outside the 64.
+      The measured loadout (35 attached, about 20 files a player; the same
+      mod's files on every headset, so a second rig shares them) fits two
+      players' rigs with room (70 of 128 attached, about 20 of 64 files),
+      and three (105); a fourth full rig is set aside part way, drawn as far
+      as the limit allows.
 
 ### Pack optics
 
@@ -1170,6 +1317,8 @@ The ordinary `mod.weapon.scope` API still controls the game's own scope.
   missing assets return false and keep any existing binding. Pass false
   instead of a table to unbind. Hiding the attachment hides the lens.
   Removing the attachment or changing its carrier retires the binding.
+  In co-op the other players see the housing: the folded one while the
+  selected mode folds it (see "On the other players"), never the lens.
 - `mod.attach.opticMode(id[, mode[, zoom]])` returns the selected mode
   (one-based), zoom, mode count, kind (`collimator`, `scope`, `night` or
   `thermal`) and whether the mode is folded. It returns nil if there is

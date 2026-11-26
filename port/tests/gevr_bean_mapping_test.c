@@ -982,6 +982,58 @@ int main(int argc, char **argv)
         }
         assert(seen == 0xfff7u); /* Base, back, neck and all four full limbs. */
     }
+    if (kind == BEAN_CHR && !strcmp(argv[8], "guard")) {
+        /* mod.attach without tracking (gevr_avatar.c gevrAvatarModelAttachFrame):
+         * the joints its hand and body frames read, checked against the
+         * cartridge's bodies and the Bean skins drawn on them. Switches[3] and
+         * [5], the nodes chrEquipWeapon hangs the right and left guns on, are
+         * under the wrists (JointID 9, 8: PD part + 1); in the rest pose the
+         * model faces +Z with its left +X (joint 4, the left upper arm, out
+         * there), so up (pelvis 1 to neck 3) x right (shoulder 4 to 5) is
+         * ahead; and the skin is drawn from those very matrices (each a bone
+         * some vertex weights; the neck's may be the head's mount alone). */
+        ModelNode *joints[16] = {0};
+        float at[16][3] = {{0}};
+        for (ModelNode *n = header.RootNode; n; ) {
+            if (nodeOp(n) == MODELNODE_OPCODE_GROUP && n->Data && n->Data->Group.JointID < 16
+                && !joints[n->Data->Group.JointID])
+                joints[n->Data->Group.JointID] = n;
+            if (n->Child) n = n->Child;
+            else { while (n && !n->Next) n = n->Parent; if (n) n = n->Next; }
+        }
+        unsigned drawn[8] = {0};
+        for (int i = 0; i < s_nswap; i++) {
+            const struct beanSkin *k = s_swap[i].skin;
+            for (int v = 0; k && v < k->nverts; v++)
+                for (int w = 0; w < 4; w++)
+                    if (k->verts[v].weight[w] && k->verts[v].matrix[w] >= 0 && k->verts[v].matrix[w] < 256)
+                        drawn[k->verts[v].matrix[w] / 32] |= 1u << (k->verts[v].matrix[w] % 32);
+        }
+        static const int used[] = {1, 3, 4, 5, 8, 9};
+        for (size_t u = 0; u < sizeof(used) / sizeof(used[0]); u++) {
+            const int j = used[u], m = joints[j] ? nodeMatrix(joints[j]) : -1;
+            assert(m >= 0 && m < header.numMatrices && m < 256);
+            assert((drawn[m / 32] >> (m % 32) & 1)
+                   || (j == 3 && header.Switches[4] && nodeMatrix(header.Switches[4]) == m));
+            restOf(joints[j], at[j]);
+        }
+        assert(header.Switches && header.Switches[3] && header.Switches[5]);
+        assert(nodeMatrix(header.Switches[3]) == nodeMatrix(joints[9]));
+        assert(nodeMatrix(header.Switches[5]) == nodeMatrix(joints[8]));
+        assert(at[4][0] > 0 && at[5][0] < 0 && at[8][0] > 0 && at[9][0] < 0 && at[3][1] > at[1][1]);
+        float up[3], right[3], ahead[3], length = 0;
+        for (int k = 0; k < 3; k++) {
+            up[k] = at[3][k] - at[1][k];
+            right[k] = at[5][k] - at[4][k];
+        }
+        ahead[0] = up[1] * right[2] - up[2] * right[1];
+        ahead[1] = up[2] * right[0] - up[0] * right[2];
+        ahead[2] = up[0] * right[1] - up[1] * right[0];
+        for (int k = 0; k < 3; k++) length += ahead[k] * ahead[k];
+        assert(length > 0 && ahead[2] / sqrtf(length) > 0.99f);
+        printf("ATTACHFRAME %s hands %d %d torso %d %d %d %d\n", argv[2], nodeMatrix(joints[9]), nodeMatrix(joints[8]),
+               nodeMatrix(joints[1]), nodeMatrix(joints[3]), nodeMatrix(joints[4]), nodeMatrix(joints[5]));
+    }
 	printf("REGISTERED %s %d lists %d skinned %d bones\n", argv[2], lists, skin, mesh->nbones);
 	if (!lists) {
 		fprintf(stderr, "swaps %d, dominant bones:", s_nswap);
