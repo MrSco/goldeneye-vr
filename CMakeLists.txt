@@ -442,6 +442,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 # src/game/gevr_mpoptions.c added 2026-11-24 (the in-match Multiplayer Options folder).
 # port/src/gevr_settings.c added 2026-11-05 (the settings table, docs/launcher-unify.md).
 # port/src/gevr_volumetric.c added 2026-11-23 (volumetric smoke & explosions, #249).
+# port/src/gevr_modattach_net.c added 2026-11-26 (mod.attach on the other players, #335).
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 # port/server: the dedicated server's main and the headset, renderer and
