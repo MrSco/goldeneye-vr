@@ -54,6 +54,8 @@ extern "C" int gevrBeanCeApply(FILE *zip, const char *, char *msg, size_t msgLen
 #include "../pc/pc_reports.cpp"
 #include "../pc/pc_friends.cpp"
 #include "../pc/pc_updater.cpp"
+#define PC_INSTANCE_NO_UI   // the folder lock without its SDL message
+#include "../pc/pc_instance.cpp"
 
 static int failures, checks;
 #define CHECK(cond) do { checks++; if (!(cond)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
@@ -227,13 +229,15 @@ struct Child {
 #endif
 };
 
-static Child startChild(bool fromHere, bool exitAtOnce = false)
+static Child startChild(bool fromHere, bool exitAtOnce = false, const char *mode = "--idle")
 {
     Child c;
 #ifdef _WIN32
     wchar_t self[MAX_PATH * 4];
     GetModuleFileNameW(nullptr, self, MAX_PATH * 4);
-    std::wstring cmd = fromHere ? L"\"" + std::wstring(self) + (exitAtOnce ? L"\" --exit" : L"\" --idle")
+    wchar_t wmode[32];
+    MultiByteToWideChar(CP_UTF8, 0, exitAtOnce ? "--exit" : mode, -1, wmode, 32);
+    std::wstring cmd = fromHere ? L"\"" + std::wstring(self) + L"\" " + wmode
                                 : std::wstring(L"cmd.exe /c ping -n 5 127.0.0.1");
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
@@ -255,7 +259,7 @@ static Child startChild(bool fromHere, bool exitAtOnce = false)
     const pid_t pid = fork();
     if (pid == 0) {
         if (exitAtOnce) _exit(0);
-        if (fromHere) execl(self.c_str(), self.c_str(), "--idle", (char *)nullptr);
+        if (fromHere) execl(self.c_str(), self.c_str(), mode, (char *)nullptr);
         else execl("/bin/sleep", "sleep", "5", (char *)nullptr);
         _exit(1);
     }
@@ -429,6 +433,45 @@ static void testReports()
     removeFile("gevr_prefs.txt");
 }
 
+/* One game per folder (pc_instance.cpp): a run holding gevr_run.lock refuses
+ * the next, names itself to it, and frees it however it ends. */
+static void testInstanceLock()
+{
+    const char *lock = "test_run.lock";
+    removeFile(lock);
+    int pid = -1;
+    std::string exe = "x";
+    CHECK(pcInstanceTryLock(lock, &pid, &exe));
+    CHECK(pid == 0 && exe.empty());
+    CHECK(pcInstanceTryLock(lock, &pid, &exe));   // held already: still ours
+    pcInstanceUnlock();
+
+    Child holder = startChild(true, false, "--hold-lock");
+    for (int i = 0; i < 50; i++) {   // until the child has it: its pid in the file
+        std::string text;
+        if (FILE *f = fopen(lock, "rb")) {
+            char buf[64];
+            const size_t n = fread(buf, 1, sizeof(buf), f);
+            text.assign(buf, n);
+            fclose(f);
+        }
+        if (holder.pid > 0 && atoi(text.c_str()) == holder.pid) break;
+#ifdef _WIN32
+        Sleep(100);
+#else
+        usleep(100000);
+#endif
+    }
+    const bool refused = !pcInstanceTryLock(lock, &pid, &exe);
+    CHECK(refused);
+    CHECK(pid == holder.pid);
+    CHECK(exe == instanceExeName());
+    stopChild(holder);   // killed, as a crash or Task Manager ends it: no stale lock
+    CHECK(pcInstanceTryLock(lock, &pid, &exe));
+    pcInstanceUnlock();
+    removeFile(lock);
+}
+
 static void testFriends()
 {
     std::string text = R"({"id":"abc","name":"Natty|Bond","n":7,"x":null})";
@@ -539,6 +582,15 @@ int main(int argc, char **argv)
 {
     // the child runs of testReports' still-open marker
     if (argc > 1 && !strcmp(argv[1], "--exit")) return 0;
+    if (argc > 1 && !strcmp(argv[1], "--hold-lock")) {
+        if (!pcInstanceTryLock("test_run.lock", nullptr, nullptr)) return 2;
+#ifdef _WIN32
+        Sleep(8000);
+#else
+        sleep(8);
+#endif
+        return 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "--idle")) {
 #ifdef _WIN32
         Sleep(8000);
@@ -551,6 +603,7 @@ int main(int argc, char **argv)
     testArchive();
     testMods();
     testReports();
+    testInstanceLock();
     testFriends();
     testUpdater();
     printf(failures ? "pc_services: %d of %d failed\n" : "pc_services: all %d passed\n", failures ? failures : checks, checks);
