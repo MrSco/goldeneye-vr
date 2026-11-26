@@ -322,11 +322,11 @@ public class MainActivity extends SDLActivity {
                 uris.add(data.getData());
             }
         }
-        if (uris.size() == 1) {
+        if (!uris.isEmpty() && "picked.z64".equals(pickTarget)) {
+            new Thread(() -> takeMainPick(uris), "rom-copy").start();
+        } else if (!uris.isEmpty()) {
             final Uri uri = uris.get(0);
             new Thread(() -> copyPickedRom(uri), "rom-copy").start();
-        } else if (uris.size() > 1) {
-            new Thread(() -> copyPickedRoms(uris), "rom-copy").start();
         } else {
             pickResult = "No file chosen.";
         }
@@ -389,6 +389,55 @@ public class MainActivity extends SDLActivity {
 
     // A pick may be a .zip of every ROM (gevr_romimport.c reads up to 256 MB).
     private static final long PICK_MAX = 256L << 20;
+
+    /**
+     * The player's GoldenEye XBLA copy rather than ROMs, from its first bytes:
+     * gevr_romimport.c's gevrRomImportIsXblaCopy (a .7z, an Xbox 360 package,
+     * or a zip larger than any zip of ROMs).
+     */
+    private boolean isXblaCopy(Uri uri) {
+        try {
+            android.os.ParcelFileDescriptor fd = getContentResolver().openFileDescriptor(uri, "r");
+            if (fd == null) return false;
+            final long size = fd.getStatSize();
+            byte[] h = new byte[6];
+            int n = 0;
+            try (java.io.InputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)) {
+                for (int r; n < h.length && (r = in.read(h, n, h.length - n)) > 0; ) n += r;
+            }
+            if (n >= 6 && h[0] == '7' && h[1] == 'z' && h[2] == (byte) 0xbc && h[3] == (byte) 0xaf
+                    && h[4] == 0x27 && h[5] == 0x1c) return true;
+            if (n >= 4) {
+                String magic = new String(h, 0, 4, "ISO-8859-1");
+                if (magic.equals("LIVE") || magic.equals("CON ") || magic.equals("PIRS")) return true;
+                if (magic.equals("PK\u0003\u0004") && size > PICK_MAX) return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not look at a picked file", e);
+        }
+        return false;
+    }
+
+    /**
+     * The Play page's picker: ROMs (one, several, or a .zip of them) are copied
+     * in for the launcher to sort; the XBLA copy is not copied but handed to the
+     * Mods page's Bean import, as its own picker does (openXblaPicker). Off the
+     * UI thread: it opens each file.
+     */
+    private void takeMainPick(java.util.List<Uri> uris) {
+        final java.util.List<Uri> roms = new java.util.ArrayList<>();
+        Uri xbla = null;
+        for (Uri u : uris) {
+            if (xbla == null && isXblaCopy(u)) xbla = u;
+            else roms.add(u);
+        }
+        // its progress is on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine)
+        if (xbla != null && mods != null) mods.importOwn("ge007-bean", xbla);
+        if (roms.size() == 1) copyPickedRom(roms.get(0));
+        else if (roms.size() > 1) copyPickedRoms(roms);
+        else if (xbla != null) pickResult = "Importing Bean from your GoldenEye XBLA copy.";   // no ROM to wait for
+        Log.i(TAG, "Main pick: " + roms.size() + " ROM file(s)" + (xbla != null ? " and the XBLA copy" : ""));
+    }
 
     private long copyUri(Uri uri, File to) throws java.io.IOException {
         long total = 0;

@@ -18,7 +18,7 @@
 
 #define ROM_MIN (8u << 20)     /* the smallest campaign ROM is 12 MB */
 #define ROM_MAX (64u << 20)    /* the largest a pick may hold */
-#define ZIP_MAX (256u << 20)   /* every campaign zipped is ~100 MB */
+#define ZIP_MAX GEVR_ROM_IMPORT_ZIP_MAX   /* every campaign zipped is ~100 MB */
 
 enum { KIND_NONE, KIND_GE, KIND_GE_MAYBE, KIND_GEX, KIND_HACK };
 
@@ -26,6 +26,7 @@ struct sorted {
 	int filed, gotGe, geGood;
 	char added[512];
 	char unknown[256];
+	char xbla[256];
 };
 
 static void listAdd(char *list, size_t cap, const char *item)
@@ -213,6 +214,29 @@ static void sortZip(const char *dataDir, const uint8_t *zip, uint32_t size, cons
 
 /* ---- the picks ------------------------------------------------------------ */
 
+int gevrRomImportIsXblaCopy(const unsigned char *head, unsigned long n, unsigned long long size)
+{
+	if (!head || n < 4) return 0;
+	if (n >= 6 && !memcmp(head, "7z\xbc\xaf\x27\x1c", 6)) return 1;
+	if (!memcmp(head, "LIVE", 4) || !memcmp(head, "CON ", 4) || !memcmp(head, "PIRS", 4)) return 1;
+	return u32le(head) == 0x04034b50 && size > ZIP_MAX;
+}
+
+/* The copy reached the sort anyway (a picker that cannot tell): say where it goes. */
+static int xblaFile(const char *path)
+{
+	unsigned char head[6];
+	FILE *f = fopen(path, "rb");
+	size_t n;
+	long long size;
+	if (!f) return 0;
+	n = fread(head, 1, sizeof(head), f);
+	fseek(f, 0, SEEK_END);
+	size = ftell(f);   /* -1 past 2 GB where long is 32 bits: larger than any ROM zip */
+	fclose(f);
+	return gevrRomImportIsXblaCopy(head, (unsigned long)n, size < 0 ? ~0ull : (unsigned long long)size);
+}
+
 static uint8_t *readWhole(const char *path, uint32_t *size)
 {
 	FILE *f = fopen(path, "rb");
@@ -237,7 +261,12 @@ static uint8_t *readWhole(const char *path, uint32_t *size)
 static void sortFile(const char *dataDir, const char *path, const char *label, struct sorted *s)
 {
 	uint32_t size = 0;
-	uint8_t *data = readWhole(path, &size);
+	uint8_t *data;
+	if (xblaFile(path)) {
+		listAdd(s->xbla, sizeof(s->xbla), label);
+		return;
+	}
+	data = readWhole(path, &size);
 	if (!data) {
 		listAdd(s->unknown, sizeof(s->unknown), label);
 		return;
@@ -265,7 +294,7 @@ static int pickedNeedsSort(const char *dataDir)
 	size = ftell(f);
 	fclose(f);
 	if (n < 4) return 0;
-	if (u32le(hdr) == 0x04034b50) return 1;
+	if (u32le(hdr) == 0x04034b50 || gevrRomImportIsXblaCopy(hdr, (unsigned long)n, size < 0 ? ~0ull : (unsigned long long)size)) return 1;
 	if (n != sizeof(hdr) || size <= 0 || !gevrRomNormaliseOrder(hdr, sizeof(hdr))) return 0;
 	switch (classify(hdr, (uint32_t)size, &name, &file)) {
 	case KIND_GEX:
@@ -339,12 +368,20 @@ int gevrRomImportRun(const char *dataDir, char *summary, int summaryLen, int *go
 
 	if (gotGe) *gotGe = s.gotGe;
 	if (summary && summaryLen > 0) {
+		size_t len;
 		if (s.added[0] && s.unknown[0])
 			snprintf(summary, (size_t)summaryLen, "Added %s. Not recognised: %s.", s.added, s.unknown);
 		else if (s.added[0])
 			snprintf(summary, (size_t)summaryLen, "Added %s.", s.added);
 		else if (s.unknown[0])
 			snprintf(summary, (size_t)summaryLen, "No ROM this knows in %s.", s.unknown);
+		len = strlen(summary);
+		if (s.xbla[0] && len + 1 < (size_t)summaryLen)
+		{
+			snprintf(summary + len, (size_t)summaryLen - len, "%s%s is GoldenEye XBLA: import it under Mods, XBLA / Bean.",
+			         len ? " " : "", s.xbla);
+			if (!len && summary[0] >= 'a' && summary[0] <= 'z') summary[0] = (char)(summary[0] - 'a' + 'A');
+		}
 	}
 	return s.filed;
 }

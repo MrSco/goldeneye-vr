@@ -73,6 +73,7 @@ void pcModsApplyCe(const std::string &path);
 std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
 bool pcOpenPicker(const char *method);
+std::string pcTakePickResult(void);   // pc_launcher.cpp: what the last pick started
 void pcRestartSelf(void);
 void pcQuitApp(void);
 extern "C" int sysArgCheck(const char *arg);   // port/src/system.c
@@ -517,6 +518,25 @@ static void gevrKleptonPickPoll()
         vr_log("launcher: file picker (%s) copied", s_klMethod.c_str());
         if (s_klMethod == "openXblaPicker") pcModsImportOwn("ge007-bean", s_klDest);
         else if (s_klMethod == "openCePicker") pcModsApplyCe(s_klDest);
+        else if (s_klMethod == "openRomPicker") {
+            // the XBLA copy through the Play page's picker: to the Bean import,
+            // from where its own picker stages it (gevr_romimport.h)
+            unsigned char head[6] = {0};
+            struct stat st;
+            FILE *f = fopen(s_klDest.c_str(), "rb");
+            const size_t n = f ? fread(head, 1, sizeof(head), f) : 0;
+            if (f) fclose(f);
+            const char *files = SDL_AndroidGetExternalStoragePath();
+            if (files && stat(s_klDest.c_str(), &st) == 0
+                    && gevrRomImportIsXblaCopy(head, (unsigned long)n, (unsigned long long)st.st_size)) {
+                const std::string staged = std::string(files) + "/.import-xbla";
+                remove(staged.c_str());
+                if (rename(s_klDest.c_str(), staged.c_str()) == 0) {
+                    pcModsImportOwn("ge007-bean", staged);   // the Play page shows how far it is
+                    s_klResult = "Importing Bean from your GoldenEye XBLA copy.";
+                }
+            }
+        }
     } else {
         s_klResult = status == 2 ? "No file chosen." : "Could not copy that file.";
     }
@@ -646,7 +666,7 @@ std::string gevrTakePickResult()
 #else
 std::string gevrTakePickResult()
 {
-    return std::string();   // the PC's picker copied the file already; scan() adopts it
+    return pcTakePickResult();   // the PC's picker copied the file already; scan() adopts it
 }
 #endif
 
@@ -3504,6 +3524,37 @@ static void gevrLauncherLoadout(char *buf, size_t size)
     snprintf(buf, size, parts.empty() ? "START###start" : "START  (%s)###start", parts.c_str());
 }
 
+/*
+ * The Bean import, for the Play page: the XBLA copy can be picked there with
+ * the ROMs (MainActivity.takeMainPick, pc_launcher.cpp pcTakeXblaCopy), and
+ * its progress would otherwise show only on the Mods page. Empty when none
+ * ran; after one, how it ended, until the launcher closes.
+ */
+static std::string gevrBeanImportLine(Uint32 now)
+{
+    static Uint32 last = 0;
+    static bool running = false;
+    static std::string line;
+    if (last != 0 && now - last < 1000) return line;
+    last = now ? now : 1;
+    for (const std::string &row : gevrSplit(gevrJavaString("modsStatus"), '\n')) {
+        const std::vector<std::string> f = gevrSplit(row, '\t');
+        if (f.size() < 9 || f[0] != "ge007-bean") continue;
+        if (f[6] == "importing") {
+            const int pct = atoi(f[7].c_str());
+            line = pct >= 0 ? "Importing Bean from your GoldenEye XBLA copy: " + std::to_string(pct) + "%"
+                            : std::string("Importing Bean from your GoldenEye XBLA copy...");
+            running = true;
+        } else if (running) {
+            running = false;
+            line = f[6] == "installed" ? "Bean imported: choose it under Mods."
+                 : f[8].empty() ? "The Bean import stopped: see Mods." : "Bean: " + f[8];
+        }
+        break;
+    }
+    return line;
+}
+
 extern "C" void gevrLauncherRun(void)
 {
 #ifdef GEVR_PC
@@ -3616,7 +3667,21 @@ extern "C" void gevrLauncherRun(void)
                 launcherSession.romSelectionFinished();
                 pickerPending = false;
             }
-        } else if (gevrRomImportPending(dataDir().c_str())) {
+        }
+        // A ROM the file picker copied in (MainActivity.onActivityResult)
+        // replaces the one in use if it checks out. Its message first: taking
+        // it finishes a Vision Pro pick, which may hand the XBLA copy on before
+        // the sort below would see it.
+        if (pickerPending) {
+            const std::string r = gevrTakePickResult();
+            if (!r.empty()) {
+                message = importSummaryShown ? message + " " + r : r;
+                romError = (importSummaryShown && romError) || r.compare(0, 9, "Could not") == 0;
+                launcherSession.romSelectionFinished();
+                pickerPending = false;
+            }
+        }
+        if (!importSummaryShown && gevrRomImportPending(dataDir().c_str())) {
             message = "Sorting the ROMs you chose...";
             romError = false;
             const std::string dir = dataDir();
@@ -3629,17 +3694,6 @@ extern "C" void gevrLauncherRun(void)
             });
             pickerPending = true;   // keeps the once-a-second scan going until it is done
             return;
-        }
-        // A ROM the file picker copied in (MainActivity.onActivityResult)
-        // replaces the one in use if it checks out.
-        if (pickerPending) {
-            const std::string r = gevrTakePickResult();
-            if (!r.empty()) {
-                message = r;
-                romError = r.compare(0, 9, "Could not") == 0;
-                launcherSession.romSelectionFinished();
-                pickerPending = false;
-            }
         }
         {
             const std::string picked = dataDir() + "/picked.z64";
@@ -3962,6 +4016,11 @@ extern "C" void gevrLauncherRun(void)
             }
             if (!message.empty()) ImGui::TextWrapped("%s", message.c_str());
             ImGui::EndChild();
+        }
+        {
+            // shown with the ROM section shut too: a Bean import takes minutes
+            const std::string bean = gevrBeanImportLine(now);
+            if (!bean.empty()) ImGui::TextWrapped("%s", bean.c_str());
         }
 
         // Poll updater status for the scrollable settings area above START.

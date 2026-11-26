@@ -135,6 +135,27 @@ def main():
         assert r["filed"] == "0" and r["gotGe"] == "0", r
         assert r["summary"] == "No ROM this knows in ge.z64.", r
         assert not (d / "picked.z64").exists()
+
+        # the XBLA copy is the Mods page's (the pickers pass it on; one that gets
+        # here anyway is named, not taken for a bad ROM)
+        d = fresh(base, "xbla")
+        imp = d / "picked-import"
+        imp.mkdir()
+        (imp / "0-ge.z64").write_bytes(GE)
+        (imp / "1-GoldenEye XBLA.7z").write_bytes(b"7z\xbc\xaf\x27\x1c" + b"\0" * 64)
+        (imp / "2-30BA9271").write_bytes(b"LIVE" + b"\0" * 64)
+        r = run(exe, d)
+        assert r["filed"] == "1", r
+        assert r["summary"].startswith("Added GoldenEye 007 (US). "), r
+        assert r["summary"].endswith(" is GoldenEye XBLA: import it under Mods, XBLA / Bean."), r
+        assert "1-GoldenEye XBLA.7z" in r["summary"] and "2-30BA9271" in r["summary"], r
+        assert "Not recognised" not in r["summary"], r
+
+        d = fresh(base, "xbla-alone")
+        (d / "picked.z64").write_bytes(b"PIRS" + b"\0" * 64)
+        r = run(exe, d)
+        assert r["pending"] == "1" and r["filed"] == "0", r
+        assert r["summary"] == "The file chosen is GoldenEye XBLA: import it under Mods, XBLA / Bean.", r
         print("rom import: OK")
     finally:
         shutil.rmtree(base, ignore_errors=True)

@@ -30,7 +30,8 @@ Push).
 **Unreleased (t3/bulk-rom-import):** e-ee's request: the main Choose ROM file... takes
 several files or one .zip of them; port/src/gevr_romimport.c sorts each by header
 (GE -> ge.z64, GE-X -> the Mods page, hacks -> their campaign files, no campaign
-switch). test_rom_import.py; Windows hidden run adopted the real ROM from a zip;
+switch); the XBLA copy picked there goes to the Bean import, progress on the Play page.
+test_rom_import.py; Windows hidden runs: real ROM from a zip, and ROM zip + retail XBLA zip in one pick;
 Quest APK builds. Not yet tried on the headset; iOS/Klepton/tvOS take one file (a zip works).
 **Before it:** v0.5.27 (versionCode 140, protocol 27), tag on 37cd0d7a
 ([notes](docs/releases/v0.5.27.md)): volumetric explosions (#249), scrolling
