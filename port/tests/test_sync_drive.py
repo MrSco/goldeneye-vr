@@ -436,6 +436,37 @@ with tempfile.TemporaryDirectory(prefix="gevr-sync-drive-") as temp:
     r = qrun("files", qd, "quest")
     check((qd / "data" / "ge.z64").read_bytes() == rom2, "and the next pass gets it whole")
 
+    # ---- a quit mid-step (the app closed, a crash, a flat battery): put right at the next launch ----
+    st = qd / ".gevr-sync"
+    (st / "work").mkdir(exist_ok=True)
+    (st / "work" / "rdeadbeef.bin").write_bytes(os.urandom(70000))           # a partial download
+    (st / "ready" / "pdeadbeef" / "item" / "sub").mkdir(parents=True)      # a pack half unpacked, no descriptor
+    (st / "ready" / "pdeadbeef" / "item" / "sub" / "x.png").write_bytes(b"x")
+    os.replace(qd / "data" / "ge.z64", qd / "data" / "ge.z64.sync-old")    # an install cut between its renames
+    (qd / "texture-packs" / "hd").mkdir(parents=True, exist_ok=True)
+    (qd / "texture-packs" / "hd" / "a.png").write_bytes(b"new")
+    (qd / "texture-packs" / "hd.sync-old").mkdir(exist_ok=True)             # the old copy of an installed pack
+    (qd / "texture-packs" / "hd.sync-old" / "a.png").write_bytes(b"old")
+    qrun("launch", qd, "quest")
+    check(not list((st / "work").iterdir()), "partial downloads gone")
+    check(not (st / "ready" / "pdeadbeef").exists(), "a half-unpacked pack gone")
+    check((qd / "data" / "ge.z64").read_bytes() == rom2 and not (qd / "data" / "ge.z64.sync-old").exists(),
+          "the ROM back where the launcher looks")
+    check((qd / "texture-packs" / "hd" / "a.png").read_bytes() == b"new" and not (qd / "texture-packs" / "hd.sync-old").exists(),
+          "the installed pack kept, its old copy gone")
+    r = qrun("files", qd, "quest")
+    check(r["files"].startswith("0 0 "), "and in step after: " + r["files"])
+    shutil.rmtree(qd / "texture-packs")
+
+    # ---- a level loaded: the worker starts nothing (here: a pass is held at once) ----
+    (a / "gf.z64").write_bytes(os.urandom(5000))
+    benv = dict(env, GEVR_SYNC_TEST_BUSY="1")
+    out = subprocess.run([str(exe), "files", str(a), "quest"], env=benv, check=True, capture_output=True, text=True, timeout=120).stdout
+    held = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    check(held["files"].startswith("0 0 0 0 held"), "nothing moves while a level is loaded: " + held["files"])
+    r = run("files", a, "quest")
+    check(r["files"].startswith("1 0 "), "and it moves once the level is over: " + r["files"])
+
     # ---- step 4: the device's name in its record, a save set aside used again ----
     r = run("name", c, "tv", "Den")
     check(r["name"] == "Den", "the name kept")

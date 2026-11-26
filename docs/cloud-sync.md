@@ -141,7 +141,19 @@ device, one read per device at launch. `deviceId` is random per install
   the same content at once leave two copies; the next list removes the
   newer one. Nothing is deleted on a device
   when a file is removed (it comes back); a blob no index names any more is
-  removed by the device that replaced it. Uploads are Drive's resumable
+  removed by the device that replaced it. **Interrupted** (the app closed,
+  a crash, a flat battery): every launch and every pass first puts right what
+  a quit left (`filesRecover`): `.gevr-sync/work/` (partial downloads, a pack
+  being zipped) is emptied; a `ready/` item without its descriptor (a pack
+  half unpacked) goes; a ROM or pack left as `<target>.sync-old` between an
+  install's two renames comes back if the target is missing, and goes if it
+  is there. Indexes and `files-state.txt` are written whole (tmp, rename) and
+  only after the blob is up or the file in place; a pass cut short redoes
+  what it hadn't recorded, and a download whose content is already here is
+  just recorded. **Never during a level:** the worker starts no pass and no
+  new item while the game is past its title stage (`g_StageNum` other than
+  90, where the menus are); the item in flight finishes, and the rest waits
+  for the menus or the launcher. Starting the game never waits for it. Uploads are Drive's resumable
   upload in 4 MiB pieces (the session address is the reply's `Location`,
   which `pc_http` now hands back; Drive's "308, go on" mustn't be taken for a
   redirect, so the Drive calls set `followRedirects = false`). Not yet:

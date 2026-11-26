@@ -709,6 +709,20 @@ bool packsOn()
     return trimmed(v) == "1";
 }
 
+/* A level is loaded (the game is past its title stage, where the menus are):
+ * the files worker starts nothing new. Called off the game's thread; reading
+ * g_StageNum there is a plain int read. A test sets it with GEVR_SYNC_TEST_BUSY. */
+#ifndef GEVR_SYNC_TEST
+extern "C" int g_StageNum;   // src/boss.c
+bool gameBusy() { return g_StageNum != 90; }   // LEVELID_TITLE
+#else
+bool gameBusy()
+{
+    const char *b = getenv("GEVR_SYNC_TEST_BUSY");
+    return b && b[0] == '1';
+}
+#endif
+
 /* one pass, g_lock held on entry and on return (unlocked while it works) */
 FilesResult filesRunOnce(std::unique_lock<std::mutex> &lock)
 {
@@ -735,6 +749,7 @@ FilesResult filesRunOnce(std::unique_lock<std::mutex> &lock)
             return g_filesStop;
         };
         a.freeBytes = [](const std::string &path) { return pcnet::freeSpace(path); };
+        a.hold = gameBusy;
         res = filesPass(store.get(), a);
     }
     lock.lock();
@@ -766,7 +781,14 @@ void filesWorker()
     // a moment for the launch: the game is loading
     g_filesWake.wait_for(lock, std::chrono::seconds(4), [] { return g_filesStop; });
     while (!g_filesStop && g_active) {
-        filesRunOnce(lock);
+        // never during a level: a pack's GBs compete with the game for the CPU and
+        // the disk; looked at again every few seconds until the menus
+        if (gameBusy()) {
+            g_filesWake.wait_for(lock, std::chrono::seconds(5), [] { return g_filesStop; });
+            continue;
+        }
+        const FilesResult r = filesRunOnce(lock);
+        if (r.held) continue;   // stopped for a level: the rest once it is over
         g_filesWake.wait_for(lock, std::chrono::minutes(15), [] { return g_filesStop || g_filesKick; });
     }
     g_filesRunning = false;
@@ -860,7 +882,7 @@ std::string filesPassForTest()
     if (!g_active) return "inactive";
     const FilesResult r = filesRunOnce(lock);
     return std::to_string(r.moved) + " " + std::to_string(r.failed) + " " + std::to_string(r.arrived.size()) + " " +
-           std::to_string(r.deferred.size()) + " " + r.error;
+           std::to_string(r.deferred.size()) + " " + (r.held ? "held " : "") + r.error;
 }
 #endif
 

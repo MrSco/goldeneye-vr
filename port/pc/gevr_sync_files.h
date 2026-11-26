@@ -55,6 +55,7 @@ struct FilesPassArgs {
     long long now = 0;
     std::function<void(const std::string &line, float done)> progress;   // done < 0: unknown
     std::function<bool()> stop;
+    std::function<bool()> hold;    // true: start no new item (a level is loaded); the one in flight finishes
     std::function<long long(const std::string &path)> freeBytes;         // -1 unknown
 };
 
@@ -64,7 +65,15 @@ struct FilesResult {
     std::vector<std::string> arrived;      // put in place now
     std::vector<std::string> deferred;     // in place at the next launch
     std::vector<std::string> obsolete;     // blobs no index names any more (removed)
+    bool held = false;                     // stopped early for a level (the rest at the next pass)
 };
+
+/* What a quit (or a crash, a battery) left mid-step, put right: at launch and at
+ * the start of every pass. Partial downloads and zips in .gevr-sync/work/ go; a
+ * half-unpacked pack in ready/ (no descriptor yet) goes; a ROM or pack left as
+ * <target>.sync-old between the two renames of an install comes back when the
+ * target is missing, and goes when the target is there. */
+void filesRecover(const std::string &root, const std::string &romDir);
 
 /* One pass: indexes read, uploads and downloads, this device's index written. */
 FilesResult filesPass(Store *store, const FilesPassArgs &args);

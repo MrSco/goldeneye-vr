@@ -340,11 +340,40 @@ static bool installDir(const std::string &staged, const std::string &target)
     return true;
 }
 
+void filesRecover(const std::string &root, const std::string &romDir)
+{
+    const std::string state = root + "/.gevr-sync";
+    // a pass's scratch: partial downloads, a pack being zipped (never anything finished)
+    deleteTree(state + "/work");
+    makeDirs(state + "/work");
+    // ready/: an item is complete once its descriptor is written (after it)
+    const std::string ready = state + "/ready";
+    for (const std::string &n : listDir(ready)) {
+        const bool txt = n.size() > 4 && n.compare(n.size() - 4, 4, ".txt") == 0;
+        if (!txt && !isFile(ready + "/" + n + ".txt")) deleteTree(ready + "/" + n);
+        if (txt && !isDir(ready + "/" + n.substr(0, n.size() - 4))) removeFile(ready + "/" + n);
+    }
+    // an install cut between its two renames: the old copy back, or gone
+    auto settle = [](const std::string &dir, bool folders) {
+        for (const std::string &n : listDir(dir)) {
+            if (n.size() <= 9 || n.compare(n.size() - 9, 9, ".sync-old") != 0) continue;
+            const std::string old = dir + "/" + n, target = dir + "/" + n.substr(0, n.size() - 9);
+            const bool there = folders ? isDir(target) : isFile(target);
+            if (!there) movePath(old, target, false);
+            else if (folders) deleteTree(old);
+            else removeFile(old);
+        }
+    };
+    settle(romDir, false);
+    settle(root + "/texture-packs", true);
+}
+
 /* .gevr-sync/ready/<n>/: a download that waited ("item" = the file or the pack's
  * folder) and <n>.txt: its path, pack or not, its entry's t and blob */
 int filesInstallReady(const std::string &root, const std::string &romDir, std::vector<std::string> *installed)
 {
     const std::string state = root + "/.gevr-sync", ready = state + "/ready";
+    filesRecover(root, romDir);   // before the game reads its ROMs and packs
     std::map<std::string, FileSynced> synced = readSynced(state + "/files-state.txt");
     int n = 0;
     for (const std::string &name : listDir(ready)) {
@@ -384,7 +413,7 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
     FilesResult res;
     const std::string state = a.root + "/.gevr-sync";
     const std::string work = state + "/work";
-    makeDirs(work);
+    filesRecover(a.root, a.romDir);   // what a quit left mid-step
     auto say = [&](const std::string &line, float done) {
         if (a.progress) a.progress(line, done);
     };
@@ -463,6 +492,10 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
 
     for (const std::string &p : paths) {
         if (a.stop && a.stop()) break;
+        if (a.hold && a.hold()) {   // a level is loaded: nothing new until the menus
+            res.held = true;
+            break;
+        }
         if (pending.count(p)) continue;
         auto l = local.find(p);
         auto w = winners.find(p);
@@ -532,7 +565,14 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
             }
             continue;
         }
-        // Down
+        // Down. Already the same here (an install whose record a quit cut off): in step
+        if (L) {
+            say("Sync: checking " + baseName(p), -1);
+            if (contentId(a.root, a.romDir, *L, work) == W->blob) {
+                synced[p] = FileSynced{ L->stamp, W->t, W->blob };
+                continue;
+            }
+        }
         if (W->pack && a.freeBytes) {
             const long long free = a.freeBytes(a.root);
             if (free >= 0 && free < W->bytes * 2 + (64LL << 20)) {
