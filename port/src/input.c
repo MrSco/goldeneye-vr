@@ -8,6 +8,7 @@
 #include "gevr_scope.h"
 #include "gevr_gexweapon.h"
 #include "gevr_bodyslot.h"
+#include "gevr_modpack.h"   /* a mod held to its play modes (the stick hold) */
 #endif
 #include <string.h>
 #include <stddef.h>
@@ -3823,10 +3824,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 /* One grip plus this click is the Bean mesh switch, below. */
                 if (get_button_state(0, "grip") || get_button_state(1, "grip")) spoilt = true;
                 if (!fired && !spoilt && now - downat >= 1000) {
-                    VrPlayMode = VrPlayMode ? 0 : 1; /* VR_PLAYMODE_SCREEN : VR_PLAYMODE_STEREO */
-                    vrSettingsSave();
+                    /* a mod made for one play mode stays in it while it runs (docs/mod-system.md, Play modes) */
+                    const gevrModInfo *mod = gevrModActive();
+                    const char *held = mod ? gevrModPlayModeRefusal(mod->m.playModes,
+                                                                    VrPlayMode ? GEVR_MOD_PLAY_FLAT : GEVR_MOD_PLAY_VR) : NULL;
                     fired = true;
-                    LOGI("input: play mode -> %s\n", VrPlayMode ? "stereo" : "screen");
+                    if (held) {
+                        LOGI("input: play mode stays %s: %s (%s)\n", VrPlayMode ? "stereo" : "screen", held, mod->m.id);
+                    } else {
+                        VrPlayMode = VrPlayMode ? 0 : 1; /* VR_PLAYMODE_SCREEN : VR_PLAYMODE_STEREO */
+                        vrSettingsSave();
+                        LOGI("input: play mode -> %s\n", VrPlayMode ? "stereo" : "screen");
+                    }
                 }
             } else {
                 downat = 0;

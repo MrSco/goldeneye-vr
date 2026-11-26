@@ -20,6 +20,9 @@
 
 int VrCampaign;
 char VrCampaignMod[GEVR_MOD_ID_MAX + 1];
+/* built as PC VR (GEVR_PCVR), so the session's play mode follows Play mode:
+ * 1 stereo VR (its default), 0 the flat screen */
+int VrPlayMode = 1;
 
 const char *fsFullPath(const char *relPath)
 {
@@ -185,8 +188,12 @@ int main(int argc, char **argv)
         if (gevrModParseManifest(text, len, &m, why, sizeof(why)) != 0) {
             printf("FAIL %s\n", why);
         } else {
-            printf("OK id=%s title=%s by=%s version=%s api=%d kind=%d base=%d coop=%d affects=%d modes=%u site=%s\n",
-                   m.id, m.title, m.by, m.version, m.api, m.kind, m.base, m.coop, m.affectsPlay, m.modes, m.site);
+            printf("OK id=%s title=%s by=%s version=%s api=%d kind=%d base=%d coop=%d affects=%d modes=%u play=%u site=%s\n",
+                   m.id, m.title, m.by, m.version, m.api, m.kind, m.base, m.coop, m.affectsPlay, m.modes, m.playModes, m.site);
+            /* what each session is told: VR, flat, and no player (the dedicated server) */
+            printf("vr=%s\nflat=%s\nserver=%s\n", gevrModPlayModeRefusal(m.playModes, GEVR_MOD_PLAY_VR) ? gevrModPlayModeRefusal(m.playModes, GEVR_MOD_PLAY_VR) : "-",
+                   gevrModPlayModeRefusal(m.playModes, GEVR_MOD_PLAY_FLAT) ? gevrModPlayModeRefusal(m.playModes, GEVR_MOD_PLAY_FLAT) : "-",
+                   gevrModPlayModeRefusal(m.playModes, 0) ? "refused" : "-");
         }
         free(text);
         return 0;
@@ -243,8 +250,20 @@ int main(int argc, char **argv)
         }
         return 0;
     }
+    if (!strcmp(cmd, "session")) {
+        /* session: this build's play mode at each Play mode, and what it can switch to */
+        VrPlayMode = 1;
+        printf("stereo=%u ", gevrModSessionPlayMode());
+        VrPlayMode = 0;
+        printf("screen=%u build=%u\n", gevrModSessionPlayMode(), gevrModBuildPlayModes());
+        VrPlayMode = 1;
+        return 0;
+    }
     if (!strcmp(cmd, "boot") && argc > 3) {
-        /* boot <CampaignMod or -> <Campaign> [basefail] */
+        /* boot <CampaignMod or -> <Campaign> [basefail]; PLAY_MODE=flat in the
+         * environment plays on the flat screen (Play mode 0) */
+        const char *mode = getenv("PLAY_MODE");
+        VrPlayMode = mode && !strcmp(mode, "flat") ? 0 : 1;
         strncpy(VrCampaignMod, strcmp(argv[2], "-") ? argv[2] : "", GEVR_MOD_ID_MAX);
         VrCampaignMod[GEVR_MOD_ID_MAX] = '\0';
         VrCampaign = atoi(argv[3]);
