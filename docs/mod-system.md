@@ -93,7 +93,12 @@ files.sha256        checksum list of every other file
   looks. It is then checked in the lobby (see Multiplayer).
 - `modes` (overlays that affect play): the multiplayer modes it works in,
   from `coop`, `deathmatch` and `horde`.
+- `playModes` (optional, any kind): the play modes it runs in, from `vr`
+  and `flat`. Left out, it runs in both, as every pack without the key
+  does. See "Play modes" below.
 - Keys this build doesn't know are skipped, so a later format can add some.
+  (`playModes` came in format 1 before any release had the mod system, so
+  every build that reads mods knows it.)
 - The content ID is the SHA-256 of `files.sha256`, computed at install. It
   identifies the exact build of the mod.
 
@@ -156,10 +161,61 @@ files.sha256        checksum list of every other file
   launcher's list, the friends and lobby names, the content check. No
   per-mod entries in our code.
 - At start (`romdataInit`) the chosen mod is checked again: its manifest,
-  its `api`, every listed file present. One that can't run is off for that
-  run, and the launcher says why (`gevr_campaign_failed.txt`, as for the
-  hacks). If its cartridge doesn't load, the mod is off too and GoldenEye
-  starts, with a note naming both.
+  its `api`, every listed file present, and its play modes (below). One that
+  can't run is off for that run, and the launcher says why
+  (`gevr_campaign_failed.txt`, as for the hacks). If its cartridge doesn't
+  load, the mod is off too and GoldenEye starts, with a note naming both.
+
+## Play modes
+
+A pack can say which play modes it runs in, so one that relies on what only
+VR has (tracked hands, gestures) can say so. The engine still makes features
+work in both where it can. A mod that doesn't name any runs in both.
+
+- **The manifest:** `"playModes": ["vr"]`, `["flat"]` or `["vr", "flat"]`
+  (any order). Left out means both. The list is checked strictly: it must
+  be a list, not empty, hold only `"vr"` and `"flat"` (lower case), and name
+  each once. A manifest that breaks this is refused at install and at load
+  with the reason (`"playModes" can hold "vr" and "flat"`, `"playModes" is
+  empty...`, `"playModes" names "flat" twice`), as any other manifest error.
+  `modes` (an overlay's multiplayer modes) is a different key.
+- **The session's play mode** (`gevrModSessionPlayMode`): VR when it plays
+  in stereo VR (a headset's or PC VR's Play mode set to Stereo VR), flat
+  on a screen (the flat PC game, Android phones, iPhone, iPad and Apple TV,
+  or a headset whose Play mode is Flat screen). The dedicated server plays
+  no seat of its own, so every mod starts there; its joiners are checked.
+  This is the same split as the lobby's input class (`NET_INPUT_VR` plays
+  in VR, keyboard and mouse, a pad and touch play flat).
+- **Launcher** (every platform's; the flat launcher is the same code): a
+  campaign mod that doesn't run in this Play mode stays listed beside START
+  but greyed, "Hands On (mod): This mod is for VR" (or "...for flat
+  screen"). Already chosen (an ini from another device, or Play mode
+  changed after choosing it), it stays chosen, START and online play wait,
+  and the line under START says what to do: "Set Play mode to Stereo VR, or
+  choose another campaign." on a headset, "Play it on a headset, or choose
+  another campaign." on a flat build. A missing cartridge is said first. The
+  Mods page's installed list shows the same reason on the mod's row. Choosing
+  the mode back makes it startable at once.
+- **Start:** if the ini names a mod that doesn't run in this session's play
+  mode, it doesn't start, as a missing mod doesn't: `CampaignMod` is cleared
+  for the run, the cartridge's own campaign starts, the log says why, and
+  the launcher shows "Hands On did not start: This mod is for VR."
+- **While it runs:** a headset's hold-the-right-stick switch between stereo
+  and the flat screen doesn't switch into a play mode the running mod leaves
+  out (the log says it stayed).
+- **Co-op:** the host checks each joiner's HELLO input class (and each of
+  its split-screen guests') against its mod campaign's play modes after the
+  content check (so the joiner has the same mod build). One it doesn't run
+  for is turned away: the host sends `NET_MSG_MOD_REQUIRED` (the mod's
+  title), then disconnects with `NET_DISCONNECT_MOD_PLAY | the mod's
+  GEVR_MOD_PLAY_* bits` (`'GEP'` in the top three bytes; additive on
+  protocol 30, which has no release before it). The joiner reads "Cannot
+  join: this party's mod Hands On is for VR only. Set Play mode to Stereo VR
+  to join." (a headset) or "...Join from a headset." (a flat build), and the
+  same for flat screen. A class the host doesn't know (an older or headless
+  client) is let in, as "VR players only" does. A class changed after the
+  join isn't checked again; the running mod keeps its own headset's mode
+  (above).
 
 ## Saves and records
 
@@ -191,6 +247,8 @@ files.sha256        checksum list of every other file
     different build", or "this party plays without a mod".
   - Before the game starts, the launcher's chosen mod is the one checked
     (`gevrModPlay`), as the chosen cartridge is.
+  - A joiner with the same mod but in a play mode the mod leaves out is
+    turned away too, with `NET_DISCONNECT_MOD_PLAY` (see "Play modes").
 - The internet lobby lists a mod campaign's game under its cartridge (the
   lobby service is unchanged); friends see the mod's title in presence.
 - An `overlay` mod that changes only looks is not checked: like Bean or HD
