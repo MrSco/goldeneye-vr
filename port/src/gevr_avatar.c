@@ -21,6 +21,7 @@ extern int gevrVrSessionFocused(void);
 extern int gevrVrGripPoseCamera(int hand,float pos[3],float q[4]);
 extern s32 gevrStereoShotWorld(s32 hand,coord3d *origin,coord3d *dir);
 extern coord3d *gevrEyePosition(void);
+extern float gevrStereoBaseYaw(void); /* bondview2.c: stick turns plus game turns, vv_theta degrees */
 
 static float dot(const float *a,const float *b) {return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
 static int unit(float *v) {float d=sqrtf(dot(v,v));if(!isfinite(d)||d<1e-6f)return 0;for(int k=0;k<3;k++)v[k]/=d;return 1;}
@@ -53,15 +54,22 @@ void gevrAvatarCapture(GevrAvatarPose *p,struct player *pl) {
     p->flags=GEVR_POSE_HEAD | (VrLeftHandedMode?GEVR_POSE_LEFT_HANDED:0);
     uint64_t now=sysGetMicroseconds();float moved[3];
     for(int k=0;k<3;k++)moved[k]=pl->prop->pos.f[k]-anchor[k];
-    if(!last || now<last || now-last>250000 || dot(moved,moved)>10000)yaw=pl->vv_theta;
-    float delta=remainderf(pl->vv_theta-yaw,360),dt=last && now>=last?(now-last)*1e-6f:0;
-    /* A glance leaves the torso behind; sustained turns and walking follow.
-     * Limit the head/body separation to 65 degrees, including snap turns. */
+    /* vv_theta is where the head looks: the stick/body yaw plus the headset's
+     * own turn. The stick turns the body (head and torso together), so only
+     * the headset's turn is a glance. Following vv_theta as a whole left the
+     * torso up to 35 degrees behind every stick turn, the head turned to that
+     * side while the player looked straight ahead (Quest/PC test 2026-11-25). */
+    float base=gevrStereoBaseYaw(),look=remainderf(pl->vv_theta-base,360);
+    if(!last || now<last || now-last>250000 || dot(moved,moved)>10000)yaw=look;
+    float delta=remainderf(look-yaw,360),dt=last && now>=last?(now-last)*1e-6f:0;
+    /* A glance leaves the torso behind; sustained physical turns and walking
+     * follow. Limit the head/body separation to 65 degrees. */
     if(fabsf(delta)>35 || fabsf(pl->speedforwards)+fabsf(pl->speedsideways)>0.1f)
         yaw+=delta*(1-expf(-3.0f*fminf(dt,0.1f)));
-    delta=remainderf(pl->vv_theta-yaw,360);
-    if(fabsf(delta)>65)yaw=pl->vv_theta-copysignf(65,delta);
-    p->body_yaw=remainderf(yaw,360);last=now;memcpy(anchor,pl->prop->pos.f,sizeof(anchor));
+    delta=remainderf(look-yaw,360);
+    if(fabsf(delta)>65)yaw=look-copysignf(65,delta);
+    yaw=remainderf(yaw,360);
+    p->body_yaw=remainderf(base+yaw,360);last=now;memcpy(anchor,pl->prop->pos.f,sizeof(anchor));
     for(int role=0;role<2;role++) {
         int ctrl=role==GUNRIGHT?1:0;
         float q[4],pos[3],grip[3][3],world[3][3];

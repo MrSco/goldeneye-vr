@@ -779,7 +779,13 @@ Gfx *viSetupScreensForNumPlayers(Gfx *gdl)
     }
 
     extern s32 g_gevrStereo;
-    if (getPlayerCount() == 1 || g_gevrStereo)
+#ifdef GEVR
+    extern int gevrLocalViewCount(void);
+    s32 vcount = gevrLocalViewCount();
+#else
+    s32 vcount = getPlayerCount();
+#endif
+    if (vcount == 1 || g_gevrStereo)
     {
         if ((viGetViewTop() + viGetViewHeight()) < viGetY())
         {
@@ -800,13 +806,13 @@ Gfx *viSetupScreensForNumPlayers(Gfx *gdl)
             gDPFillRectangle(gdl++, 0, ((SCREEN_HEIGHT / 2) - 1), (viGetX() - 1), (SCREEN_HEIGHT / 2));
             gDPPipeSync(gdl++);
 
-            if (getPlayerCount() >= 3)
+            if (vcount >= 3)
             {
                 gDPFillRectangle(gdl++, ((SCREEN_WIDTH / 2) - 1), 0, (SCREEN_WIDTH / 2), (viGetY() - 1));
                 gDPPipeSync(gdl++);
             }
 
-            if (getPlayerCount() == 3)
+            if (vcount == 3)
             {
                 gDPFillRectangle(gdl++, ((SCREEN_WIDTH / 2) + 1), ((SCREEN_HEIGHT / 2) + 1), (viGetX() - 1), (viGetY() - 1));
                 gDPPipeSync(gdl++);

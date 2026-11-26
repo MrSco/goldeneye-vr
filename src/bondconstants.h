@@ -1839,6 +1839,9 @@ typedef enum MENU
     MENU_SWITCH_SCREENS,
     MENU_DISPLAY_CAST,
     MENU_SPECTRUM_EMU,
+#ifdef GEVR
+    MENU_MP_LOBBY,   /* online: the pre-match lobby (front.c, mpmenu.c gevrLobbyStage*, docs/match-lobby.md) */
+#endif
     MENU_MAX
 } MENU;
 
@@ -1939,6 +1942,13 @@ typedef enum MPMENU
     MENU_EXIT,
     MENU_EXIT_CONFIRM,
     MENU_FINISHED
+#ifdef GEVR
+    ,MENU_CHARSEL   /* online: the Select Character panel in the player's view (mpmenu.c) */
+    ,MENU_STAGESEL  /* online: the Select Stage photo grid in the player's view (mpmenu.c) */
+    ,MENU_HANDICAP  /* online: the Handicap screen (each player's health) in the player's view (mpmenu.c) */
+    ,MENU_TEAMSEL   /* online: the Teams screen (who is on which side) in the player's view (mpmenu.c) */
+    ,MENU_SETUP     /* online: the Multiplayer Options folder in the player's view (mpmenu.c) */
+#endif
 } MPMENU;
 
 typedef enum MPSCENARIOS

@@ -55,6 +55,7 @@ extern "C" {
 #include "system.h"
 }
 #include "gevr_icloud.h"
+#include "gevr_sync_keys.h"
 
 #if defined(GEVR_VISIONOS)
 static const char *const kFamily = "vision";
@@ -208,33 +209,6 @@ std::string sha256File(const std::string &path)
 
 /* -------------------------------------------------------- settings (KVS) */
 
-/* goldeneye-vr.ini keys that belong to one kind of device: its display, its
- * frame rate, its touch screen, its room. Everything else is the player's. */
-const std::set<std::string> &localIniKeys()
-{
-    static const std::set<std::string> keys = {
-        "FrameRate", "DisplayHz", "SpaceWarp", "EyeMsaa", "CpuLevel", "ShowStats",
-        "ScreenDistance", "ScreenFov", "ScreenCurved", "ScreenPassthrough", "ScreenShape", "ScreenHeight",
-        "TouchControls", "TouchLayout", "TouchHaptics", "PlayMode", "SeatedMode", "PlayerHeight",
-        "MatchCharacterHeight", "WorldScale", "HudDistance", "StereoCrosshair", "PadDefaults",
-        "LookUprightFolders", "MicMuted", "LiveSplit", "LiveSplitHost", "ICloudSync", "ICloudPacks",
-    };
-    return keys;
-}
-
-/* goldeneye.ini: the window, the audio device and the input backends are the device's */
-bool localCfgKey(const std::string &k)
-{
-    static const char *const prefixes[] = {
-        "Video.", "Audio.", "Input.Use", "Input.FakeGamepads", "Input.FirstGamepadNum",
-        "Input.Mouse", "Game.MemorySize", "Game.ExtraSleep",
-    };
-    for (const char *p : prefixes) {
-        if (k.compare(0, strlen(p), p) == 0) return true;
-    }
-    return false;
-}
-
 struct IniFile {
     const char *name;      // in the save folder
     const char *kvBase;    // "ini" or "cfg"
@@ -248,10 +222,19 @@ const IniFile kCfg = { "goldeneye.ini", "cfg2", true };
 NSString *const kSavePrefix = @"save2:";
 const char *const kJoinedMarker = "joined2";
 
-bool isLocalKey(const IniFile &f, const std::string &k)
+/* Which keys travel: the table the cross-platform sync uses too
+ * (port/include/gevr_sync_keys.h). A kind's keys go to this family's
+ * dictionary; a device's own (the split-screen guest seats, which pad is which
+ * player, the audio output, the iCloud rows) never leave the device, and old
+ * builds' copies of them in the store are left alone. */
+gevrsync::KeyScope keyScope(const IniFile &f, const std::string &k)
 {
-    return f.sections ? localCfgKey(k) : localIniKeys().count(k) != 0;
+    return f.sections ? gevrsync::cfgKeyScope(k) : gevrsync::iniKeyScope(k);
 }
+
+bool isLocalKey(const IniFile &f, const std::string &k) { return keyScope(f, k) != gevrsync::KEY_SHARED; }
+
+bool isDeviceKey(const IniFile &f, const std::string &k) { return keyScope(f, k) == gevrsync::KEY_DEVICE; }
 
 std::string trimEol(const std::string &s)
 {
@@ -387,6 +370,7 @@ void iniPush(const IniFile &f, const std::map<std::string, std::string> &before,
     for (const auto &kv : now) {
         auto b = before.find(kv.first);
         if (b != before.end() && b->second == kv.second) continue;
+        if (isDeviceKey(f, kv.first)) continue;
         std::map<std::string, std::string> &dst = isLocalKey(f, kv.first) ? mine : shared;
         auto cur = dst.find(kv.first);
         if (cur != dst.end() && cur->second == kv.second) continue;
@@ -412,6 +396,7 @@ void iniLaunchMerge(const IniFile &f, bool joined)
 
     std::map<std::string, std::string> take;   // the cloud's values the file gets
     for (const auto &kv : remote) {
+        if (isDeviceKey(f, kv.first)) continue;   // an old build's copy of a device's own
         auto l = local.find(kv.first);
         if (l != local.end() && l->second == kv.second) continue;
         if (joined && l != local.end()) {
@@ -475,6 +460,9 @@ void savePush(const std::string &name, const std::string &data, long long mtime)
  * 0x60-byte save slots (src/game/file2.c fileValidateSaves). A slot in use
  * (flag 0x80 clear) with a finished level (its times), an unlocked cheat or 007
  * mode is progress. Another layout (bytes there in use) reads as progress: no guard. */
+/* GoldenEye's EEPROM is 2048 bytes (libultra.c EEPROM_SIZE) */
+bool saveWhole(const std::string &data) { return data.size() == 2048; }
+
 bool saveHasProgress(const std::string &data)
 {
     if (data.size() < 32 + 5 * 0x60) return true;
@@ -512,7 +500,9 @@ void saveBackup(const std::string &name, const std::string &data)
     for (size_t i = 0; i + 5 < old.size(); i++) remove((g_root + "/" + old[i]).c_str());
 }
 
-void savesLaunchMerge()
+/* apply false: only looks (the check at START, gevrCloudSaveNewer): the first
+ * save iCloud's copy would replace here, its name and time; nothing written */
+bool savesMerge(bool apply, std::string *newerName, long long *newerTime)
 {
     std::set<std::string> names;
     if (DIR *d = opendir(g_root.c_str())) {
@@ -530,10 +520,14 @@ void savesLaunchMerge()
     for (const std::string &n : names) {
         const std::string path = g_root + "/" + n;
         std::string local;
-        const bool haveLocal = readFile(path, &local);
+        // a save cut short (a crash mid-write) counts as none: it never goes up and
+        // a whole one replaces it (saveWhole, the cross-platform sync's rule)
+        const bool haveFile = readFile(path, &local);
+        const bool haveLocal = haveFile && saveWhole(local);
         const long long lt = haveLocal ? fileTime(path) : 0;
         NSDictionary *r = [kvs() dictionaryForKey:[kSavePrefix stringByAppendingString:ns(n)]];
         NSData *rd = [r[@"d"] isKindOfClass:[NSData class]] ? r[@"d"] : nil;
+        if (rd && rd.length != 2048) rd = nil;
         const long long rt = [r[@"t"] respondsToSelector:@selector(longLongValue)] ? [r[@"t"] longLongValue] : 0;
         const std::string remote = rd ? std::string((const char *)rd.bytes, rd.length) : std::string();
         if (haveLocal && rd && local == remote) continue;
@@ -544,11 +538,18 @@ void savesLaunchMerge()
             if (lp != rp) keepLocal = lp;
         }
         if (keepLocal) {
+            if (!apply) continue;
             savePush(n, local, lt);
             cloudLog("%s to iCloud (written %lld, iCloud's %lld)", n.c_str(), lt, rt);
             continue;
         }
-        if (haveLocal) saveBackup(n, local);
+        if (!rd) continue;   // neither side has a whole one
+        if (!apply) {
+            if (newerName) *newerName = n;
+            if (newerTime) *newerTime = rt;
+            return true;
+        }
+        if (haveFile) saveBackup(n, local);
         if (writeFileAtomic(path, remote)) {
             struct timeval tv[2] = { { (time_t)rt, 0 }, { (time_t)rt, 0 } };
             utimes(path.c_str(), tv);
@@ -556,14 +557,17 @@ void savesLaunchMerge()
                      haveLocal ? ", kept as .before-icloud" : "");
         }
     }
+    return false;
 }
+
+void savesLaunchMerge() { savesMerge(true, nullptr, nullptr); }
 
 /* the game just wrote it: the newest, unless it is a blank save and iCloud's has progress */
 void saveSaved(const std::string &name)
 {
     const std::string path = g_root + "/" + name;
     std::string data;
-    if (!readFile(path, &data)) return;
+    if (!readFile(path, &data) || !saveWhole(data)) return;
     if (!saveHasProgress(data)) {
         NSDictionary *r = [kvs() dictionaryForKey:[kSavePrefix stringByAppendingString:ns(name)]];
         NSData *rd = [r[@"d"] isKindOfClass:[NSData class]] ? r[@"d"] : nil;
@@ -1241,15 +1245,19 @@ NSError *downloadItem(const Cloud &c, CKRecord *rec, const std::string &relPath,
     return nil;
 }
 
-/* files.txt: path \t local stamp \t cloud stamp, as last synced */
+/* files.txt: "#cloud <id>", then path \t local stamp \t cloud stamp, as last
+ * synced with that database (cloudId). Another database's stamps, or a file
+ * from before the line (whose database is unknown), count as never synced. */
 struct Synced { std::string local, remote; };
 
-std::map<std::string, Synced> readSynced()
+std::map<std::string, Synced> readSynced(const std::string &cloud)
 {
     std::map<std::string, Synced> m;
     std::string text;
     if (!readFile(statePath("files.txt"), &text)) return m;
-    size_t pos = 0;
+    const std::string head = "#cloud " + cloud + "\n";
+    if (cloud.empty() || text.compare(0, head.size(), head) != 0) return m;
+    size_t pos = head.size();
     while (pos < text.size()) {
         size_t nl = text.find('\n', pos);
         if (nl == std::string::npos) nl = text.size();
@@ -1262,9 +1270,9 @@ std::map<std::string, Synced> readSynced()
     return m;
 }
 
-void writeSynced(const std::map<std::string, Synced> &m)
+void writeSynced(const std::map<std::string, Synced> &m, const std::string &cloud)
 {
-    std::string text;
+    std::string text = "#cloud " + cloud + "\n";
     for (const auto &kv : m) text += kv.first + "\t" + kv.second.local + "\t" + kv.second.remote + "\n";
     writeFileAtomic(statePath("files.txt"), text);
 }
@@ -1275,6 +1283,84 @@ std::string localStampOf(const std::string &rel, bool pack)
         if (it.path == rel) return it.stamp;
     }
     return std::string();
+}
+
+/*
+ * This CloudKit database's own id: a GevrJoined record "files-db" (a record
+ * type the schema has already, so Production needs no new deploy) holding a
+ * random id, made by the first device to look. Development builds and
+ * TestFlight's are two databases (docs/icloud-sync.md): a test build's
+ * last-synced stamps made every TestFlight record look changed in the cloud,
+ * and a pack that differed at all (Bean with or without its Community Edition
+ * overlay) came down whole on a device that had it already (the owner,
+ * 2026-11-23, iPhone and Apple TV). "" when it cannot be read or made.
+ */
+std::string cloudId(const Cloud &c)
+{
+    static std::string known;   // one database for the process's life
+    if (!known.empty()) return known;
+    CKRecordID *rid = [[CKRecordID alloc] initWithRecordName:@"files-db" zoneID:c.zone];
+    for (int attempt = 0; attempt < 2; attempt++) {
+        NSMutableArray<NSString *> *box = [NSMutableArray array];
+        NSError *err = ckWait([&](void (^finish)(NSError *)) {
+            CKFetchRecordsOperation *op = [[CKFetchRecordsOperation alloc] initWithRecordIDs:@[ rid ]];
+            configure(op, true);
+            op.desiredKeys = @[ @"by" ];
+            op.fetchRecordsCompletionBlock = ^(NSDictionary<CKRecordID *, CKRecord *> *recs, NSError *e) {
+                NSString *by = recs[rid] ? recs[rid][@"by"] : nil;
+                if ([by isKindOfClass:[NSString class]] && by.length) [box addObject:by];
+                NSError *one = e && e.code == CKErrorPartialFailure ? e.userInfo[CKPartialErrorsByItemIDKey][rid] : e;
+                finish(one && one.code != CKErrorUnknownItem && one.code != CKErrorZoneNotFound ? one : nil);
+            };
+            [c.db addOperation:op];
+        });
+        if (err) return std::string();
+        if (box.count) return known = box.firstObject.UTF8String;
+        // none yet: ours, unless another device makes it first (then read theirs)
+        CKRecord *rec = [[CKRecord alloc] initWithRecordType:@"GevrJoined" recordID:rid];
+        rec[@"by"] = [NSUUID UUID].UUIDString;
+        err = ckWait([&](void (^finish)(NSError *)) {
+            CKModifyRecordsOperation *op = [[CKModifyRecordsOperation alloc] initWithRecordsToSave:@[ rec ]
+                                                                                 recordIDsToDelete:nil];
+            configure(op, true);
+            op.savePolicy = CKRecordSaveIfServerRecordUnchanged;
+            op.modifyRecordsCompletionBlock = ^(NSArray *saved, NSArray *deleted, NSError *e) { finish(e); };
+            [c.db addOperation:op];
+        });
+        if (!err) return known = ((NSString *)rec[@"by"]).UTF8String;
+        cloudLog("files-db: %s", errText(err).c_str());
+    }
+    return std::string();
+}
+
+/* What one item does in a pass. L, R: its stamp here and in iCloud ("" for
+ * none); s: as last synced with this database, or null; same(): whether the
+ * two copies hold the same content, asked only when it decides. */
+enum class Move { None, Adopt, Up, Down };
+
+template <typename Same>
+Move decideMove(const std::string &L, const std::string &R, const Synced *s, Same same)
+{
+    if (L.empty() && R.empty()) return Move::None;
+    if (R.empty()) return Move::Up;
+    if (L.empty()) return Move::Down;
+    if (s && s->local == L && s->remote == R) return Move::None;
+    if (s && s->local == L) {
+        // changed in the cloud only: unless it is the same content under
+        // another device's stamp (two devices uploaded it at once)
+        return same() ? Move::Adopt : Move::Down;
+    }
+    if (s && s->remote == R) return Move::Up;   // changed here only
+    if (s) {
+        // both changed since they were in step: the cloud's copy wins, it is
+        // what the other devices have
+        return same() ? Move::Adopt : Move::Down;
+    }
+    // never synced with this database (a new device, a build from another
+    // CloudKit environment, files.txt from before its "#cloud" line): a ROM
+    // or pack already here stays as it is, whatever iCloud's copy holds, and
+    // from now on its changes move either way
+    return Move::Adopt;
 }
 
 /* One pass: every item in one place and not the other moves; an item changed
@@ -1314,7 +1400,13 @@ void syncFiles(const Cloud &c, bool packs)
             if (!ckSave(c, nil, part, false)) cloudLog("removed %lu unused chunk%s", (unsigned long)part.count, part.count == 1 ? "" : "s");
         }
     }
-    std::map<std::string, Synced> synced = readSynced();
+    const std::string cloud = cloudId(c);
+    if (cloud.empty()) {
+        setStatus("iCloud: unavailable");
+        cloudLog("files: this database's id could not be read; nothing moves this pass");
+        return;
+    }
+    std::map<std::string, Synced> synced = readSynced(cloud);
     std::map<std::string, LocalItem> local;
     for (const LocalItem &it : localItems(packs)) local[it.path] = it;
 
@@ -1339,41 +1431,17 @@ void syncFiles(const Cloud &c, bool packs)
         const std::string L = l != local.end() ? l->second.stamp : std::string();
         NSString *rs = r != remote.end() ? r->second[@"stamp"] : nil;
         const std::string R = [rs isKindOfClass:[NSString class]] ? rs.UTF8String : std::string();
-        if (!L.empty() && !R.empty() && s != synced.end() && s->second.local == L && s->second.remote == R) continue;
-
-        bool up = false, down = false;
-        if (!L.empty() && R.empty()) {
-            up = true;
-        } else if (L.empty() && !R.empty()) {
-            down = true;
-        } else if (s != synced.end() && s->second.local == L) {
-            // changed in the cloud only: unless it is the same content under
-            // another device's stamp (two devices uploaded it at once)
-            if (sameContent(r->second, l->second, l->second.dir ? std::string() : sha256File(g_root + "/" + p))) {
-                synced[p] = { L, R };
-                continue;
-            }
-            down = true;
-        } else if (s != synced.end() && s->second.remote == R) {
-            up = true;      // changed here only
-        } else {
-            // never synced here, or both changed: the same content counts as synced
-            const LocalItem &li = l->second;
-            NSString *rh = r->second[@"hash"];
-            const long long rsize = [r->second[@"size"] longLongValue];
-            bool same;
-            if (li.dir) {
-                same = rsize == li.bytes && R.substr(0, R.find(':')) == li.stamp.substr(0, li.stamp.find(':'));
-            } else {
-                same = rsize == li.bytes && [rh isKindOfClass:[NSString class]] && rh.length
-                    && sha256File(g_root + "/" + p) == rh.UTF8String;
-            }
-            if (same) {
-                synced[p] = { L, R };
-                continue;
-            }
-            down = true;    // the cloud's copy wins a conflict: it is what the other devices have
+        const Move move = decideMove(L, R, s != synced.end() ? &s->second : nullptr, [&]() {
+            return sameContent(r->second, l->second, l->second.dir ? std::string() : sha256File(g_root + "/" + p));
+        });
+        if (move == Move::None) continue;
+        if (move == Move::Adopt) {
+            if (s == synced.end()) cloudLog("%s: kept as it is here (first sync with this iCloud)", p.c_str());
+            synced[p] = { L, R };
+            writeSynced(synced, cloud);
+            continue;
         }
+        const bool up = move == Move::Up, down = move == Move::Down;
         if (up) {
             CKRecord *adopted = nil;
             err = uploadItem(c, l->second, r != remote.end() ? r->second : nil, &adopted);
@@ -1407,9 +1475,9 @@ void syncFiles(const Cloud &c, bool packs)
             cloudLog("%s %s: %s", up ? "upload" : "download", p.c_str(), lastError.c_str());
             if (err.code == CKErrorQuotaExceeded) break;
         }
-        writeSynced(synced);
+        writeSynced(synced, cloud);
     }
-    writeSynced(synced);
+    writeSynced(synced, cloud);
     if (moved || failed) cloudLog("files: %d moved, %d failed (%zu items)", moved, failed, paths.size());
     if (failed) {
         setStatus("iCloud: " + std::to_string(failed) + " failed - " + lastError);
@@ -1669,6 +1737,41 @@ extern "C" void gevrCloudFileSaved(const char *path)
         } else if (isSaveName(name)) {
             saveSaved(name);
         }
+    }
+}
+
+/* The check at START (gevr_sync.cpp gevrSyncSaveCheck*): a save another Apple
+ * device wrote while this one sat in the launcher is in the key-value store
+ * (it arrives by itself) but goes into the file only at a launch. */
+extern "C" int gevrCloudSaveNewer(char *name, int nameSize, long long *when)
+{
+    if (!g_available || !g_joined) return 0;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        if (!g_sync) return 0;
+    }
+    std::string n;
+    long long t = 0;
+    bool newer;
+    @autoreleasepool {
+        std::lock_guard<std::mutex> hold(g_kvLock);
+        [kvs() synchronize];
+        newer = savesMerge(false, &n, &t);
+    }
+    if (!newer) return 0;
+    if (name && nameSize > 0) snprintf(name, (size_t)nameSize, "%s", n.c_str());
+    if (when) *when = t;
+    return 1;
+}
+
+/* "Use it": the newer saves in place now, this device's set aside (.before-icloud) */
+extern "C" void gevrCloudSaveUseNewer(void)
+{
+    if (!g_available || !g_joined) return;
+    @autoreleasepool {
+        std::lock_guard<std::mutex> hold(g_kvLock);
+        savesMerge(true, nullptr, nullptr);
+        [kvs() synchronize];
     }
 }
 

@@ -34,6 +34,7 @@
 #include "gevr_bean_import.h"
 #include "gevr_bean_log.h"
 #include "gevr_icloud.h"
+#include "gevr_sync.h"
 
 #include <stdarg.h>
 #include <stdint.h>
@@ -1547,6 +1548,7 @@ int gevrBeanImportStream(FILE *src, const char *dest, char *msg, size_t msgLen)
 			j.failed ? ": " : "", j.failed ? msg : "");
 	s_percent = 100;
 	if (!j.failed) gevrCloudKick();   /* a new pack: iCloud may carry it (port/ios/ios_icloud.mm) */
+	if (!j.failed) gevrSyncKick();    /* and the cross-platform sync (port/pc/gevr_sync_files.cpp) */
 
 	return j.failed ? -1 : j.written;
 }

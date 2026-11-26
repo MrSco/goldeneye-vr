@@ -89,6 +89,8 @@ struct GevrKeybindApi {
     void (*setPadVibration)(float v) = nullptr;
     int (*getTriggerFeedback)() = nullptr; // 0..100
     void (*setTriggerFeedback)(int pct) = nullptr;
+    int (*getAdaptiveTriggers)() = nullptr; // a DualSense's trigger feel, 0 or 1
+    void (*setAdaptiveTriggers)(int on) = nullptr;
 
     void (*save)() = nullptr;
 };
@@ -553,6 +555,7 @@ inline void gevrDrawGamepadPage(const GevrKeybindApi &api, GevrKeybindUiState &u
     bool lookInv = api.getLookInverted ? (api.getLookInverted() != 0) : false;
     int vibPct = api.getPadVibration ? (int)std::floor(api.getPadVibration() * 100.0f + 0.5f) : 30;
     int trigPct = api.getTriggerFeedback ? api.getTriggerFeedback() : 100;
+    bool adaptive = api.getAdaptiveTriggers ? (api.getAdaptiveTriggers() != 0) : true;
 
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 3.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(style.CellPadding.x, 2.0f));
@@ -643,11 +646,21 @@ inline void gevrDrawGamepadPage(const GevrKeybindApi &api, GevrKeybindUiState &u
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Trigger feel");
         ImGui::TableNextColumn();
+        // a DualSense's adaptive triggers on or off, then the strength
+        if (ImGui::Checkbox("##adaptive", &adaptive)) {
+            if (api.setAdaptiveTriggers) api.setAdaptiveTriggers(adaptive ? 1 : 0);
+            if (api.save) api.save();
+        }
+        if (ImGui::IsItemHovered())
+            gevrTooltip("Adaptive triggers (a DualSense): a feel for what you hold, a gun's bump to pull past before it fires, "
+                        "fists, a knife, throws and gadgets. Off: free triggers, the pad's rumble only.");
+        ImGui::SameLine();
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::SliderInt("##trigfb", &trigPct, 0, 100, trigPct == 0 ? "Off" : "%d%%")) {
             if (api.setTriggerFeedback) api.setTriggerFeedback(trigPct);
             if (api.save) api.save();
         }
+        if (ImGui::IsItemHovered()) gevrTooltip("How strongly the triggers answer: trigger motors, a DualSense's push and buzz.");
         ImGui::EndTable();
     }
     ImGui::PopStyleVar(2);
@@ -692,6 +705,7 @@ void inputRumbleTest(int cidx);
 void inputSaveConfigNow(void);
 void vrSettingsSave(void);
 extern int VrTriggerFeedback;
+extern int VrAdaptiveTriggers;
 }
 
 inline GevrKeybindApi gevrKeybindLive() {
@@ -730,6 +744,8 @@ inline GevrKeybindApi gevrKeybindLive() {
     a.setPadVibration = [](float v) { inputRumbleSetStrengthAll(v); inputRumbleTest(0); };
     a.getTriggerFeedback = []() { return VrTriggerFeedback; };
     a.setTriggerFeedback = [](int pct) { VrTriggerFeedback = pct; };
+    a.getAdaptiveTriggers = []() { return VrAdaptiveTriggers; };
+    a.setAdaptiveTriggers = [](int on) { VrAdaptiveTriggers = on ? 1 : 0; };
     a.save = []() { inputSaveConfigNow(); vrSettingsSave(); };
     return a;
 }

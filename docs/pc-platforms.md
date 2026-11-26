@@ -282,6 +282,18 @@ policy cases, the redaction patterns, the gzip member, the crash record, the upd
   player's pad (libultra.c maps the Rumble Pak channel), and the mode select
   clears the seats. With no join (solo, the menus before it) every pad is
   player 1's, whichever slot it took. A TV's Siri Remote never joins.
+- **Drop-in** (2026-11-25): a split screen started with two or three loads
+  all four players (boss.c, net_core.c `gevrCouchLoadPlayers`); the seats
+  nobody took are loaded but empty, as an online match's free slots are:
+  switched off, not ticked or drawn, off the radar, the scores and the
+  awards (`gevrSlotInWorld`), and the views come from the seats
+  (`gevrLocalViewCount/Index`). The stage's items are the seated players'
+  set. A pad that did not join presses START mid-match and plays at once as
+  the next player (input.c `inputCouchTickDropIn`, front.c
+  `gevrCouchDropIn`): a character no one plays, the normal handicap, the
+  side with fewer players in a team game, a start pad of its own, and
+  "PLAYER N JOINS" on every view; that START is not a pause. The next match
+  keeps them. There is no drop-out (the game never had one offline).
 - The Perfect Dark port's pad support was off for VR: its controller
   setup in inputInit and the pad branch of inputKeyPressed run again on PC.
   Custom binds from the ini are not loaded yet (inputLoadBinds is off).
@@ -302,7 +314,10 @@ the window: the front end's pointer) and typed text into the game, `pick PATH` a
 picker (a scripted run never opens the Open dialog; with no pick waiting the
 picker is cancelled), and `shot NAME` writes the window to
 `shots/NAME.bmp`. The game never grabs the real mouse
-or raises its window, so a test runs while someone uses the computer.
+or raises its window, so a test runs while someone uses the computer; with
+`--hidden` the window is never shown at all (the shots still read its frame),
+and a scripted run takes only its own virtual pads, never a real pad someone
+is using in another window.
 
 What it took:
 

@@ -115,10 +115,16 @@ bool vr_screen_target_begin(int w, int h)
 
     glBindFramebuffer(GL_FRAMEBUFFER, sFbo);
     glViewport(0, 0, w, h);
-    glScissor(0, 0, w, h);
+    glDisable(GL_SCISSOR_TEST);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glDepthMask(GL_TRUE);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    /* Enforce Fast3D's G_SETSCISSOR (portal room scissors, HUD aspect scissors)
+     * on every flat and 2D-screen frame: the launcher and clear paths leave
+     * GL_SCISSOR_TEST off, which let Dam's portal-clipped mountains bleed over
+     * the canyon sky (#337). */
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, w, h);
     sActive = true;
     return true;
 }

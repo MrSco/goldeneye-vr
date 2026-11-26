@@ -38,6 +38,8 @@ int gevrVrGripPoseCamera(int ctrl,float pos[3],float q[4]) {
     q[0]=q[1]=q[2]=0;q[3]=1;return 1;
 }
 coord3d *gevrEyePosition(void) {return &eye;}
+static float baseYaw;
+float gevrStereoBaseYaw(void) {return baseYaw;}
 u64 sysGetMicroseconds(void) {return now;}
 void sysLogPrintf(s32 level,const char *fmt,...) {(void)level;(void)fmt;}
 Mtxf *camGetWorldToScreenMtxf(void) {return &view;}
@@ -160,6 +162,21 @@ static void capture(void) {
     ready=1;tracked[0]=1;VrLeftHandedMode=0;
     aiming=1;pl.hands[0].weaponnum=ITEM_WPPK;gevrAvatarCapture(&p,&pl);
     float grip[3][3];gevrPoseQuatMatrix(p.hand[0].q,grip);near(-grip[1][0],1);near(-grip[1][1],0);near(-grip[1][2],0);
-    aiming=0;focused=0;gevrAvatarCapture(&p,&pl);assert(!p.flags);focused=1;clearFrame();
+    aiming=0;focused=0;gevrAvatarCapture(&p,&pl);assert(!p.flags);focused=1;
+    /* The stick turns the torso with the head; the headset alone only glances. */
+    now+=1000000;gevrAvatarCapture(&p,&pl); /* fresh start: torso under the head */
+    for(int dir=-1;dir<=1;dir+=2) {
+        for(int i=0;i<60;i++) { /* a second of smooth turning, both ways */
+            now+=16667;baseYaw=remainderf(baseYaw+dir*2,360);pl.vv_theta=baseYaw;
+            gevrAvatarCapture(&p,&pl);near(remainderf(p.body_yaw-baseYaw,360),0);
+        }
+        now+=16667;baseYaw=remainderf(baseYaw+dir*45,360);pl.vv_theta=baseYaw; /* a snap */
+        gevrAvatarCapture(&p,&pl);near(remainderf(p.body_yaw-baseYaw,360),0);
+    }
+    for(int i=0;i<60;i++) {now+=16667;pl.vv_theta=remainderf(baseYaw+30,360);gevrAvatarCapture(&p,&pl);}
+    near(remainderf(p.body_yaw-baseYaw,360),0);  /* a 30 degree glance keeps the torso */
+    for(int i=0;i<120;i++) {now+=16667;pl.vv_theta=remainderf(baseYaw+90,360);gevrAvatarCapture(&p,&pl);}
+    assert(fabsf(remainderf(pl.vv_theta-p.body_yaw,360))<=35.5f); /* a physical turn brings it round */
+    baseYaw=0;pl.vv_theta=0;clearFrame();
 }
 int main(void) {rig(1,0,0,-10);rig(.2f,0,0,-40);rig(1,1,0,20);rig(1,0,90,-10);rig(.2f,1,350,20);capture();puts("avatar: production rig builders, both wrists, left-handed attachments, scale, collision pose and capture passed");return 0;}

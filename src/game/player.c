@@ -11,6 +11,7 @@
 #include "gevr_romlayout.h"
 extern bool netIsActive(void);
 extern bool netSlotOccupied(int slot);
+extern int gevrCouchSeats(void);   /* net_core.c: a couch match's seated players, 0 if not one */
 extern int netGetLocalSlot(void);
 #endif
 
@@ -737,21 +738,55 @@ void shuffle_player_ids(void) {
         array_PLAYER_IDs[i + random % (4 - i)] = temp;
     }
 #ifdef GEVR
-    if (netIsActive()) {
+    if (!netIsActive() && gevrCouchSeats() > 0) {
         /*
-         * Online only the local view is drawn, and the world's once-a-frame
-         * work (props, remote bodies, sounds) runs in that one pass when its
-         * player is first in this order (get_player_position_in_shuffled() == 0).
-         * Put the local slot first so it runs every frame, not 1 in N.
+         * A couch match with seats to spare (net_core.c gevrCouchLoadPlayers):
+         * the empty seats' players exist but never tick, so one first in this
+         * order left no pass to run the world's once-a-frame work (doors,
+         * pickups, sounds, the dividers, the end clock). Seated players first,
+         * in the shuffled order; the same random numbers were drawn above.
          */
         PLAYER_ID ordered[MAX_PLAYER_COUNT];
         s32 count = 0;
-        s32 local = netGetLocalSlot();
-        if (local >= 0 && local < MAX_PLAYER_COUNT && netSlotOccupied(local)) ordered[count++] = local;
         for (i = 0; i < MAX_PLAYER_COUNT; i++)
-            if (netSlotOccupied(array_PLAYER_IDs[i]) && array_PLAYER_IDs[i] != local) ordered[count++] = array_PLAYER_IDs[i];
+            if (array_PLAYER_IDs[i] < gevrCouchSeats()) ordered[count++] = array_PLAYER_IDs[i];
         for (i = 0; i < MAX_PLAYER_COUNT; i++)
-            if (!netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
+            if (array_PLAYER_IDs[i] >= gevrCouchSeats()) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) array_PLAYER_IDs[i] = ordered[i];
+    }
+    if (netIsActive()) {
+        /*
+         * Online, all local human viewports are drawn (1 in VR or solo flat,
+         * 1-4 in flat split-screen), and the world's once-a-frame work (props,
+         * remote bodies, sounds, split dividers) runs in the first pass
+         * (get_player_position_in_shuffled() == 0). Put the primary local slot
+         * first, followed by any local split-screen guests in seat order, then
+         * remote/bot occupied slots.
+         */
+        extern int netLocalSlotCount(void);
+        extern int netSlotOfLocalSeat(int seat);
+        extern int gevrNetSlotIsLocalHuman(int slot);
+        PLAYER_ID ordered[MAX_PLAYER_COUNT];
+        s32 count = 0;
+        s32 local_n = netLocalSlotCount();
+        /* a dedicated server has no local human: its own seat goes first, as
+         * before split screen, so its pass runs the world's work every frame
+         * (lv.c lvlRender); without it the server's bots barely fought */
+        s32 me = netGetLocalSlot();
+        if (local_n == 0 && me >= 0 && me < MAX_PLAYER_COUNT && netSlotOccupied(me)) ordered[count++] = me;
+        else me = -1;
+        for (i = 0; i < local_n; i++) {
+            s32 sl = netSlotOfLocalSeat(i);
+            if (sl >= 0 && sl < MAX_PLAYER_COUNT && netSlotOccupied(sl)) ordered[count++] = sl;
+        }
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) {
+            PLAYER_ID pid = array_PLAYER_IDs[i];
+            if (pid != me && netSlotOccupied(pid) && !gevrNetSlotIsLocalHuman(pid)) ordered[count++] = pid;
+        }
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) {
+            PLAYER_ID pid = array_PLAYER_IDs[i];
+            if (!netSlotOccupied(pid)) ordered[count++] = pid;
+        }
         for (i = 0; i < MAX_PLAYER_COUNT; i++) array_PLAYER_IDs[i] = ordered[i];
     }
 #endif

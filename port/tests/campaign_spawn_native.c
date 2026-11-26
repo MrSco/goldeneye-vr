@@ -43,6 +43,8 @@ static struct player players[4], *g_playerPointers[4], *g_CurrentPlayer;
 static int viewer_room[4], viewer_occupied[4], online = 1;
 static bool netIsActive(void) { return online; }
 static bool netSlotOccupied(int slot) { return slot >= 0 && slot < 4 && viewer_occupied[slot]; }
+/* net_core.c: online, occupied; offline (no couch match here), every player */
+int gevrSlotInWorld(int slot) { return netIsActive() ? netSlotOccupied(slot) : 1; }
 static s32 getPlayerPointerIndex(PropRecord *prop) { return prop - g_Props - 2; }
 static s32 getPlayerCount(void) { return 4; }
 static f32 bondviewGetPlayerDuckingHeightRelated(struct player *player) { return 170; }

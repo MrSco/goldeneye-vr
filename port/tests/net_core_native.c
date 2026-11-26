@@ -13,22 +13,31 @@ struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 s32 g_gameOverFlag, D_80048394;
 struct player *g_playerPointers[MAX_PLAYER_COUNT];
 s32 startpadcount=8;
-static unsigned char sent_data[1024];   /* an eight-player match snapshot is 727 bytes */
+static unsigned char sent_data[1024];   /* an eight-player match snapshot is 739 bytes */
 static size_t sent_size;
 static int fixture_cur=-1;   /* the player ticking, when not the local one (a bot) */
 s32 get_cur_playernum(void) { return fixture_cur>=0 ? fixture_cur : s_local_slot; }
+s32 getPlayerCount(void) { return s_max_players; }
 static int respawn_calls;
 void set_cur_player(s32 slot) { (void)slot; }
 void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn_calls++; }
 
 int bondinvHasInvItem(ITEM_IDS item) { (void)item; return 0; }
 int VrMpStage,VrMpWeaponSet,VrMpChr,VrMpScenario,VrMpLength,VrMpHealth;
+int VrGuestChr[3];
 int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
 int VrMpMovementSpeed;
+int VrMpHandicaps;
+int VrMpLobby, VrMpWarmup;
+/* front.c's MP_handicap_table damage modifiers, filled from front.c by test_multiplayer.py */
+static const float s_mp_damage[11] = { /* MP_HANDICAP_TABLE */ };
+s32 player_handicap[MAX_PLAYER_COUNT];
+f32 get_player_mp_handicap(s32 player) { return s_mp_damage[player_handicap[player]]; }
 int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
-int VrHordeFriendlyFire;
+int VrHordeFriendlyFire, VrHordeStage, VrHordeStartWave;
+int VrMpVrOnly,VrMpHandReloadOnly;
 unsigned long long VrMpFavStages;
 unsigned VrMpFavSets;
 char VrPlayerName[16]="Test";
@@ -68,10 +77,11 @@ const gevrModInfo *gevrModPlay(void) { return fixture_mod_on ? &fixture_mod : NU
 void vrSettingsSave(void) {}
 void netVoiceForgetSlot(uint8_t slot) { (void)slot;voice_resets++; }
 void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
+static int sent_peer_count;
 ENetPacket *enet_packet_create(const void *data,size_t size,uint32_t flags) { (void)flags;if(size<=sizeof(sent_data)) { memcpy(sent_data,data,size);sent_size=size; }return NULL; }
 static ENetPeer *sent_peer;   /* the last peer sent to, and how many sends */
 static int send_count;
-int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)channel;(void)packet;sent_peer=peer;send_count++;return 0; }
+int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)channel;(void)packet;sent_peer=peer;send_count++;sent_peer_count++;return 0; }
 /* mods' messages and peer_ready (gevr_modapi.c), as net_core.c hands them over */
 static char mod_got[4096];
 static void modNote(const char *line) { size_t n=strlen(mod_got);snprintf(mod_got+n,sizeof(mod_got)-n,"%s",line); }
@@ -97,6 +107,10 @@ static int coop_joins, horde_snapshots;
 const HordeState *gevrHordeState(void) { return &fixture_horde; }
 void netCoopPlayerJoined(int slot, int returning) { (void)slot; (void)returning; coop_joins++; }
 void netHordeSend(int slot) { (void)slot; horde_snapshots++; }
+/* gevr_horde.c's setup break, as the director answers (horde_rules.h) */
+static unsigned horde_started_ticks, horde_set_wave;
+int gevrHordeStartRun(unsigned ticks) { if(!hordeStartRun(&fixture_horde,ticks)) return 0; horde_started_ticks=ticks; return 1; }
+int gevrHordeSetStartWave(unsigned wave) { if(!hordeSetStartWave(&fixture_horde,wave)) return 0; horde_set_wave=wave; return 1; }
 void randomSetSeed(u32 seed) { (void)seed; }
 void netSpectatorReset(void) {}
 void netPlayersTickedReset(void) {}
@@ -107,7 +121,9 @@ static int hud_messages;
 void hudmsgTopShow(char *mess) { (void)mess; hud_messages++; }
 static void fixture(int scenario) {
     memset(&s_round,0,sizeof(s_round)); memset(g_playerPlayerData,0,sizeof(g_playerPlayerData));
-    s_state=NET_STATE_HOSTING_LOBBY;s_local_slot=s_host_slot=0;netResetLobbyState();
+    s_state=NET_STATE_HOSTING_LOBBY;s_local_slot=s_host_slot=0;s_local_count=1;s_local_desired_count=1;
+    s_local_slots[0]=0;for(int k=1;k<GEVR_MAX_LOCAL_PLAYERS;k++)s_local_slots[k]=-1;
+    s_local_guest_notice[0]='\0';netResetLobbyState();
     s_lobby_state.config.scenario=scenario; s_lobby_state.config.stage=34;
     s_lobby_state.config.voice_mode=NET_VOICE_PROXIMITY; s_phase=NET_PHASE_WAITING;
     s_server_peer=NULL;s_host=NULL;s_match_ended=false;s_next_round_at_us=0;s_countdown_end_us=0;voice_resets=0;
@@ -141,6 +157,65 @@ EXPORT int test_core_horde_lobby(void) {
     CHECK(netDamageAllowed(0,1) && VrHordeFriendlyFire==1);
     CHECK(VrMpStage==34 && VrMpMaxPlayers==8 && VrMpBotMode==NET_BOT_FILL);
     VrMpStage=stage;VrMpMaxPlayers=max;VrMpBotMode=bots;
+    return 0;
+}
+/* Horde's setup break (owner, 2026-11-24): the first wave waits for the host's
+ * START WAVE; nobody is hurt; the host's map and first wave from the game */
+EXPORT int test_core_horde_setup(void) {
+    fixture(SCENARIO_NORMAL);
+    for(int i=2;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
+    s_lobby_state.config.mode=NET_MODE_HORDE;s_lobby_state.config.stage=NET_HORDE_STAGE;
+    s_lobby_state.config.horde_start_wave=1;s_lobby_state.config.max_players=4;s_lobby_state.config.bot_mode=NET_BOT_OFF;
+    CHECK(netLobbyHostLaunchMatch());
+    fixture_horde=(HordeState){0};
+    hordeInit(&fixture_horde,123);hordeHoldSetup(&fixture_horde);
+    s_lobby_state.slots[1].loaded=1;netStageLoaded();
+    CHECK(netHordeRunning());
+    CHECK(netHordeSetupBreak() && netHordeHostCanStart());
+    /* nothing hurts anyone, friendly fire or the world, until the run starts */
+    gevrNetConfigSet(CFG_FRIENDLY_FIRE,1);
+    CHECK(!netDamageAllowed(0,1) && !netDamageAllowed(-1,1) && !netDamageAllowed(1,1));
+    /* the wave: range-checked, saved, applied at once while nothing has started */
+    int wave=VrHordeStartWave,stage=VrHordeStage;
+    horde_set_wave=0;
+    gevrNetConfigSet(CFG_HORDE_START_WAVE,0);gevrNetConfigSet(CFG_HORDE_START_WAVE,NET_HORDE_MAX_START_WAVE+1);
+    CHECK(s_lobby_state.config.horde_start_wave==1 && !horde_set_wave);
+    gevrNetConfigSet(CFG_HORDE_START_WAVE,7);
+    CHECK(s_lobby_state.config.horde_start_wave==7 && VrHordeStartWave==7 && gevrNetConfigGet(CFG_HORDE_START_WAVE)==7);
+    CHECK(s_round.config.horde_start_wave==7 && horde_set_wave==7 && fixture_horde.completed==6);
+    CHECK(fixture_horde.credits[1]==hordeStartCredits(7) && netHordeStartWave()==7);
+    /* the map: Horde's own list only, pending until START restarts the run on it */
+    gevrNetConfigSet(CFG_HORDE_STAGE,netHordeStageCount());
+    CHECK(s_lobby_state.config.stage==NET_HORDE_STAGE && !netHordeRestartPending());
+    gevrNetConfigSet(CFG_HORDE_STAGE,3);
+    CHECK(s_lobby_state.config.stage==netStage(3)->level_id && VrHordeStage==netStage(3)->level_id);
+    CHECK(gevrNetConfigGet(CFG_HORDE_STAGE)==netStage(3)->level_id && netHordeRestartPending());
+    CHECK(s_round.config.stage==NET_HORDE_STAGE);
+    uint32_t epoch=s_round.world_epoch;horde_started_ticks=0;
+    netHordeHostStart();   /* RESTART RUN: latched as a retry is, into a new setup break */
+    CHECK(s_round_reset_loading && s_round.world_epoch==epoch+1 && s_round.config.stage==netStage(3)->level_id);
+    CHECK(s_round.config.horde_start_wave==7 && !horde_started_ticks && !netHordeHostCanStart());
+    netReadyProgress();CHECK(s_round_reset_loading);   /* the players load the new map */
+    for(int i=0;i<2;i++)s_lobby_state.slots[i].loaded=1;
+    hordeInitAt(&fixture_horde,9,netHordeStartWave());hordeHoldSetup(&fixture_horde);netReadyProgress();
+    CHECK(!s_round_reset_loading && netHordeSetupBreak() && !netHordeRestartPending() && fixture_horde.completed==6);
+    /* START WAVE with nothing pending: the wave in a few seconds; a client cannot */
+    s_local_slot=1;netHordeHostStart();CHECK(!horde_started_ticks && netHordeSetupBreak());
+    s_local_slot=0;netHordeHostStart();
+    CHECK(horde_started_ticks==HORDE_START_TICKS && !netHordeSetupBreak() && !netHordeHostCanStart());
+    CHECK(netDamageAllowed(1,0) && netDamageAllowed(-1,0));   /* friendly fire on, the run under way */
+    /* after the start the wave is the next run's, and Deathmatch refuses both */
+    horde_set_wave=0;gevrNetConfigSet(CFG_HORDE_START_WAVE,9);
+    CHECK(s_lobby_state.config.horde_start_wave==9 && s_round.config.horde_start_wave==7 && !horde_set_wave);
+    s_lobby_state.config.mode=NET_MODE_DEATHMATCH;
+    gevrNetConfigSet(CFG_HORDE_START_WAVE,3);gevrNetConfigSet(CFG_HORDE_STAGE,1);
+    CHECK(s_lobby_state.config.horde_start_wave==9 && gevrNetConfigGet(CFG_HORDE_STAGE)==0);
+    /* a dedicated server has no START WAVE of its own (net_horde.c releases it) */
+    s_lobby_state.config.mode=NET_MODE_HORDE;hordeInit(&fixture_horde,5);hordeHoldSetup(&fixture_horde);
+    CHECK(netHordeHostCanStart());s_dedicated=true;CHECK(!netHordeHostCanStart());s_dedicated=false;
+    /* late joiners play at once in the setup break, as in any break */
+    CHECK(!netJoinStartsSpectating());
+    VrHordeStartWave=wave;VrHordeStage=stage;fixture_horde=(HordeState){0};
     return 0;
 }
 static void fixtureStageReady(ENetPeer *peer, size_t size) {
@@ -239,6 +314,80 @@ EXPORT int test_core_teams(void) {
     voice_resets=0;netHostRoundEnded();if(!netVoiceSameGroup(0,1) || voice_resets!=GEVR_MAX_PLAYERS) return 10;
     return 0;
 }
+/*
+ * Per-player health (protocol 29): a player's own pick counts only under the
+ * host's Handicaps rule, the host's always; the round latches it, the wire
+ * carries it, a pending change reloads the warmup, and the owner's copy of a
+ * player takes damage scaled by their own row of front.c's table.
+ */
+EXPORT int test_core_handicaps(void) {
+    fixture(SCENARIO_NORMAL);
+    s_lobby_state.config.health=5;s_lobby_state.config.handicaps=0;
+    CHECK(netSlotHandicapIndex(1)==5 && s_lobby_state.slots[1].handicap==NET_HANDICAP_MATCH);
+    /* the rule off: a player's own is refused, the host's counts and is marked */
+    CHECK(!netSetSlotHandicap(1,netHandicapOf(10),false) && netSlotHandicapIndex(1)==5);
+    netHostSetSlotHandicap(1,netHandicapOf(0));
+    CHECK(s_lobby_state.slots[1].handicap==(NET_HANDICAP_HOST|netHandicapOf(0)) && netSlotHandicapIndex(1)==0);
+    CHECK(!netSetSlotHandicap(2,netHandicapOf(11),true) && !netSetSlotHandicap(2,0x7F,true));
+    /* the rule on: anyone their own, but not one the host set */
+    gevrNetConfigSet(CFG_HANDICAPS,1);
+    CHECK(s_lobby_state.config.handicaps==1 && VrMpHandicaps==1);
+    CHECK(netSetSlotHandicap(2,netHandicapOf(10),false) && netSlotHandicapIndex(2)==10);
+    CHECK(!netSetSlotHandicap(1,netHandicapOf(9),false) && netSlotHandicapIndex(1)==0);
+    CHECK(netSetSlotHandicap(3,NET_HANDICAP_MATCH,false) && netSlotHandicapIndex(3)==5);
+    /* the host's match health moves those on the match's, not the picks */
+    gevrNetConfigSet(CFG_HEALTH,7);
+    CHECK(netSlotHandicapIndex(3)==7 && netSlotHandicapIndex(2)==10 && netSlotHandicapIndex(1)==0);
+    /* the rule off again: the own pick waits, the host's stays */
+    gevrNetConfigSet(CFG_HANDICAPS,0);
+    CHECK(netSlotHandicapIndex(2)==7 && netSlotHandicapIndex(1)==0 && s_lobby_state.slots[2].handicap==netHandicapOf(10));
+    gevrNetConfigSet(CFG_HANDICAPS,1);gevrNetConfigSet(CFG_HEALTH,5);
+    /* the screen's step: back onto the match's health is the match's again */
+    CHECK(netHandicapStep(NET_HANDICAP_MATCH,1,5,11,1)==netHandicapOf(6));
+    CHECK(netHandicapStep(netHandicapOf(6),1,5,11,-1)==NET_HANDICAP_MATCH);
+    CHECK(netHandicapStep(netHandicapOf(10),1,5,11,1)==netHandicapOf(10) && netHandicapStep(netHandicapOf(0),1,5,11,-1)==netHandicapOf(0));
+    /* the round latches them and carries them */
+    netLatchRoundSettings();
+    CHECK(s_round.handicap[0]==5 && s_round.handicap[1]==0 && s_round.handicap[2]==10 && s_round.handicap[3]==5 && s_round.handicap[5]==5);
+    u8 raw[192];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings r;
+    netbufStartWrite(&b);netWriteRoundSettings(&b);netbufStartReadData(&b,raw,b.wp);
+    CHECK(netReadRoundSettings(&b,&r) && !netbufReadLeft(&b) && r.handicap[1]==0 && r.handicap[2]==10 && r.config.handicaps==1);
+    s_round.handicap[4]=11;netbufStartWrite(&b);netWriteRoundSettings(&b);netbufStartReadData(&b,raw,b.wp);
+    CHECK(!netReadRoundSettings(&b,&r));   /* past the table */
+    s_round.handicap[4]=5;
+    /* a pending change is a change to load into the warmup */
+    s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    CHECK(!netWarmupSettingsChanged());
+    netHostSetSlotHandicap(3,netHandicapOf(2));
+    CHECK(netWarmupSettingsChanged() && s_round.handicap[3]==5);
+    /* the damage each takes: the owner's copy multiplies by its own row (bondview2.c) */
+    for(int p=0;p<MAX_PLAYER_COUNT;p++){player_handicap[p]=5;g_playerPlayerData[p].handicap=1.0f;}
+    netLatchRoundSettings();netSyncRoundHandicaps();
+    CHECK(player_handicap[1]==0 && player_handicap[2]==10 && player_handicap[3]==2 && player_handicap[0]==5);
+    CHECK(g_playerPlayerData[1].handicap==s_mp_damage[0] && g_playerPlayerData[2].handicap==s_mp_damage[10]);
+    CHECK(g_playerPlayerData[1].handicap*1.0f>9.0f && g_playerPlayerData[2].handicap*1.0f<0.2f && g_playerPlayerData[0].handicap==1.0f);
+    /* License to Kill keeps its one-shot damage */
+    s_round.config.scenario=SCENARIO_LTK;player_handicap[2]=5;g_playerPlayerData[2].handicap=200.0f;netSyncRoundHandicaps();
+    CHECK(g_playerPlayerData[2].handicap==200.0f);
+    s_round.config.scenario=SCENARIO_NORMAL;player_handicap[2]=10;g_playerPlayerData[2].handicap=s_mp_damage[10];
+    /* a joiner in a seat a player with their own health left plays at theirs, at once */
+    s_lobby_state.slots[2].handicap=NET_HANDICAP_MATCH;netSlotHandicapJoined(2);
+    CHECK(s_round.handicap[2]==5 && player_handicap[2]==5 && g_playerPlayerData[2].handicap==s_mp_damage[5]);
+    /* this machine: the host's own seat may change its own; a guest at the host's screen
+     * is a player like any other, its own only under the rule; nobody else's here */
+    s_local_slots[1]=2;s_local_count=2;   /* slot 3 the host set: not the player's own to change */
+    CHECK(netSlotHandicapEditable(0) && netSlotHandicapEditable(2) && !netSlotHandicapEditable(1) && !netSlotHandicapEditable(3));
+    gevrNetConfigSet(CFG_HANDICAPS,0);
+    CHECK(netSlotHandicapEditable(0) && !netSlotHandicapEditable(2));
+    netLobbySetHandicapSlot(2,netHandicapOf(9));CHECK(s_lobby_state.slots[2].handicap==NET_HANDICAP_MATCH);
+    netLobbySetHandicapSlot(0,netHandicapOf(9));CHECK(s_lobby_state.slots[0].handicap==(NET_HANDICAP_HOST|netHandicapOf(9)));
+    s_local_slots[1]=-1;s_local_count=1;
+    /* PvE: the difficulty and the waves decide; nobody's own */
+    fixture(SCENARIO_NORMAL);s_lobby_state.config.mode=NET_MODE_HORDE;s_lobby_state.config.handicaps=1;
+    s_lobby_state.slots[1].handicap=netHandicapOf(0);
+    CHECK(netSlotHandicapIndex(1)==5 && !netSetSlotHandicap(1,netHandicapOf(10),true) && !netSlotHandicapEditable(0));
+    return 0;
+}
 /* Teammates are always heard at full gain: in Horde and co-op everyone is one,
  * so the host's Proximity choice only reaches free-for-all opponents. */
 EXPORT int test_core_pve_voice_teammates(void) {
@@ -260,7 +409,7 @@ EXPORT int test_core_live_voice(void) {
     NetMatchConfig c=s_lobby_state.config;c.voice_mode=1;c.stage=31;netLobbySetConfig(&c);
     if(s_round.config.voice_mode != 1 || s_round.config.stage != 34 || s_lobby_state.config.stage != 31 || voice_resets != GEVR_MAX_PLAYERS) return 1;
     c.voice_mode=2;netLobbySetConfig(&c);if(s_lobby_state.config.voice_mode != 1) return 2;
-    u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings restored;
+    u8 raw[192];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings restored;
     s_round.team[1]=1;s_round.departed_score[1]=-3;
     netbufStartWrite(&b);netWriteRoundSettings(&b);netbufStartReadData(&b,raw,b.wp);
     if(!netReadRoundSettings(&b,&restored) || netbufReadLeft(&b) || restored.team[1]!=1 || restored.departed_score[1]!=-3 || restored.config.voice_mode!=1) return 3;
@@ -279,7 +428,7 @@ EXPORT int test_core_friendly_fire(void) {
     if(netDamageAllowed(0,1)) return 2;
     c.friendly_fire=2;netLobbySetConfig(&c);if(s_round.config.friendly_fire) return 3;
     c.friendly_fire=1;netLobbySetConfig(&c);if(!netDamageAllowed(0,1)) return 4;
-    u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings r;
+    u8 raw[192];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings r;
     netbufStartWrite(&b);netWriteRoundSettings(&b);netbufStartReadData(&b,raw,b.wp);
     if(!netReadRoundSettings(&b,&r) || !r.config.friendly_fire || r.team[1]!=NET_TEAM_RED) return 5;
     s_local_slot=2;ENetPeer peer={0};netHostLost(&peer);
@@ -948,7 +1097,7 @@ static void inputClass(int slot,int value,size_t size) {
 EXPORT int test_core_flat_count(void) {
     fixture(0);
     memset(s_client_input,NET_INPUT_UNKNOWN,sizeof(s_client_input));
-    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(uintptr_t)(1u<<i);}
     CHECK(netGetFlatPlayerCount()==0);   /* the host (unknown here) and three that said nothing */
     s_client_input[1]=NET_INPUT_MOUSE;s_client_input[2]=NET_INPUT_VR;s_client_input[3]=NET_INPUT_TOUCH;
     CHECK(netGetFlatPlayerCount()==2);
@@ -1107,10 +1256,120 @@ EXPORT int test_core_warmup_join_and_votes(void) {
     netHostStartRoundNow();CHECK(s_next_round_at_us==clock_us+10000000ull);
     return 0;
 }
+/*
+ * The in-match Multiplayer Options folder (mpmenu.c) opens by itself after the
+ * host's RETURN TO LOBBY: cancelling a start is not one, the reload is; the
+ * vote it opens on, and START's word for changes the warmup has yet to load.
+ */
+static void roundNoticePacket(ENetPeer*peer,unsigned flags,uint32_t ms,int length);
+EXPORT int test_core_lobby_returns(void) {
+    fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();
+    unsigned before=netLobbyReturnCount();
+    CHECK(!netWarmupSettingsPending());
+    gevrNetConfigSet(CFG_GAME_LENGTH,(gevrNetConfigGet(CFG_GAME_LENGTH)+1)%4);CHECK(netWarmupSettingsPending());
+    netLatchRoundSettings();CHECK(!netWarmupSettingsPending());
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].ready=1;   /* the change un-readied them */
+    netHostStartRoundNow();CHECK(s_next_round_at_us);
+    netHostReturnToLobby();CHECK(!s_next_round_at_us && netLobbyReturnCount()==before);   /* a start cancelled */
+    s_host=(ENetHost*)1;s_client_peers[1]=&hit_peers[1];sent_size=0;
+    netHostReturnToLobby();CHECK(netLobbyReturnCount()==before+1 && s_round_reset_loading && !s_start_after_load);
+    /* the reset's round notice (its last packet) says it is a return (NET_NOTICE_LOBBY), the next one does not */
+    CHECK(sent_size==13 && sent_data[6]==NET_MSG_ROUND_NOTICE && (sent_data[8]&NET_NOTICE_LOBBY));
+    sent_size=0;netBroadcastRoundNotice();CHECK(sent_size==13 && !(sent_data[8]&NET_NOTICE_LOBBY) && !s_notice_lobby);
+    s_host=NULL;s_client_peers[1]=NULL;
+    /* a client counts the notices that say so, and nothing else */
+    s_server_peer=&hit_peers[0];s_local_slot=3;before=netLobbyReturnCount();
+    roundNoticePacket(s_server_peer,NET_NOTICE_WARMUP,10000,5);CHECK(netLobbyReturnCount()==before);
+    roundNoticePacket(s_server_peer,NET_NOTICE_LOBBY,0,5);CHECK(netLobbyReturnCount()==before+1);
+    roundNoticePacket(s_server_peer,NET_NOTICE_LOBBY|16,0,5);CHECK(netLobbyReturnCount()==before+1);
+    roundNoticePacket(&hit_peers[1],NET_NOTICE_LOBBY,0,5);CHECK(netLobbyReturnCount()==before+1);
+    s_local_slot=0;s_server_peer=NULL;
+    CHECK(!netWarmupSettingsPending());   /* loading */
+    s_lobby_state.config.next_round=NET_NEXT_SHUFFLE;s_vote_requested=true;CHECK(!netVoteRequested());
+    s_lobby_state.config.next_round=NET_NEXT_VOTE;CHECK(netVoteRequested());
+    s_vote_requested=false;CHECK(!netVoteRequested());
+    return 0;
+}
 static void roundNoticePacket(ENetPeer*peer,unsigned flags,uint32_t ms,int length) {
     u8 raw[6];struct netbuf b={.data=raw,.size=sizeof(raw)};
     netbufStartWrite(&b);netbufWriteU8(&b,flags);netbufWriteU32(&b,ms);netbufWriteU8(&b,0);
     netbufStartReadData(&b,raw,length);netReceiveRoundNotice(peer,&b,8+length);
+}
+/* The pre-match lobby (docs/match-lobby.md): launch into it, START to the map, back after the match */
+EXPORT int test_core_match_lobby(void) {
+    fixture(0);s_lobby_state.config.lobby=1;s_lobby_state.config.warmup=NET_WARMUP_RULE_OFF;
+    CHECK(netLobbyHostLaunchMatch());
+    CHECK(s_round.lobby && netInMatchLobby() && netRoundLoadStage()==LEVELID_TITLE && s_phase==NET_PHASE_WARMUP);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(s_warmup_started && !s_warmup_end_us && s_lobby_open);   /* no clock: the host's START */
+    /* a change waits for START (there is no warmup to load it into) */
+    gevrNetConfigSet(CFG_GAME_LENGTH,(gevrNetConfigGet(CFG_GAME_LENGTH)+1)%4);CHECK(!netWarmupSettingsPending());
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].ready=1;
+    int humans=0;s_lobby_state.slots[2].ready=0;
+    CHECK(netLobbyReadyCount(&humans)==3 && humans==4);   /* the host's START is its READY */
+    s_lobby_state.slots[2].ready=1;
+    /* START: the lobby's short countdown, then the map, the match under way once loaded */
+    netHostStartRoundNow();
+    CHECK(s_next_round_at_us==clock_us+NET_LOBBY_COUNTDOWN_SECONDS*1000000ull && s_round.lobby);
+    clock_us=s_next_round_at_us;netHostRoundTick(clock_us);
+    CHECK(!s_round.lobby && !netInMatchLobby() && s_round_reset_loading && s_start_after_load);
+    CHECK(netRoundLoadStage()==(int)netStageLevelId(34) && s_round.config.game_length==s_lobby_state.config.game_length);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(!s_round_reset_loading);
+    /* the match's end, its results, then everyone back to the lobby, the vote going on there */
+    s_phase=NET_PHASE_IN_PROGRESS;s_lobby_state.config.next_round=NET_NEXT_VOTE;
+    netHostRoundEnded();CHECK(s_match_ended);
+    unsigned returns=netLobbyReturnCount();
+    netHostContinue();
+    CHECK(s_round.lobby && s_round_reset_loading && !s_match_ended && s_vote_requested && netLobbyReturnCount()==returns+1);
+    CHECK(netRoundLoadStage()==LEVELID_TITLE);
+    /* Shuffle turns as the lobby is entered, so the lobby shows the next map */
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    s_round_reset_loading=false;s_phase=NET_PHASE_IN_PROGRESS;s_round.lobby=0;s_match_ended=false;
+    s_lobby_state.config.next_round=NET_NEXT_SHUFFLE;VrMpFavStages=0;
+    netHostRoundEnded();netHostContinue();
+    CHECK(s_round.lobby && !s_vote_requested);
+    /* the Warmup rule: START from the lobby loads the map into its practice, on its clock */
+    for(int i=0;i<4;i++){s_lobby_state.slots[i].loaded=1;s_lobby_state.slots[i].ready=1;}
+    s_round_reset_loading=false;s_lobby_state.config.warmup=NET_WARMUP_RULE_30;
+    netHostStartRoundNow();CHECK(s_next_round_at_us);
+    clock_us=s_next_round_at_us;netHostRoundTick(clock_us);
+    CHECK(!s_round.lobby && s_round_reset_loading && !s_start_after_load);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(!s_round_reset_loading && netWarmupSecondsLeft()==30);
+    /* RETURN TO LOBBY from the practice */
+    CHECK(netHostCanEnterLobby());
+    netHostReturnToLobby();CHECK(s_round.lobby && s_round_reset_loading);
+    /* alone in the lobby, START practices on the map */
+    s_round_reset_loading=false;
+    for(int i=1;i<4;i++)s_lobby_state.slots[i].connected=0;
+    netHostStartRoundNow();CHECK(!s_round.lobby && s_round_reset_loading && !s_start_after_load);
+    for(int i=1;i<4;i++)s_lobby_state.slots[i].connected=1;
+    /* the rule off: RETURN TO LOBBY is the old warmup, and a dedicated server left empty restarts it */
+    s_round_reset_loading=false;s_lobby_state.config.lobby=0;s_phase=NET_PHASE_IN_PROGRESS;
+    CHECK(!netHostCanEnterLobby());
+    netHostReturnToLobby();CHECK(!s_round.lobby && s_round_reset_loading);
+    s_round_reset_loading=false;s_lobby_state.config.lobby=1;s_phase=NET_PHASE_IN_PROGRESS;
+    netHostIdleReset();CHECK(s_round.lobby);
+    /* the round settings carry the lobby byte; one past 1, or a lobby outside deathmatch, is refused */
+    {
+        u8 raw[256];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings r;
+        netbufStartWrite(&b);netWriteRoundSettings(&b);size_t n=b.wp;
+        netbufStartReadData(&b,raw,n);CHECK(netReadRoundSettings(&b,&r) && r.lobby==1);
+        raw[n-1]=2;netbufStartReadData(&b,raw,n);CHECK(!netReadRoundSettings(&b,&r));
+        raw[n-1]=0;netbufStartReadData(&b,raw,n);CHECK(netReadRoundSettings(&b,&r) && r.lobby==0);
+    }
+    /* the rules ride the config: bad values refused, the setter takes the good ones */
+    {
+        NetMatchConfig c=s_lobby_state.config;c.warmup=NET_WARMUP_RULE_COUNT;CHECK(!netValidConfig(&c));
+        c.warmup=0;c.lobby=2;CHECK(!netValidConfig(&c));
+        gevrNetConfigSet(CFG_WARMUP,NET_WARMUP_RULE_120);CHECK(gevrNetConfigGet(CFG_WARMUP)==NET_WARMUP_RULE_120 && VrMpWarmup==3);
+        gevrNetConfigSet(CFG_LOBBY,0);CHECK(!gevrNetConfigGet(CFG_LOBBY) && !VrMpLobby && !netLobbyRuleOn());
+        gevrNetConfigSet(CFG_WARMUP,NET_WARMUP_RULE_COUNT);CHECK(gevrNetConfigGet(CFG_WARMUP)==NET_WARMUP_RULE_120);
+    }
+    return 0;
 }
 EXPORT int test_core_round_prompts(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
@@ -1124,10 +1383,13 @@ EXPORT int test_core_round_prompts(void) {
     s_vote_requested=true;s_lobby_state.config.next_round=NET_NEXT_VOTE;netClearVotes(-1);
     netRoundNoticeText(message,sizeof(message));CHECK(strstr(message,"VOTES"));
     s_vote[0][3]=0;s_vote[1][3]=4;netRoundNoticeText(message,sizeof(message));CHECK(!strstr(message,"VOTES"));
+    s_vote[0][3]=-1;netRoundNoticeTextFit(message,sizeof(message),1);CHECK(strstr(message,"VOTE") && strlen(message)<=18);
+    s_vote[0][3]=0;
     s_countdown_end_us=clock_us+10000000;netRoundNoticeText(message,sizeof(message));CHECK(!message[0]);
     s_countdown_end_us=0;s_server_peer=&hit_peers[0];s_start_requested=s_vote_requested=false;
     roundNoticePacket(&hit_peers[1],7,10000,5);CHECK(!s_start_requested && !s_warmup_end_us);
     for(int length=0;length<5;length++){roundNoticePacket(s_server_peer,7,10000,length);CHECK(!s_start_requested);}
+    roundNoticePacket(s_server_peer,16|7,10000,5);CHECK(!s_start_requested);
     roundNoticePacket(s_server_peer,8,10000,5);CHECK(!s_start_requested);
     roundNoticePacket(s_server_peer,7,120001,5);CHECK(!s_start_requested);
     roundNoticePacket(s_server_peer,3,10000,5);CHECK(!s_start_requested);
@@ -1141,7 +1403,7 @@ EXPORT int test_core_round_prompts(void) {
 EXPORT int test_core_host_kick(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
     disconnected_peer=NULL;disconnect_reason=0;
-    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(uintptr_t)(1u<<i);}
     s_lobby_state.slots[1].spectator=1;s_lobby_state.slots[1].loaded=0;s_vote[0][1]=2;
     CHECK(!netHostKickPlayer(-1) && !netHostKickPlayer(0) && !netHostKickPlayer(8));
     /* Older protocol-17 guests interpret a server disconnect as host loss.
@@ -1177,7 +1439,7 @@ static void caps(int slot,unsigned value) {
 }
 EXPORT int test_core_no_radar_caps(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_HOSTING_LOBBY;
-    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(uintptr_t)(1u<<i);}
     caps(1,NET_CLIENT_CAP_KICK);                          /* v0.4.11 */
     caps(2,NET_CLIENT_CAP_KICK|NET_CLIENT_CAP_NO_RADAR);  /* this build */
     /* slot 3 has not said yet */
@@ -1208,7 +1470,7 @@ static void hitFixture(void) {
     for(int i=0;i<4;i++) {
         g_playerPointers[i]=&hit_players[i];s_client_peers[i]=&hit_peers[i];
         hit_peers[i].state=ENET_PEER_STATE_CONNECTED;hit_peers[i].lastReceiveTime=enet_time_get();
-        hit_peers[i].roundTripTime=i==1?20:i==2?60:180;hit_peers[i].data=(void*)(intptr_t)(i+1);
+        hit_peers[i].roundTripTime=i==1?20:i==2?60:180;hit_peers[i].data=(void*)(uintptr_t)(1u<<i);
         netClockSample(&s_clock_sync[i],clock_us-2000,clock_us-1000,clock_us-1000,clock_us);
     }
 }
@@ -1362,7 +1624,7 @@ EXPORT int test_core_timed_hits(void) {
 }
 EXPORT int test_core_combat_identity(void) {
     hitFixture();s_hit_life[1]=7;s_hit_life[2]=9;
-    u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);netWriteRoundSettings(&b);
+    u8 raw[192];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);netWriteRoundSettings(&b);
     unsigned len=b.wp;NetRoundSettings r;netbufStartReadData(&b,raw,len);CHECK(netReadRoundSettings(&b,&r));
     CHECK(r.combat_epoch==s_combat_epoch && r.life[1]==7 && r.life[2]==9);
     for(unsigned n=0;n<len;n++){netbufStartReadData(&b,raw,n);CHECK(!netReadRoundSettings(&b,&r));}
@@ -1466,11 +1728,11 @@ EXPORT int test_core_eight_slots(void) {
     g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
     CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
 
-    /* the late-join snapshot: 81 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty, the bots and Horde's start wave), past the old 512 */
+    /* the late-join snapshot: 88 + 50N + 4N^2 bytes (two match configs with co-op's mode and difficulty, the bots, Horde's start wave, the Handicaps rule and the lobby's two rules; each player's handicap; the round's lobby byte), past the old 512 */
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==81+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==88+50*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);
@@ -1552,6 +1814,8 @@ EXPORT int test_core_bot_roster(void) {
     int red=0,blue=0;for(int i=0;i<4;i++) {red+=s_lobby_state.slots[i].team==NET_TEAM_RED;blue+=s_lobby_state.slots[i].team==NET_TEAM_BLUE;}
     CHECK(red==2 && blue==2);
     gevrNetConfigSet(CFG_SCENARIO,0);CHECK(s_lobby_state.slots[1].team==NET_TEAM_NONE);
+    /* the folder's Scenario list asks without changing anything (mpmenu.c) */
+    CHECK(gevrNetScenarioAccepted(5) && gevrNetScenarioAccepted(0) && !gevrNetScenarioAccepted(netScenarioCount()) && !gevrNetScenarioAccepted(-1) && gevrNetConfigGet(CFG_SCENARIO)==0);
     /* eight bots' names fit the lobby packet */
     static ENetHost bot_host;s_host=&bot_host;
     gevrNetConfigSet(CFG_MAX_PLAYERS,8);CHECK(botsIn()==7);
@@ -1574,33 +1838,69 @@ EXPORT int test_core_bot_roster(void) {
 }
 /* Joins: a bot gives its place up (the lowest score), a leaver's comes back to the bots between rounds */
 EXPORT int test_core_bot_join(void) {
-    bool rb;uint8_t team;
+    bool rb;uint8_t team,side;
     botFixture(0);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
-    int slot=netJoinSlot(0xFF,"Guest",&rb,&team);
+    int slot=netJoinSlot(0xFF,"Guest",&rb,&team,&side);
     CHECK(slot==3 && rb && team==NET_TEAM_NONE && !s_lobby_state.slots[3].connected);
     s_lobby_state.slots[3].connected=1;snprintf(s_lobby_state.slots[3].name,GEVR_MAX_NAME_LEN,"Guest");
     netUpdateBots(false);CHECK(botsIn()==2 && netGetHumanPlayerCount()==2);
     netHostDropSlot(3,NULL);CHECK(botsIn()==3 && netSlotIsBot(3));
     /* Fixed below the room: a free slot first */
     gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FIXED);gevrNetConfigSet(CFG_BOT_COUNT,1);CHECK(botsIn()==1);
-    slot=netJoinSlot(0xFF,"Guest",&rb,&team);CHECK(slot==2 && !rb);
+    slot=netJoinSlot(0xFF,"Guest",&rb,&team,&side);CHECK(slot==2 && !rb);
     /* mid-round: the lowest score leaves, the joiner plays on its side, no refill after */
     gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
     netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
     g_playerPlayerData[3].kill_counts[0]=2;
-    slot=netJoinSlot(0xFF,"Late",&rb,&team);CHECK(slot==2 && rb);
+    slot=netJoinSlot(0xFF,"Late",&rb,&team,&side);CHECK(slot==2 && rb);
     CHECK(g_playerPlayerData[0].gevr_score_bank==0 && g_playerPlayerData[3].kill_counts[0]==2);
     s_lobby_state.slots[2].connected=1;s_lobby_state.slots[2].loaded=1;
     netHostDropSlot(2,NULL);CHECK(botsIn()==2 && !s_lobby_state.slots[2].connected);
     /* full of people: no place */
     for(int i=1;i<4;i++) {memset(&s_lobby_state.slots[i],0,sizeof(NetLobbySlot));s_lobby_state.slots[i].connected=1;}
-    CHECK(netJoinSlot(0xFF,"Nope",&rb,&team)<0 && !rb);
+    CHECK(netJoinSlot(0xFF,"Nope",&rb,&team,&side)<0 && !rb);
     /* a host change never elects a bot */
     s_state=NET_STATE_INGAME;s_host_slot=0;s_local_slot=3;
     memset(&s_lobby_state.slots[1],0,sizeof(NetLobbySlot));memset(&s_lobby_state.slots[2],0,sizeof(NetLobbySlot));
     s_lobby_state.slots[1].connected=s_lobby_state.slots[1].is_bot=1;s_lobby_state.slots[2].connected=s_lobby_state.slots[2].is_bot=1;
     netHostLost(&hit_peers[0]);CHECK(s_host_slot==3);
     s_state=NET_STATE_HOSTING_LOBBY;s_host_slot=s_local_slot=0;VrMpBotMode=0;
+    return 0;
+}
+
+/*
+ * Four split-screen players on a 2v2 with bots (owner, 2026-11-24): the Teams
+ * screen showed three of them, "TOO MANY ON A TEAM". A joiner taking a bot's
+ * place took the bot's side from the warmup's load while the host's pick had
+ * moved the bots since. Now no side ever gets more humans than it takes: the
+ * bot from the side with room, the joiner on a side with room, else none.
+ */
+EXPORT int test_core_bot_join_teams(void) {
+    bool rb;uint8_t team,side;
+    botFixture(5);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    netSetSlotTeam(0,NET_TEAM_RED);   /* the host on red: the bots move, the round's teams stay as loaded */
+    for(int i=1;i<4;i++) s_round.team[i]=NET_TEAM_RED;
+    for(int g=0;g<3;g++) {
+        char name[16];snprintf(name,sizeof(name),"Guest %d",g);
+        int slot=netJoinSlot(0xFF,name,&rb,&team,&side);
+        CHECK(slot>0 && rb && team==side);
+        s_lobby_state.slots[slot].connected=1;s_lobby_state.slots[slot].team=side;s_round.team[slot]=team;
+        snprintf(s_lobby_state.slots[slot].name,GEVR_MAX_NAME_LEN,"%s",name);
+        netUpdateBots(false);
+        CHECK(netTeamHumans(NET_TEAM_RED)<=2 && netTeamHumans(NET_TEAM_BLUE)<=2);
+    }
+    CHECK(netTeamHumans(NET_TEAM_RED)==2 && netTeamHumans(NET_TEAM_BLUE)==2 && botsIn()==0);
+    /* mid-round the joiner plays the bot's side now and a side with room next round */
+    botFixture(5);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);
+    netSetSlotTeam(0,NET_TEAM_RED);
+    for(int i=1;i<4;i++) if(netSlotIsBot(i)) s_lobby_state.slots[i].team=NET_TEAM_RED;
+    s_lobby_state.slots[1].connected=1;s_lobby_state.slots[1].is_bot=0;s_lobby_state.slots[1].team=NET_TEAM_RED;
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+    for(int i=0;i<4;i++) s_round.team[i]=NET_TEAM_RED;
+    int slot=netJoinSlot(0xFF,"Late",&rb,&team,&side);
+    CHECK(slot>1 && rb && team==NET_TEAM_RED && side==NET_TEAM_BLUE);
+    s_state=NET_STATE_HOSTING_LOBBY;s_phase=NET_PHASE_WAITING;VrMpBotMode=0;
     return 0;
 }
 
@@ -1672,5 +1972,232 @@ EXPORT int test_core_full_maps(void) {
     CHECK(netRotationPick(NET_BALLOT_STAGE, last, fav, NET_NEXT_PLAYLIST) == full);
     for (int i = 0; i < 16; i++) CHECK(netRotationPick(NET_BALLOT_STAGE, full, fav, NET_NEXT_SHUFFLE) == last);
     s_state = old_state; s_round.config.stage = 34;
+    return 0;
+}
+
+/* Protocol 28: No teleport host rule (NET_FUN_NO_TELEPORT) in Deathmatch, Co-op and Horde. */
+EXPORT int test_core_no_teleport_rule(void) {
+    fixture(0);
+    s_lobby_state.config.fun_flags = 0;
+    gevrNetConfigSet(CFG_FUN_FLAGS, NET_FUN_NO_TELEPORT);
+    CHECK((s_lobby_state.config.fun_flags & NET_FUN_NO_TELEPORT) != 0);
+    CHECK((VrMpFunFlags & NET_FUN_NO_TELEPORT) != 0);
+    netLatchRoundSettings();
+    CHECK((netActiveFunFlags() & NET_FUN_NO_TELEPORT) != 0);
+    /* Co-op and Horde configs also accept NET_FUN_NO_TELEPORT. */
+    NetMatchConfig c = s_lobby_state.config;
+    c.mode = NET_MODE_COOP; c.stage = 34; c.difficulty = 0;
+    c.fun_flags = NET_FUN_NO_TELEPORT | NET_COOP_FAST_REINFORCEMENTS;
+    CHECK(netMatchConfigValid(&c));
+    c.mode = NET_MODE_HORDE; c.stage = NET_HORDE_STAGE; c.difficulty = 0;
+    c.max_players = 4; c.horde_start_wave = 1; c.bot_mode = NET_BOT_OFF;
+    c.fun_flags = NET_FUN_NO_TELEPORT;
+    CHECK(netMatchConfigValid(&c));
+    return 0;
+}
+
+/* Protocol 28: online split screen (multi-slot local humans, multi-slot remote peers,
+ * deduplicated broadcasts/clocks, NET_MSG_LOCAL_GUEST add/remove, selective guest kick,
+ * and multi-slot host migration). */
+EXPORT int test_core_online_splitscreen(void) {
+    /* 1. Host local guests: add, ownership, viewport mapping, flat count, remove. */
+    fixture(0);
+    for (int i = 1; i < GEVR_MAX_PLAYERS; i++) s_lobby_state.slots[i].connected = 0;
+    s_lobby_state.slots[0].owner_slot = 0;
+    s_lobby_state.config.max_players = 4; s_max_players = 4;
+    VrMpVrOnly = 0;
+    CHECK(netLocalSlotCount() == 1 && gevrLocalViewCount() == 1 && gevrLocalViewIndex(0) == 0);
+    int g1 = netRequestAddLocalGuest("Couch P2", 5, NET_INPUT_PAD, NULL);
+    CHECK(g1 == 1 && netLocalSlotCount() == 2 && gevrLocalViewCount() == 2);
+    CHECK(netSlotIsLocalHuman(0) && netSlotIsLocalHuman(1) && netSlotOwned(1));
+    CHECK(netLocalSeatOfSlot(1) == 1 && netSlotOfLocalSeat(1) == 1 && gevrLocalViewIndex(1) == 1);
+    CHECK(netGetSlotOwner(1) == 0 && s_lobby_state.slots[1].chr_id == 5);
+    CHECK(netGetFlatPlayerCount() == 1);
+    /* A guest's character chosen in the match is the seat's saved one too (Guest2Chr). */
+    netLobbySetCharacterSlot(1, 9);
+    CHECK(s_lobby_state.slots[1].chr_id == 9 && VrGuestChr[0] == 9);
+    /* A guest choosing their character after dropping in (mpmenu.c) takes no damage,
+     * environmental included, on the machine that plays them; a slot played elsewhere
+     * is not theirs to spare. */
+    {
+        const int hurt = netDamageAllowed(0, 1);
+        netSetSlotChoosing(1, 1);
+        CHECK(netSlotChoosing(1) && !netDamageAllowed(0, 1) && !netDamageAllowed(-1, 1));
+        netSetSlotChoosing(1, 0);
+        CHECK(!netSlotChoosing(1) && netDamageAllowed(0, 1) == hurt);
+        netSetSlotChoosing(2, 1);
+        CHECK(!netSlotChoosing(2));
+        netSetSlotChoosing(2, 0);
+        /* Seen from the other machines: the moves of a player choosing say so (co-op's guards and revives). */
+        netSetSlotChoosing(1, 1);
+        CHECK(netSlotChoosingSeen(1) && !netSlotChoosingSeen(2));
+        netSetSlotChoosing(1, 0);
+        s_remote_active[2] = true; s_remote_moves[2].ucmd = UCMD_CHOOSING;
+        CHECK(!netSlotChoosingSeen(1) && netSlotChoosingSeen(2));
+        s_remote_active[2] = false;
+        CHECK(!netSlotChoosingSeen(2));
+        s_remote_moves[2].ucmd = 0;
+    }
+    CHECK(netRequestRemoveLocalGuest(1));
+    CHECK(netLocalSlotCount() == 1 && !netSlotIsLocalHuman(1) && !s_lobby_state.slots[1].connected);
+    CHECK(!netRequestRemoveLocalGuest(0)); /* cannot drop primary seat via guest-remove */
+
+    /* 2. Multi-slot remote peer: deduplicated broadcast, single clock probe, shared sync,
+     * anti-spoofing, combined STAGE_READY, and single-guest vs primary kick. */
+    fixture(0);
+    s_max_players = 4; s_lobby_state.config.max_players = 4;
+    static ENetHost split_host;
+    s_host = &split_host;
+    ENetPeer peerA = {0}, peerB = {0};
+    peerA.state = peerB.state = ENET_PEER_STATE_CONNECTED;
+    peerA.lastReceiveTime = peerB.lastReceiveTime = enet_time_get();
+    peerA.roundTripTime = 30; peerB.roundTripTime = 60;
+    netPeerAttachSlot(&peerA, 1);
+    netPeerAttachSlot(&peerA, 2);
+    netPeerAttachSlot(&peerB, 3);
+    s_lobby_state.slots[0].owner_slot = 0;
+    s_lobby_state.slots[1].owner_slot = 1;
+    s_lobby_state.slots[2].owner_slot = 1;
+    s_lobby_state.slots[3].owner_slot = 3;
+    CHECK(netPeerOwnsSlot(&peerA, 1) && netPeerOwnsSlot(&peerA, 2) && !netPeerOwnsSlot(&peerA, 3));
+    CHECK(netPeerPrimarySlot(&peerA) == 1 && netSlotSyncIndex(2) == 1);
+
+    /* Broadcast sends once per unique ENetPeer (2 sends, not 3). */
+    sent_peer_count = 0;
+    u8 dummy[8] = {0};
+    netBroadcastPacket(dummy, sizeof(dummy), NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    CHECK(sent_peer_count == 2);
+
+    /* Clock tick probes peerA once (not twice) and sync covers both slots 1 and 2. */
+    s_state = NET_STATE_INGAME; s_phase = NET_PHASE_WARMUP;
+    netResetCombatEpoch();
+    sent_peer_count = 0;
+    netClockTick();
+    CHECK(sent_peer_count == 2); /* peerA (slot 1) + peerB (slot 3) */
+    netClockSample(&s_clock_sync[1], clock_us - 2000, clock_us - 1000, clock_us - 1000, clock_us);
+    netClockSample(&s_clock_sync[3], clock_us - 2000, clock_us - 1000, clock_us - 1000, clock_us);
+    CHECK(netCombatClocksReady()); /* slot 2 reuses slot 1's synced clock */
+
+    /* Anti-spoofing: peerA cannot set ready for peerB's slot 3, CAN set ready for its own slot 2. */
+    s_lobby_state.slots[2].ready = 0; s_lobby_state.slots[3].ready = 0;
+    {
+        u8 r1[1] = {1}; struct netbuf b = {.data = r1, .size = 1};
+        netbufStartReadData(&b, r1, 1); netReceiveLobbyReady(&peerA, 3, &b, 9);
+        CHECK(!s_lobby_state.slots[3].ready);
+        netbufStartReadData(&b, r1, 1); netReceiveLobbyReady(&peerA, 2, &b, 9);
+        CHECK(s_lobby_state.slots[2].ready == 1);
+    }
+
+    /* One STAGE_READY from peerA marks BOTH slots 1 and 2 loaded. */
+    s_lobby_state.slots[1].loaded = s_lobby_state.slots[2].loaded = 0;
+    fixtureStageReady(&peerA, 24);
+    CHECK(s_lobby_state.slots[1].loaded == 1 && s_lobby_state.slots[2].loaded == 1);
+
+    /* Kicking remote guest (slot 2) drops ONLY slot 2 without disconnecting peerA. */
+    {
+        u8 c1[1] = {NET_CLIENT_CAP_KICK}; struct netbuf b = {.data = c1, .size = 1};
+        netbufStartReadData(&b, c1, 1); netReceiveClientCaps(&peerA, 1, &b, 9);
+        CHECK(s_client_can_be_kicked[1] && s_client_can_be_kicked[2]);
+    }
+    disconnected_peer = NULL; disconnect_reason = 0;
+    CHECK(netHostKickPlayer(2));
+    CHECK(disconnected_peer == NULL);
+    CHECK(!s_lobby_state.slots[2].connected && s_lobby_state.slots[1].connected && netPeerOwnsSlot(&peerA, 1));
+
+    /* 3. Dynamic NET_MSG_LOCAL_GUEST ADD & REMOVE from remote peerA (mid-match drop-in). */
+    s_phase = NET_PHASE_IN_PROGRESS;
+    {
+        u8 raw[64]; struct netbuf wb = {.data = raw, .size = sizeof(raw)};
+        netbufStartWrite(&wb);
+        netbufWriteU8(&wb, NET_GUEST_OP_ADD);
+        netbufWriteU8(&wb, 1);
+        netbufWriteU8(&wb, 7);
+        netbufWriteU8(&wb, NET_INPUT_PAD);
+        for (int k = 0; k < 4; k++) netbufWriteU8(&wb, 0);
+        netbufWriteStr(&wb, "DropIn P2");
+        struct netbuf rb; netbufStartReadData(&rb, raw, wb.wp);
+        sent_size = 0;
+        netReceiveLocalGuest(&peerA, 1, &rb);
+        CHECK(sent_data[6] == NET_MSG_LOCAL_GUEST && sent_data[8] == NET_GUEST_OP_ADD && sent_data[9] == NET_GUEST_RESULT_OK);
+        int added = sent_data[11];
+        CHECK(added == 2 && netPeerOwnsSlot(&peerA, 2) && s_lobby_state.slots[2].owner_slot == 1);
+        CHECK(s_lobby_state.slots[2].loaded == 1 && !s_lobby_state.slots[2].spectator);
+    }
+    /* Match is now full (4/4): another ADD is refused with NET_GUEST_RESULT_FULL. */
+    {
+        u8 raw[64]; struct netbuf wb = {.data = raw, .size = sizeof(raw)};
+        netbufStartWrite(&wb);
+        netbufWriteU8(&wb, NET_GUEST_OP_ADD);
+        netbufWriteU8(&wb, 2); netbufWriteU8(&wb, 3); netbufWriteU8(&wb, NET_INPUT_PAD);
+        for (int k = 0; k < 4; k++) netbufWriteU8(&wb, 0);
+        netbufWriteStr(&wb, "TooMany");
+        struct netbuf rb; netbufStartReadData(&rb, raw, wb.wp);
+        sent_size = 0;
+        netReceiveLocalGuest(&peerA, 1, &rb);
+        CHECK(sent_data[6] == NET_MSG_LOCAL_GUEST && sent_data[9] == NET_GUEST_RESULT_FULL);
+    }
+    /* PeerA removes its guest slot 2; trying to remove primary slot 1 is denied. */
+    {
+        u8 raw[8] = { NET_GUEST_OP_REMOVE, 1 }; struct netbuf rb; netbufStartReadData(&rb, raw, 2);
+        sent_size = 0; netReceiveLocalGuest(&peerA, 1, &rb);
+        CHECK(sent_data[9] == NET_GUEST_RESULT_DENIED && s_lobby_state.slots[1].connected);
+        raw[1] = 2; netbufStartReadData(&rb, raw, 2);
+        sent_size = 0; netReceiveLocalGuest(&peerA, 1, &rb);
+        CHECK(sent_data[9] == NET_GUEST_RESULT_OK && !s_lobby_state.slots[2].connected && s_lobby_state.slots[1].connected);
+    }
+    /* Kicking peerA's primary slot 1 disconnects peerA cleanly. */
+    disconnected_peer = NULL; disconnect_reason = 0;
+    CHECK(netHostKickPlayer(1));
+    CHECK(disconnected_peer == &peerA && disconnect_reason == NET_DISCONNECT_KICKED && !s_lobby_state.slots[1].connected);
+
+    /* 4. Multi-slot host migration: host owns slots 0+1, client owns slots 2+3 -> host leaves ->
+     * both 0 and 1 drop, slot 2 (lowest primary human) is elected. */
+    s_host = NULL;
+    fixture(0);
+    s_state = NET_STATE_INGAME; s_local_slot = 2; s_local_count = 2;
+    s_local_slots[0] = 2; s_local_slots[1] = 3;
+    s_host_slot = 0; s_server_peer = &peerB;
+    s_lobby_state.slots[0].owner_slot = 0;
+    s_lobby_state.slots[1].owner_slot = 0;
+    s_lobby_state.slots[2].owner_slot = 2;
+    s_lobby_state.slots[3].owner_slot = 2;
+    netHostLost(&peerB);
+    CHECK(!s_lobby_state.slots[0].connected && !s_lobby_state.slots[1].connected);
+    CHECK(s_host_slot == 2 && s_takeover_pending);
+
+    /* 5. Client-side NET_MSG_LOCAL_GUEST reply handling (ADD OK, ADD FULL, REMOVE OK). */
+    s_host = NULL;
+    fixture(0);
+    s_state = NET_STATE_INGAME; s_local_slot = 1; s_local_count = 1;
+    s_local_slots[0] = 1; s_local_slots[1] = -1; s_server_peer = &peerB;
+    snprintf(s_lobby_state.slots[3].name, sizeof(s_lobby_state.slots[3].name), "Guest Three");
+    {
+        u8 rep[4] = { NET_GUEST_OP_ADD, NET_GUEST_RESULT_OK, 1, 3 };
+        struct netbuf rb; netbufStartReadData(&rb, rep, 4);
+        netReceiveLocalGuest(&peerB, 0, &rb);
+        CHECK(netLocalSlotCount() == 2 && netSlotIsLocalHuman(3) && netLocalSeatOfSlot(3) == 1);
+        const char *n = netTakeLocalGuestNotice();
+        CHECK(n != NULL && strstr(n, "Guest Three") != NULL);
+        u8 full[4] = { NET_GUEST_OP_ADD, NET_GUEST_RESULT_FULL, 2, 0xFF };
+        netbufStartReadData(&rb, full, 4);
+        netReceiveLocalGuest(&peerB, 0, &rb);
+        CHECK(netLocalSlotCount() == 2);
+        n = netTakeLocalGuestNotice();
+        CHECK(n != NULL && strstr(n, "full") != NULL);
+        u8 rem[4] = { NET_GUEST_OP_REMOVE, NET_GUEST_RESULT_OK, 0, 3 };
+        netbufStartReadData(&rb, rem, 4);
+        netReceiveLocalGuest(&peerB, 0, &rb);
+        CHECK(netLocalSlotCount() == 1 && !netSlotIsLocalHuman(3));
+    }
+
+    /* 6. Client-side NET_DISCONNECT_NO_ROOM refusal text. */
+    s_state = NET_STATE_CONNECTING; s_local_slot = -1; s_server_peer = &peerB;
+    CHECK(netClientContentRefused(&peerB, NET_DISCONNECT_NO_ROOM));
+    const char *why = netTakeJoinRefusal();
+    CHECK(why != NULL && strstr(why, "open slots") != NULL);
+
+    s_host = NULL; s_server_peer = NULL; s_local_slot = 0; s_local_count = 1;
+    s_local_slots[0] = 0; for (int k = 1; k < GEVR_MAX_LOCAL_PLAYERS; k++) s_local_slots[k] = -1;
+    s_state = NET_STATE_HOSTING_LOBBY;
     return 0;
 }

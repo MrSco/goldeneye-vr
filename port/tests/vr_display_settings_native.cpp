@@ -38,6 +38,7 @@ void gevrSndApplySfxVolume(unsigned short) {}
 void vrHapticsInit() {}
 void vrHapticsSaveIni(void *) {}
 extern "C" void gevrSettingsReadBuiltIn(void) {}
+extern "C" void netSetLocalSeatConfig(int, const char *, unsigned char, unsigned char, const unsigned char *) {}
 int vrHapticsLoadLine(const char *, const char *) { return 0; }
 void vrHapticsDumpCTable() {}
 void vr_log(const char *, ...) {}

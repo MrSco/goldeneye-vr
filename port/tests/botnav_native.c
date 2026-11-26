@@ -41,6 +41,8 @@ bool netIsActive(void) { return FALSE; }
 /* the ghost race (gevr_ghost.c): no ghost here; chrprop.c asks */
 s32 gevrGhostIsChr(ChrRecord *chr) { (void)chr; return 0; }
 bool netSlotOccupied(int slot) { (void)slot; return FALSE; }
+/* net_core.c: online, occupied; offline (no couch match here), every player */
+int gevrSlotInWorld(int slot) { return netIsActive() ? netSlotOccupied(slot) : 1; }
 s32 getPlayerPointerIndex(PropRecord *prop) { (void)prop; return -1; }
 /* INSERT_PRODUCTION_CD_SELECTOR */
 

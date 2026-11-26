@@ -180,7 +180,7 @@ files.sha256        checksum list of every other file
   content ID. The host refuses a joiner without the same mod, and says
   which mod and version is needed.
   - The part (`NET_CONTENT_MOD`) is the content ID's first 8 bytes, or 1
-    for "no mod". Every peer sends it (protocol 28), since a part that is 0
+    for "no mod". Every peer sends it (protocol 30), since a part that is 0
     on either side counts as unknown and is let through.
   - A host with a mod refuses a joiner without it or with another build;
     a host without one refuses a joiner with one. The mod is named before
@@ -968,7 +968,7 @@ in-game screen). We maintain the adapters, not the mods.
   - Not built: bullet impacts. `explosionCreateBulletImpact()` marks a
     surface a shot hit, with its normal and room; a mod has no shot's hit
     to give it.
-- **Network.** One message, `NET_MSG_MOD` (protocol 28), sent and
+- **Network.** One message, `NET_MSG_MOD` (protocol 30), sent and
   checked in `net_core.c` (`netSendModMessage()`, `netReceiveMod()`);
   the calls and the held messages are in `gevr_modapi.c`.
   - `mod.net.send(channel, data [, to])`: `data` is a string of any

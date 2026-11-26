@@ -1,5 +1,5 @@
-// Add friend beside another player's name: the launcher lobby's roster (vr_launcher.cpp
-// gevrLobbyRoster) and the ghost boards (gevr_ghosts_ui.h). What the friends list says of
+// Add friend beside another player's name: the ghost boards (gevr_ghosts_ui.h; the launcher
+// lobby's roster had it too, until the match moved into the game). What the friends list says of
 // a player's friend code, and the button or word for it. Draws only: the caller sends
 // what was pressed (gevrFriendsSend "add|CODE", or "answer|ID|1" for their request).
 #ifndef GEVR_ADD_FRIEND_UI_H

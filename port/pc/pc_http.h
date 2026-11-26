@@ -76,12 +76,14 @@ struct HttpRequest {
     int connectMs = 5000, readMs = 5000;
     size_t maxReply = 65536;               // what the body keeps (the rest is read and dropped)
     std::function<bool(const char *data, size_t n)> sink;   // streams the body instead; false stops (cancelled)
+    bool followRedirects = true;           // false: a 3xx is the answer (Drive's resumable "308, go on")
 };
 
 struct HttpReply {
     int status = 0;
     std::string body;
     long long length = -1;                 // Content-Length, when given
+    std::string location;                  // the Location header, when given (Drive's resumable upload)
 };
 
 /* One request; redirects followed (GitHub's assets live on another host).
@@ -158,10 +160,26 @@ int unzipBounded(const std::string &zip, const std::string &dir, const UnzipRule
 
 class SerialWorker {
 public:
-    SerialWorker() : thread_(&SerialWorker::run, this) { thread_.detach(); }   // lives with the process
+    SerialWorker() = default;
+    ~SerialWorker()
+    {
+        std::thread t;
+        {
+            std::lock_guard<std::mutex> lock(lock_);
+            stop_ = true;
+            t = std::move(thread_);
+        }
+        wake_.notify_one();
+        if (t.joinable()) t.join();
+    }
     void post(std::function<void()> job)
     {
         std::lock_guard<std::mutex> lock(lock_);
+        if (stop_) return;
+        if (!started_) {
+            started_ = true;
+            thread_ = std::thread(&SerialWorker::run, this);
+        }
         jobs_.push_back(std::move(job));
         wake_.notify_one();
     }
@@ -178,7 +196,8 @@ private:
             std::function<void()> job;
             {
                 std::unique_lock<std::mutex> lock(lock_);
-                wake_.wait(lock, [this] { return !jobs_.empty(); });
+                wake_.wait(lock, [this] { return stop_ || !jobs_.empty(); });
+                if (stop_ && jobs_.empty()) return;
                 job = std::move(jobs_.front());
                 jobs_.pop_front();
                 busy_ = true;
@@ -193,7 +212,9 @@ private:
     std::condition_variable wake_;
     std::deque<std::function<void()>> jobs_;
     bool busy_ = false;
-    std::thread thread_;   // last: starts once the queue exists
+    bool started_ = false;
+    bool stop_ = false;
+    std::thread thread_;   // last: starts on first post, joins cleanly if destroyed
 };
 
 }   // namespace pcnet

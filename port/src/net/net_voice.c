@@ -363,7 +363,10 @@ static void pushSamples(VoiceStream *s, const int16_t *pcm, unsigned n) {
 
 void netVoiceReceive(uint8_t slot, uint32_t sequence, const uint8_t *packet, uint16_t size) {
     if (slot >= GEVR_MAX_PLAYERS || !packet || !size || size > GEVR_VOIP_MAX_BYTES) return;
-    if (!netVoiceSameGroup(slot, netGetLocalSlot())) { netVoiceForgetSlot(slot); return; }
+    /* heard by any of this machine's seats (split screen: a spectating guest too) */
+    int heard = netVoiceSameGroup(slot, netGetLocalSlot());
+    for (int seat = 1; !heard && seat < netLocalSlotCount(); seat++) heard = netVoiceSameGroup(slot, netSlotOfLocalSeat(seat));
+    if (!heard) { netVoiceForgetSlot(slot); return; }
     VoiceStream *s = &streams[slot];
     if (s->seen && (int32_t)(sequence - s->last_sequence) <= 0) return;
     const uint32_t now = SDL_GetTicks();
@@ -464,30 +467,60 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
     gevrVoiceListenerBasis(forward, up);
     /* Cross(forward, up) is the listener's right in the game's coordinate frame. */
     float right[3] = {forward[1]*up[2]-forward[2]*up[1], forward[2]*up[0]-forward[0]*up[2], forward[0]*up[1]-forward[1]*up[0]};
+    const int local_count = netLocalSlotCount();
+    const bool split_screen = local_count > 1;
     for (unsigned slot=0;slot<GEVR_MAX_PLAYERS;slot++) {
         gain[slot]=0; direction[slot][0]=direction[slot][1]=0; direction[slot][2]=-1;
-        if ((int)slot == netGetLocalSlot()) continue;
-        if (!netVoiceSameGroup(slot,netGetLocalSlot())) {
+        if (netSlotIsLocalHuman((int)slot)) continue;
+        bool same_group = false;
+        for (int s = 0; s < local_count; s++) {
+            int lslot = netSlotOfLocalSeat(s);
+            if (lslot >= 0 && netVoiceSameGroup(slot, lslot)) { same_group = true; break; }
+        }
+        if (!same_group) {
             netVoiceForgetSlot((uint8_t)slot);
         } else {
             gain[slot]=VrVoiceVolume;
             if (netGetState() == NET_STATE_INGAME && players_ticked && !netSlotIsSpectator(slot)) {
-                int local=netGetLocalSlot(), count=getPlayerCount();
-                struct player *a=local >= 0 && local < count ? g_playerPointers[local] : NULL;
+                int count=getPlayerCount();
                 struct player *b=(int)slot < count ? g_playerPointers[slot] : NULL;
-                if (a && b && a->prop && b->prop &&
-                    isfinite(a->prop->pos.x) && isfinite(a->prop->pos.y) && isfinite(a->prop->pos.z) &&
-                    isfinite(b->prop->pos.x) && isfinite(b->prop->pos.y) && isfinite(b->prop->pos.z)) {
-                    float delta[3]={b->prop->pos.x-a->prop->pos.x,b->prop->pos.y-a->prop->pos.y,b->prop->pos.z-a->prop->pos.z};
-                    float horizontal=sqrtf(delta[0]*delta[0]+delta[2]*delta[2]);
-                    if (!netVoiceSlotSpectating(local) && !netVoiceSlotSpectating(slot))
-                        gain[slot] *= netVoiceDistanceGain(netVoiceModeForPair(local,slot),horizontal);
-                    float distance=sqrtf(horizontal*horizontal+delta[1]*delta[1]);
-                    if (distance > 1.0f) {
-                        float f=0,u=0,r=0;
-                        for(int j=0;j<3;j++) { f+=delta[j]*forward[j]; u+=delta[j]*up[j]; r+=delta[j]*right[j]; }
-                        direction[slot][0]=r/distance; direction[slot][1]=u/distance; direction[slot][2]=-f/distance;
-                        positioned[slot]=1;
+                if (b && b->prop && isfinite(b->prop->pos.x) && isfinite(b->prop->pos.y) && isfinite(b->prop->pos.z)) {
+                    if (split_screen) {
+                        /* Split-screen on one speaker/TV: disable single-head binaural panning
+                         * and compute proximity gain from the nearest living local player. */
+                        float best_gain = 0.0f;
+                        int matched_any = 0;
+                        for (int s = 0; s < local_count; s++) {
+                            int lslot = netSlotOfLocalSeat(s);
+                            if (lslot < 0 || lslot >= count || !netVoiceSameGroup(slot, lslot)) continue;
+                            struct player *a = g_playerPointers[lslot];
+                            if (!a || !a->prop || !isfinite(a->prop->pos.x) || !isfinite(a->prop->pos.y) || !isfinite(a->prop->pos.z)) continue;
+                            matched_any = 1;
+                            float g = 1.0f;
+                            if (!netVoiceSlotSpectating(lslot) && !netVoiceSlotSpectating(slot)) {
+                                float dx = b->prop->pos.x - a->prop->pos.x;
+                                float dz = b->prop->pos.z - a->prop->pos.z;
+                                g = netVoiceDistanceGain(netVoiceModeForPair(lslot, slot), sqrtf(dx * dx + dz * dz));
+                            }
+                            if (g > best_gain) best_gain = g;
+                        }
+                        if (matched_any) gain[slot] *= best_gain;
+                    } else {
+                        int local=netGetLocalSlot();
+                        struct player *a=local >= 0 && local < count ? g_playerPointers[local] : NULL;
+                        if (a && a->prop && isfinite(a->prop->pos.x) && isfinite(a->prop->pos.y) && isfinite(a->prop->pos.z)) {
+                            float delta[3]={b->prop->pos.x-a->prop->pos.x,b->prop->pos.y-a->prop->pos.y,b->prop->pos.z-a->prop->pos.z};
+                            float horizontal=sqrtf(delta[0]*delta[0]+delta[2]*delta[2]);
+                            if (!netVoiceSlotSpectating(local) && !netVoiceSlotSpectating(slot))
+                                gain[slot] *= netVoiceDistanceGain(netVoiceModeForPair(local,slot),horizontal);
+                            float distance=sqrtf(horizontal*horizontal+delta[1]*delta[1]);
+                            if (distance > 1.0f) {
+                                float f=0,u=0,r=0;
+                                for(int j=0;j<3;j++) { f+=delta[j]*forward[j]; u+=delta[j]*up[j]; r+=delta[j]*right[j]; }
+                                direction[slot][0]=r/distance; direction[slot][1]=u/distance; direction[slot][2]=-f/distance;
+                                positioned[slot]=1;
+                            }
+                        }
                     }
                 }
             }
@@ -497,7 +530,7 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
     for (size_t i=0;i<frames;i++) {
         float l=stereo[2*i],r=stereo[2*i+1];
         for (unsigned slot=0;slot<GEVR_MAX_PLAYERS;slot++) {
-            if ((int)slot == netGetLocalSlot()) continue;
+            if (netSlotIsLocalHuman((int)slot)) continue;
             float vl,vr;
             netSpatialSample(slot,streamSample(&streams[slot]),direction[slot],positioned[slot],&vl,&vr);
             float g=streams[slot].applied_gain+step[slot]*(float)(i+1);

@@ -45,15 +45,16 @@ EXPORT int test_protocol(void) {
     original.max_players=6;original.mode=1;original.difficulty=2;
     original.movement_speed=NET_MOVE_175;
     original.bot_mode=NET_BOT_FIXED;original.bot_count=5;original.bot_difficulty=NET_BOT_DARK;original.horde_start_wave=12;
+    original.handicaps=1;original.lobby=1;original.warmup=NET_WARMUP_RULE_60;
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 24 || GEVR_NET_VERSION != 28 || GEVR_MAX_PLAYERS != 8) return 1;
+    if (b.error || b.wp != 27 || GEVR_NET_VERSION != 30 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
-    for(int size=0;size<24;size++) {
+    for(int size=0;size<27;size++) {
         netbufStartReadData(&b,raw,size); netbufReadMatchConfig(&b,&received); if(!b.error) return 3;
     }
-    netbufStartReadData(&b,raw,24); netbufReadMatchConfig(&b,&received);
-    netbufStartWrite(&b); b.size=23; netbufWriteMatchConfig(&b,&original); if(!b.error) return 4;
+    netbufStartReadData(&b,raw,27); netbufReadMatchConfig(&b,&received);
+    netbufStartWrite(&b); b.size=26; netbufWriteMatchConfig(&b,&original); if(!b.error) return 4;
 
     /* protocol 26: a force pull step (gevr_forcepull.c), every field round trips, any cut is refused */
     {
@@ -124,6 +125,8 @@ EXPORT int test_config_validation(void) {
 EXPORT int test_spatial_error(void) { return netSpatialLastError(); }
 
 EXPORT int test_ping(uint32_t rtt,uint32_t last,uint32_t now) { return netLatencyValue(rtt,last,now); }
+
+EXPORT int test_same_name_reconnect(uint32_t last,uint32_t now) { return netSameNameIsReconnect(last,now); }
 
 EXPORT int test_door_escape(void) {
     float p[8]={-50,-10,50,-10,50,10,-50,10};

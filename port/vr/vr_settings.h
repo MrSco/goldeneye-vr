@@ -50,10 +50,15 @@ extern int VrDismemberment;
 extern float VrDismemberDamage;
 extern int VrDismemberChance;
 extern int VrMicMuted;
+extern float VrMasterVolume;   // the whole output, 0..1, under audio.c's fixed headroom
 extern float VrMusicVolume;
 extern float VrVoiceVolume;
 extern float VrSfxVolume;
 extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launcher "Your name")
+extern char VrGuestName[3][16]; // online split-screen guest names (seats 2..4)
+extern int VrGuestChr[3];       // online split-screen guest characters (seats 2..4)
+extern int VrGuestLoadout[3][4]; // online split-screen guest loadouts (seats 2..4)
+void vrSyncGuestSeatConfigs(void);
 // The multiplayer page's choices, kept between runs (the launcher restarts the app).
 // Stage is a LEVELID; sets, scenario, length, health are net_match.c indices;
 // the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.
@@ -82,6 +87,9 @@ extern int VrGexGuns;        // GoldenEye X's first-person models (guns, items, 
 extern int VrCampaign;       // 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies, 3 Mirror Mode, 4 Mario Characters. The retail ROM stays put.
 extern char VrCampaignMod[33]; // a mod campaign's id (gevr_modpack.h), played on VrCampaign's cartridge; empty: none
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
+extern int VrMpHandicaps;       // the host's Handicaps rule: each player picks their own health
+extern int VrMpLobby;           // the host's Lobby rule: the pre-match lobby before each match
+extern int VrMpWarmup;          // the practice after the lobby's START (NET_WARMUP_RULE_*)
 extern int VrMpCustom[4];       // the host's custom set
 // Co-op (NET_MODE_COOP): the mode, the mission's LEVELID and the solo difficulty (0..3).
 extern int VrMpMode, VrMpMission, VrMpDifficulty;

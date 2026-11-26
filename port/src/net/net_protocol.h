@@ -13,10 +13,11 @@
 #include "gevr_pull.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         28  /* 28: the content check's mod part (NET_CONTENT_MOD), which every peer sends, so a mod campaign's party all play the same mod build, and mods' own messages (NET_MSG_MOD); 27: the Community Edition's fixes to GoldenEye's own stage setups and tiles (gevr_romswap.c gevrRomFixData), which change what peers load; 26: force pull, catch and disarm (NET_MSG_FORCE_PULL); 25: Horde briefcase powers and consumable buys; 24: all gameplay maps in Horde and Deathmatch (older peers reject the expanded stage set); 23: bounded Horde ammo drops and pickup grants, the Horde map, starting wave and two-gun lists; 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         30  /* 30: the content check's mod part (NET_CONTENT_MOD), which every peer sends, so a mod campaign's party all play the same mod build, and mods' own messages (NET_MSG_MOD_REQUIRED, NET_MSG_MOD); 29: the pre-match lobby (NetMatchConfig.lobby and .warmup, the round settings' lobby byte: the party waits on the title stage until the host's START), per-player handicaps (NetLobbySlot.handicap, NET_MSG_LOBBY_HANDICAP, the round's latched handicaps) and the Handicaps host rule (NetMatchConfig.handicaps), and Horde's setup break (one more byte in NET_MSG_HORDE_STATE, HordeState.setup: a fresh run's first wave waits for the host's START WAVE), and the round notice's lobby flag (NET_MSG_ROUND_NOTICE flag 8: the host's RETURN TO LOBBY, which opens the Multiplayer Options folder); 28: online split screen (multi-slot peers, NET_MSG_LOCAL_GUEST, NetLobbySlot.owner_slot) and the No teleport host rule (NET_FUN_NO_TELEPORT); 27: the Community Edition's fixes to GoldenEye's own stage setups and tiles (gevr_romswap.c gevrRomFixData), which change what peers load; 26: force pull, catch and disarm (NET_MSG_FORCE_PULL); 25: Horde briefcase powers and consumable buys; 24: all gameplay maps in Horde and Deathmatch (older peers reject the expanded stage set); 23: bounded Horde ammo drops and pickup grants, the Horde map, starting wave and two-gun lists; 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
+#define GEVR_MAX_LOCAL_PLAYERS   4   /* protocol 28: up to four local split-screen seats per flat machine */
 #define GEVR_MAX_NAME_LEN        24
 #define GEVR_VOIP_MAX_BYTES      200 /* a 20 ms Opus frame at 24 kb/s averages ~60 bytes; VBR peaks higher */
 
@@ -34,6 +35,7 @@ enum {
 #define UCMD_RELOAD         (1 << 2)
 #define UCMD_AIMMODE        (1 << 3)
 #define UCMD_DUCK           (1 << 4)
+#define UCMD_CHOOSING       (1 << 5)    /* dropped in and choosing a character: frozen and unhurt (net_core.c netSetSlotChoosing) */
 #define UCMD_SELECT         (1 << 7)
 #define UCMD_SELECT_DUAL    (1 << 8)
 #define UCMD_AIMVALID       (1 << 9)    /* aimorigin/aimdir hold the right gun's barrel */
@@ -124,10 +126,14 @@ typedef enum {
     NET_MSG_FRIEND_CODE = 63,   /* Player -> host -> all: str the slot's friend code, "" none (the roster's Add friend) */
     /* Additive, no bump: an older build ignores the type, and its row says nothing of its reload. */
     NET_MSG_RELOAD_MODE = 64,   /* Player -> host -> all: u8 the slot's reload, NET_RELOAD_* (the roster's Reload) */
+    /* Protocol 28 (docs/online-split-screen.md): add/remove a local guest seat in lobby or mid-match */
+    NET_MSG_LOCAL_GUEST = 65,   /* Client -> host request, host -> client reply (NET_GUEST_OP_*) */
+    /* Protocol 29: a player's own health (front.c MP_handicap_table), NET_HANDICAP_* (net_rules.h) */
+    NET_MSG_LOBBY_HANDICAP = 66, /* Client -> host: slot in the header, u8 the slot's own health (NetLobbySlot.handicap, never the host's mark) */
     /* Host -> a joiner it is turning away for its mod (NET_CONTENT_MOD), just before
      * the disconnect: str id, str title, str version of the host's mod campaign
      * ("" id: the host plays none), so the refusal can say which to install. */
-    NET_MSG_MOD_REQUIRED = 65,
+    NET_MSG_MOD_REQUIRED = 67,
     /* A mod's own message (docs/mod-system.md, mod.net): u8 kind
      * (NET_MOD_*), u8 to (a slot, 0xFF everyone), str the mod's id, then
      * for NET_MOD_DATA str the channel, u16 n, n bytes (at most
@@ -138,8 +144,8 @@ typedef enum {
      * shared) carry NET_MOD_DROP_BYTES or NET_MOD_PICKUP_BYTES after the id,
      * read by gevr_modapi.c: NET_MOD_DROP and NET_MOD_GRANT the host's
      * alone, to everyone; NET_MOD_CLAIM a player's, to the host alone;
-     * NET_MOD_GONE anyone's. Protocol 28 has no release before it. */
-    NET_MSG_MOD = 66,
+     * NET_MOD_GONE anyone's. Protocol 30 has no release before it. */
+    NET_MSG_MOD = 68,
 } NetMsgType;
 
 enum {
@@ -157,6 +163,18 @@ enum {
 #define NET_MOD_HOST_RELAY_A_SECOND 64   /* the host drops a player's past this, each second */
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
+#define NET_DISCONNECT_NO_ROOM 0x47454e52u  /* 'GENR': not enough open slots for all local players */
+
+/* NET_MSG_LOCAL_GUEST ops & results (protocol 28) */
+enum {
+    NET_GUEST_OP_ADD = 1,       /* Client -> host: add a local split-screen guest seat */
+    NET_GUEST_OP_REMOVE = 2,    /* Client -> host (or host -> client kick): remove one guest seat */
+};
+enum {
+    NET_GUEST_RESULT_OK = 0,
+    NET_GUEST_RESULT_FULL = 1,
+    NET_GUEST_RESULT_DENIED = 2,
+};
 
 /*
  * The content check (docs/dedicated-server.md, decision 4). HELLO ends with
@@ -170,7 +188,7 @@ enum {
 #define NET_CONTENT_CAMPAIGN 2u         /* the campaign + 1 (gevr_romlayout.h GEVR_CAMPAIGN_*): co-op in a hack */
 /* A mod campaign's content ID (docs/mod-system.md: SHA-256 of its files.sha256),
  * its first 8 bytes, never 0 or 1; NET_CONTENT_MOD_NONE without one. Sent by
- * every peer since protocol 28: 0 would be "unknown" and let anyone in. A host
+ * every peer since protocol 30: 0 would be "unknown" and let anyone in. A host
  * turning a joiner away for it says first which mod (NET_MSG_MOD_REQUIRED). */
 #define NET_CONTENT_MOD 3u
 #define NET_CONTENT_MOD_NONE 1u
@@ -391,7 +409,7 @@ typedef struct {
     uint8_t scenario;       /* MPSCENARIOS 0..7, then NET_SCENARIO_3V3/4V4 (net_rules.h) */
     uint8_t weapon_set;     /* 0..13 GoldenEye's, NET_WEAPON_SET_CUSTOM the host's own four */
     uint8_t game_length;    /* front.c multi_game_lengths index, 0..7 */
-    uint8_t health;         /* front.c MP_handicap_table index, 0..10, for everyone */
+    uint8_t health;         /* front.c MP_handicap_table index, 0..10: the match's, a player's own unless set (NetLobbySlot.handicap) */
     uint8_t dual_wield;     /* NET_DUAL_OFF / DOUBLES / ANY */
     uint8_t loadouts;       /* 1: every player spawns with its own four guns */
     uint8_t next_round;     /* NET_NEXT_VOTE / SHUFFLE / PLAYLIST (the host's rows show it) */
@@ -408,6 +426,9 @@ typedef struct {
     uint8_t bot_difficulty; /* NET_BOT_MEAT .. NET_BOT_DARK */
     uint8_t movement_speed; /* NET_MOVE_*, live host rule */
     uint8_t horde_start_wave; /* Horde: the first wave, 1..NET_HORDE_MAX_START_WAVE; 0 elsewhere */
+    uint8_t handicaps;      /* protocol 29: 1 lets each player pick their own health (NetLobbySlot.handicap); deathmatch only */
+    uint8_t lobby;          /* protocol 29: 1 gathers the party in the pre-match lobby (the title stage) before each match; deathmatch only */
+    uint8_t warmup;         /* protocol 29: NET_WARMUP_RULE_*: the practice after the lobby's START, before the match; deathmatch only */
 } NetMatchConfig;
 
 /* No native pointers or structure padding enter the wire format. */
@@ -452,7 +473,8 @@ static inline int netbufReadAmmoState(struct netbuf *b, NetAmmoState *s) {
 }
 
 static inline int netMatchConfigValid(const NetMatchConfig *c) {
-    if (!c || c->mode > NET_MODE_HORDE || c->movement_speed >= NET_MOVE_COUNT) return 0;
+    if (!c || c->mode > NET_MODE_HORDE || c->movement_speed >= NET_MOVE_COUNT || c->handicaps > 1 ||
+        c->lobby > 1 || c->warmup >= NET_WARMUP_RULE_COUNT) return 0;
     if (c->mode == NET_MODE_HORDE) {
         return netHordeStageValid(c->stage) && c->difficulty == 0
             && c->horde_start_wave >= 1 && c->horde_start_wave <= NET_HORDE_MAX_START_WAVE && c->bot_mode == NET_BOT_OFF
@@ -510,6 +532,9 @@ static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfi
     netbufWriteU8(buf, c->bot_difficulty);
     netbufWriteU8(buf, c->movement_speed);
     netbufWriteU8(buf, c->horde_start_wave);
+    netbufWriteU8(buf, c->handicaps);
+    netbufWriteU8(buf, c->lobby);
+    netbufWriteU8(buf, c->warmup);
     return buf->error;
 }
 
@@ -535,6 +560,9 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
     c->bot_difficulty = netbufReadU8(buf);
     c->movement_speed = netbufReadU8(buf);
     c->horde_start_wave = netbufReadU8(buf);
+    c->handicaps = netbufReadU8(buf);
+    c->lobby = netbufReadU8(buf);
+    c->warmup = netbufReadU8(buf);
     return buf->error;
 }
 
@@ -675,6 +703,8 @@ typedef struct {
     uint8_t   team;         /* pending team, NET_TEAM_NONE until chosen */
     uint8_t   eliminated;   /* cannot respawn until the next match */
     uint8_t   is_bot;       /* the host runs this slot with AI input (gevr_bot.c) */
+    uint8_t   owner_slot;   /* protocol 28: primary slot (0..7) of the machine owning this slot, or 0xFF */
+    uint8_t   handicap;     /* protocol 29: the player's own health: 0 the match's, else 1 + a table index (| NET_HANDICAP_HOST: the host's pick) */
     uint16_t  ping_ms;
     char      name[GEVR_MAX_NAME_LEN];
 } NetLobbySlot;

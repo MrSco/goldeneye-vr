@@ -4676,6 +4676,7 @@ static void gevrPlaceRemoteSound(ALSoundState *state, s32 hand, f32 low, f32 hig
 {
     extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
+    extern int gevrNetSlotIsLocalHuman(int slot);
     struct player *listener;
     s32 local;
     f32 dx, dz, dist, pan, yaw;
@@ -4685,7 +4686,7 @@ static void gevrPlaceRemoteSound(ALSoundState *state, s32 hand, f32 low, f32 hig
         return;
     }
     local = netGetLocalSlot();
-    if (get_cur_playernum() == local || local < 0 || local >= MAX_PLAYER_COUNT)
+    if (gevrNetSlotIsLocalHuman(get_cur_playernum()) || local < 0 || local >= MAX_PLAYER_COUNT)
     {
         return;
     }
@@ -7194,22 +7195,28 @@ void gunTickGameplay(s32 triggerOn)
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand
 #ifdef GEVR
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot() && !g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT]) {
-        /* A low-memory copy needs shot timing and its third-person gun, never a 1P model. */
-        static s32 next_fire[MAX_PLAYER_COUNT];
-        int slot = get_cur_playernum(), item = netRemoteWeapon(slot, GUNLEFT);
-        struct hand *left = &g_CurrentPlayer->hands[GUNLEFT];
-        left->weapon_firing_status = left->field_87D = 0;
-        if (!trigger_state.triggerOn[GUNLEFT] || item == ITEM_UNARMED) next_fire[slot] = 0;
-        else if (g_GlobalTimer >= next_fire[slot] && !lvlGetControlsLockedFlag() && !g_CurrentPlayer->bonddead) {
-            int rate = bondwalkItemGetAutomaticFiringRate(item);
-            next_fire[slot] = g_GlobalTimer + (rate > 0 ? rate : 6);
-            left->weapon_firing_status = left->field_87D = 1;
-            if (bondwalkItemGetSound(item)) gevrPlaceRemoteGunSound(sndPlaySfx(g_musicSfxBufferPtr, bondwalkItemGetSound(item), NULL), GUNLEFT);
+    {
+        extern int gevrNetSlotIsLocalHuman(int slot);
+        if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum()) && !g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT]) {
+            /* A low-memory copy needs shot timing and its third-person gun, never a 1P model. */
+            static s32 next_fire[MAX_PLAYER_COUNT];
+            int slot = get_cur_playernum(), item = netRemoteWeapon(slot, GUNLEFT);
+            struct hand *left = &g_CurrentPlayer->hands[GUNLEFT];
+            left->weapon_firing_status = left->field_87D = 0;
+            if (!trigger_state.triggerOn[GUNLEFT] || item == ITEM_UNARMED) next_fire[slot] = 0;
+            else if (g_GlobalTimer >= next_fire[slot] && !lvlGetControlsLockedFlag() && !g_CurrentPlayer->bonddead) {
+                int rate = bondwalkItemGetAutomaticFiringRate(item);
+                next_fire[slot] = g_GlobalTimer + (rate > 0 ? rate : 6);
+                left->weapon_firing_status = left->field_87D = 1;
+                if (bondwalkItemGetSound(item)) gevrPlaceRemoteGunSound(sndPlaySfx(g_musicSfxBufferPtr, bondwalkItemGetSound(item), NULL), GUNLEFT);
+            }
+        } else {
+            gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand
         }
-    } else
-#endif
+    }
+#else
     gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand
+#endif
     used_to_load_1st_person_model_on_demand(0);
     used_to_load_1st_person_model_on_demand(1);
     gunTickNoise();
@@ -9388,7 +9395,7 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
         rgba_f32 fog;
         s32 fogged;
 
-        if (i == netGetLocalSlot() || netPlayerIsSpectator(i) || i == netSpectatorTarget() || pl == NULL || pl->prop == NULL || pl->bonddead
+        if (i == get_cur_playernum() || netPlayerIsSpectator(i) || i == netSpectatorTarget() || pl == NULL || pl->prop == NULL || pl->bonddead
             || !(pl->prop->flags & PROPFLAG_ONSCREEN))
         {
             continue;

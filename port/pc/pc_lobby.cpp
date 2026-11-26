@@ -295,7 +295,7 @@ private:
             }
         } else if (c == "phase") {
             lastKeepalive_ = nowMs();
-            if (f.size() == 3 && (f[1] == "warmup" || f[1] == "in_progress")) {
+            if (f.size() == 3 && (f[1] == "lobby" || f[1] == "warmup" || f[1] == "in_progress")) {
                 phase_ = f[1];
                 players_ = atoi(f[2].c_str());
                 open_ = players_ < maxPlayers_;

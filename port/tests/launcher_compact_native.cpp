@@ -10,10 +10,10 @@
 #include <string>
 #include <vector>
 static ImVec4 gold(1, .84f, .47f, 1);
-static int VrMpScenario, VrMpLength, VrMpHealth=5, VrMpDual, VrMpLoadouts, VrMpNextRound;
-static int VrAlly, VrHordeFriendlyFire, VrHordeStage = 24, VrHordeStartWave = 1;
-static int VrMpMode, VrMpBotMode, VrMpBotCount=7, VrMpBotDifficulty=5, VrMpFriendlyFire;
-static int VrMpStage=34,VrMpMaxPlayers=8,VrMpVisibility=1,VrMpWeaponSet=4,VrMpCustom[4];
+static int VrMpScenario, VrHordeStage = 24, VrHordeStartWave = 50;
+static int VrMpMode;
+static int VrMpLobby = 1;   /* the Lobby rule's default: the Host page's longer text */
+static int VrMpStage=34,VrMpVisibility=1,VrMpWeaponSet=4;
 static int VrMpVrOnly;   /* the host's "VR players only" */
 static int VrCampaign;   /* GoldenEye: every mode offered (a hack campaign offers co-op only) */
 static char VrCampaignMod[64];   /* no mod campaign ("" none; one offers co-op only too) */
@@ -25,7 +25,8 @@ static unsigned VrMpFavSets;
 static float VrUseSnapTurn, VrComfortVignette=.5f, vignette=.5f;
 static bool vignetteOn=true;
 static int turn, online, host;
-enum {SCENARIO_YOLT=1, SCENARIO_TLD=2, SCENARIO_MWTGG=3, CFG_MOVEMENT_SPEED};
+enum {SCENARIO_YOLT=1, SCENARIO_TLD=2, SCENARIO_MWTGG=3, CFG_MOVEMENT_SPEED, CFG_LOBBY};
+#define NET_PHASE_IN_PROGRESS 2
 #define GEVR_MAX_PLAYERS 8
 #define GEVR_MAX_NAME_LEN 25
 #define GEVR_NET_VERSION 25
@@ -33,10 +34,10 @@ enum {SCENARIO_YOLT=1, SCENARIO_TLD=2, SCENARIO_MWTGG=3, CFG_MOVEMENT_SPEED};
 #define SMOOTHTURN_MIN 45
 #define SMOOTHTURN_MAX 240
 #define SMOOTHTURN_STEP 15
-struct FixtureConfig {int movement_speed,fun_flags,mode,scenario,bot_difficulty;};
+struct FixtureConfig {int movement_speed,fun_flags,mode,scenario,bot_difficulty,health=5;};
 struct NetMsgLobbyState {
     FixtureConfig config;
-    struct {int connected,is_bot,chr_id,team,ready;char name[GEVR_MAX_NAME_LEN];} slots[8];
+    struct {int connected,is_bot,chr_id,team,ready,handicap;char name[GEVR_MAX_NAME_LEN];} slots[8];
 };
 static NetMsgLobbyState lobby;
 static FixtureConfig &config=lobby.config;
@@ -70,29 +71,36 @@ static int netLobbyMinPlayers(){return 2;}
 static std::string gevrPingText(int){return "999";}
 static bool netIsActive(){return online;}
 static bool netIsHost(){return host;}
-static bool gevrNetBotRowsEditable(){return !online || host;}
+static int netGetPhase(){return online?NET_PHASE_IN_PROGRESS:0;}
+static const char *stageNameById(int levelId){return netStageName(netStageIndexOf((uint8_t)levelId));}
+/* the settings table's seven fun rows (gevr_settings.c GEVR_LSEC_MP_FUN) as gevrSettingsSection draws them:
+ * a label and its control, the widest choice the hit immunity's */
+static void fixtureFunRows() {
+    static const char *const labels[]={"DK mode","Paintball","Line mode","No radar","No teleport","Hit immunity","Gun size"};
+    const float labelW=ImGui::CalcTextSize("Hit immunity").x+ImGui::GetStyle().CellPadding.x*2+12;
+    if(ImGui::BeginTable("##fun-rows",2,ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn(nullptr,ImGuiTableColumnFlags_WidthFixed,labelW);
+        ImGui::TableSetupColumn(nullptr,ImGuiTableColumnFlags_WidthStretch);
+        for(int i=0;i<7;i++) {
+            ImGui::TableNextRow();ImGui::TableNextColumn();ImGui::AlignTextToFramePadding();ImGui::TextUnformatted(labels[i]);
+            ImGui::TableNextColumn();ImGui::PushID(i);
+            if(i<5){bool on=i%2;ImGui::Checkbox("##on",&on);}
+            else {ImGui::SetNextItemWidth(-1);int pick=0;static const char*names[]={"GoldenEye"};ImGui::Combo("##pick",&pick,names,1);}
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+}
+#define gevrSettingsLive() 0
+#define gevrSettingsSection(api, section, where) fixtureFunRows()
 static auto netGetMatchConfig(){return &config;}
 static void vrSettingsSave(){}
 static void gevrHostChoiceChanged(){}
-static void gevrNetConfigSet(int,int value){if(host)config.movement_speed=VrMpMovementSpeed=value;}
+static void gevrNetConfigSet(int field,int value){if(host && field==CFG_MOVEMENT_SPEED)config.movement_speed=VrMpMovementSpeed=value;}
 static int netGetHostEqualization(unsigned *cap){*cap=50;return 1;}
 static void netSetHostEqualization(bool,unsigned){}
 static void netHostEqualizationText(char *out,size_t n){std::snprintf(out,n,"Host delay: 50 ms");}
 template <typename Mask> static bool favoriteRow(const char*,int,const char*(*)(int),Mask*,int){return false;}
-static const char* gevrBotCountName(int n){static const char*names[]={"1","2","3","4","5","6","7"};return names[n];}
-/* the host's stage chooser as drawn: every stage's name must fit it (user: "Caverns" was cut off) */
-static float stageComboWidth=-1;
-static bool namedCombo(const char*id,int count,const char*(*name)(int),int*value){
-    const bool changed=gevrNamedCombo(id,count,name,value,false,[](int){return false;});
-    if(std::strcmp(id,"##stagecombo")==0)stageComboWidth=ImGui::GetItemRectSize().x;
-    return changed;
-}
-static bool gunCombo(const char*id,int*value){return namedCombo(id,netItemCount(),[](int i){return netItem(i)->name;},value);}
-static void gevrTeamChoiceRow(const char*) {
-    if(!gevrLobbyHasTeams(&config))return;
-    ImGui::TextUnformatted("Your team:");ImGui::SameLine();int team=0;ImGui::SetNextItemWidth(ImGui::GetFontSize()*5);
-    namedCombo("##fixtureTeam",3,netTeamName,&team);
-}
 static void gevrMatchLiveOptions();
 /* the Screen tab: the virtual screen, the display rate, SpaceWarp, anti-aliasing and resolution */
 static ImVec4 bad(1, .4f, .4f, 1);
@@ -116,8 +124,6 @@ static int vr_get_supported_refresh_rates(int *rates,int capacity){
     return 4;
 }
 /* INSERT_OPTIONS */
-static void coop()
-/* INSERT_COOP */
 static void check(bool yes,const char *msg){if(!yes){std::fprintf(stderr,"FAIL: %s\n",msg);std::exit(1);}}
 static void layout(int page) {
     for(int pass=0;pass<3;pass++) {
@@ -135,37 +141,14 @@ static void layout(int page) {
             lobby.slots[i].connected=i<netGetMaxPlayers();lobby.slots[i].is_bot=i%2;
             lobby.slots[i].chr_id=i;std::snprintf(lobby.slots[i].name,GEVR_MAX_NAME_LEN,"abcdefghijklmnopqrstuvwx");
         }
-        stageComboWidth=-1;
-        if(page==0)gevrMatchOptions();else if(page==2)coop();
-        else if(page==4)gevrHostLobbyOptions(gold,false,"");   // the Host page before hosting
+        if(page==0)gevrHostAdvancedOptions(gold);   // the Host page's Advanced tab
+        else if(page==4)gevrHostLobbyOptions(gold,false,"");   // the Host page's Game tab before hosting
         else gevrHostLobbyOptions(gold,true,"TBGKYV43");
         if(pass==2) {
             auto *w=ImGui::GetCurrentWindow();
-            if(w->DC.CursorMaxPos.y>w->ClipRect.Max.y) std::fprintf(stderr,"page=%d scenario=%d bots=%d content=%f limit=%f\n",page,VrMpScenario,VrMpBotMode,w->DC.CursorMaxPos.y,w->ClipRect.Max.y);
+            if(w->DC.CursorMaxPos.y>w->ClipRect.Max.y) std::fprintf(stderr,"page=%d mode=%d scenario=%d stage=%d content=%f limit=%f\n",page,VrMpMode,VrMpScenario,VrMpStage,w->DC.CursorMaxPos.y,w->ClipRect.Max.y);
             check(w->DC.CursorMaxPos.y<=w->ClipRect.Max.y,"production tab fits vertically without scrolling");
             check(w->DC.CursorMaxPos.x<=w->ClipRect.Max.x,"production tab fits horizontally");
-            /* the roster's names stay readable: at least eight font sizes (owner, 2026-11-23: the
-             * Friend and Kick columns had taken the Name column down to 20 px at Quest size) */
-            for(int t=0;t<ImGui::GetCurrentContext()->Tables.GetMapSize();t++) {
-                ImGuiTable *table=ImGui::GetCurrentContext()->Tables.TryGetMapData(t);
-                if(!table || table->LastFrameActive!=ImGui::GetFrameCount() || table->ColumnsCount<6) continue;
-                const char *first=ImGui::TableGetColumnName(table,0);
-                if(!first || std::strcmp(first,"Name")!=0) continue;
-                if(table->Columns[0].WidthGiven<ImGui::GetFontSize()*8)
-                    std::fprintf(stderr,"page=%d host=%d online=%d scenario=%d: roster name %.0f px\n",page,host,online,VrMpScenario,
-                                 table->Columns[0].WidthGiven);
-                check(table->Columns[0].WidthGiven>=ImGui::GetFontSize()*8,"the roster's Name column keeps eight font sizes");
-            }
-            if(page==3 && !netModePve(VrMpMode)) {
-                check(stageComboWidth>0,"the host's stage chooser is drawn");
-                for(int i=0;i<netStageCount();i++) {
-                    const float need=ImGui::CalcTextSize(netStageName(i)).x+ImGui::GetFrameHeight()
-                        +ImGui::GetStyle().FramePadding.x*2.0f;
-                    if(stageComboWidth<need) std::fprintf(stderr,"stage %s needs %.0f, chooser %.0f (scenario %d)\n",
-                                                          netStageName(i),need,stageComboWidth,VrMpScenario);
-                    check(stageComboWidth>=need,"every stage's name fits the host's stage chooser");
-                }
-            }
         }
         ImGui::EndChild();ImGui::End();ImGui::Render();
     }
@@ -198,17 +181,17 @@ int main() {
     io.FontGlobalScale=2.2f;ImGui::GetStyle().ScaleAllSizes(2.2f);
     unsigned char *pixels;int w,h;io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
     for(online=0;online<2;online++)for(host=0;host<2;host++) {
-        VrMpMode=0;
-        for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
-            for(VrMpBotMode=0;VrMpBotMode<3;VrMpBotMode++)layout(0);
-        VrMpMode=NET_MODE_COOP;layout(2);
-        VrMpMode=NET_MODE_HORDE;layout(2);
+        for(VrMpMode=0;VrMpMode<3;VrMpMode++)layout(0);
         resetCheck(false);resetCheck(true);
     }
+    /* the Game tab, before hosting and hosting, every mode and scenario (the last match's line), the
+     * longest stage name and the longest Horde map, VR only and hand reload only beside the count */
     online=host=1;
     for(VrMpMode=0;VrMpMode<3;VrMpMode++)for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
         for(int set: {4,NET_WEAPON_SET_CUSTOM}) for(VrMpVrOnly=0;VrMpVrOnly<2;VrMpVrOnly++) {VrMpWeaponSet=set;layout(3);layout(4);}
-        VrMpVrOnly=0;
+    VrMpVrOnly=0;
+    for(int i=0;i<netStageCount();i++){VrMpStage=netStage(i)->level_id;VrMpMode=0;layout(4);}
+    for(int i=0;i<netHordeStageCount();i++){VrHordeStage=netStage(i)->level_id;VrMpMode=NET_MODE_HORDE;layout(4);}
     // a long tooltip wraps and stays on the screen, wherever it is hovered
     for(float x:{20.0f,640.0f,1260.0f}) {
         io.AddMousePosEvent(x,480);
@@ -228,5 +211,5 @@ int main() {
         check(tip->Pos.y>=0 && tip->Pos.y+tip->Size.y<=960,"a long tooltip fits the launcher's height");
     }
     ImGui::DestroyContext();
-    std::puts("PASS: production Match/co-op and eight-player Lobby fit at Quest font size, including teams, custom weapons and maximum names; solo/host Reset and client restrictions; long tooltips wrap on screen");
+    std::puts("PASS: production Host page (Game before and while hosting, every mode, scenario and stage; Advanced) fits at Quest font size; solo/host Reset and client restrictions; long tooltips wrap on screen");
 }

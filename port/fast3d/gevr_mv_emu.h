@@ -23,6 +23,14 @@ extern int gevrMvEmuActive;
 // is skipped instead.
 extern int gevrMvEmuSingleView;
 void gevr_mv_emu_enable(void);
+// One view at a time (gfx_pc.cpp's eye replay): view 0 or 1 makes every draw
+// and clear go once, as that view, into the framebuffer bound for it; view 1
+// binds the multiview framebuffer's second layer first. -1 ends it (the
+// multiview framebuffer bound again). Switching framebuffers per draw ends a
+// Metal render pass each time, which reloads and stores both whole eye images
+// (Vision Pro, 2026-11-25: ~300 draws made ~600 passes, 20-47 ms a frame).
+// Returns 0 when the bound framebuffer has no second view (nothing changed).
+int gevr_mv_emu_view_pass(int view);
 
 void gevr_mv_FramebufferTextureMultiviewOVR(GLenum target, GLenum attachment, GLuint texture,
                                             GLint level, GLint baseViewIndex, GLsizei numViews);

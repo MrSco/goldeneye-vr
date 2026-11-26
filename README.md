@@ -286,6 +286,12 @@ ROM, as on the Quest.
   Linux, Apple TV, phones and tablets), offline. Choose **Multiplayer**, then each player presses
   to join (A or Start on a pad, Enter on the keyboard); the order is the player numbers. The
   keyboard and mouse count as one player, each pad as another; the Siri Remote doesn't join.
+  A pad that didn't join can **drop in mid-match** with Start: the screen splits again and they
+  play at once, and stay for the next match.
+- **Couch co-op** (flat builds): the campaign together on one screen. Choose **Co-op** on the
+  Multiplayer screen (Multiplayer, then Co-op); one player is enough to start, and more drop in
+  during a mission with Start.
+  Player 1 picks the missions. It runs on your machine only and isn't listed online.
 
 ## Mirrored missions (optional)
 

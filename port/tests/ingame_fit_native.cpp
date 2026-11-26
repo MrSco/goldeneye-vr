@@ -148,24 +148,21 @@ static void sweepMods(bool online, const char *state) {
 }
 
 // mpmenu.c's fields at their fullest, with the longest names they can show
-// (net_match.c): a custom weapon set, fixed bots, teams, loadouts
+// (net_match.c). The match's own setup is the game's Multiplayer Options
+// folder's (mpmenu.c gevrPauseInFolder): Rules keeps the host's equalization,
+// its fun rules and movement speed, and co-op's friendly fire and AI ally;
+// Player keeps READY, co-op's character and the favorites.
 struct FakeField { const char *label; int kind, count; const char *value; };
 static const FakeField s_rules[] = {
     {"HOST EQUALIZATION", GEVR_PAUSE_TOGGLE, 0, "ON"}, {"HOST DELAY CAP", GEVR_PAUSE_CHOICE, 5, "80 ms"},
-    {"FRIENDLY FIRE", GEVR_PAUSE_TOGGLE, 0, "ON"}, {"BOTS", GEVR_PAUSE_CHOICE, 3, "Fill empty slots"},
-    {"BOT COUNT", GEVR_PAUSE_CHOICE, 7, "7"}, {"BOT DIFFICULTY", GEVR_PAUSE_CHOICE, 5, "Perfect"},
-    {"CUSTOM 1", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"}, {"CUSTOM 2", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"},
-    {"CUSTOM 3", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"}, {"CUSTOM 4", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"},
-    {"LENGTH", GEVR_PAUSE_CHOICE, 8, "Last one standing"}, {"HEALTH", GEVR_PAUSE_CHOICE, 11, "-4 (Veteran)"},
-    {"DUAL WIELD", GEVR_PAUSE_CHOICE, 3, "Any two guns"}, {"LOADOUTS", GEVR_PAUSE_TOGGLE, 0, "ON"},
+    {"FRIENDLY FIRE", GEVR_PAUSE_TOGGLE, 0, "ON"}, {"AI ALLY", GEVR_PAUSE_TOGGLE, 0, "ON"},
     /* mpmenu.c's own fun switches: the table's are drawn instead */
-    {"DK MODE", GEVR_PAUSE_TOGGLE, 0, "ON"}, {"GUN SIZE", GEVR_PAUSE_CHOICE, 3, "Normal"},
+    {"DK MODE", GEVR_PAUSE_TOGGLE, 0, "ON"}, {"NO TELEPORT", GEVR_PAUSE_TOGGLE, 0, "ON"}, {"GUN SIZE", GEVR_PAUSE_CHOICE, 3, "Normal"},
     {"MOVEMENT SPEED", GEVR_PAUSE_CHOICE, 7, "100% (default)"},
 };
 static const FakeField s_player[] = {
-    {"NEXT ROUND READY", GEVR_PAUSE_TOGGLE, 0, "READY"}, {"YOUR TEAM", GEVR_PAUSE_CHOICE, 3, "Unassigned"},
-    {"CHARACTER", GEVR_PAUSE_CHOICE, 64, "Siberian Special Forces"}, {"LOADOUT 1", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"},
-    {"LOADOUT 2", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"}, {"LOADOUT 3", GEVR_PAUSE_CHOICE, 25, "AR33 Assault Rifle"},
+    {"NEXT ROUND READY", GEVR_PAUSE_TOGGLE, 0, "READY"}, {"CHARACTER", GEVR_PAUSE_CHOICE, 64, "Siberian Special Forces"},
+    {"FAV MAP", GEVR_PAUSE_TOGGLE, 0, "Bunker II (Full) YES"}, {"FAV SET", GEVR_PAUSE_TOGGLE, 0, "Proximity Mines YES"},
 };
 static int s_fieldsEditable = 1;
 extern "C" int gevrPauseReadField(int tab, int index, GevrPauseField *f) {
@@ -176,6 +173,7 @@ extern "C" int gevrPauseReadField(int tab, int index, GevrPauseField *f) {
     *f = GevrPauseField{};
     /* mpmenu.c's ids: lobby rows from 0, pause rows from 100, fun rows from 200 */
     f->id = tab * 30 + index + (!strcmp(rows[index].label, "DK MODE") || !strcmp(rows[index].label, "GUN SIZE")
+                                    || !strcmp(rows[index].label, "NO TELEPORT")
                                     || !strcmp(rows[index].label, "MOVEMENT SPEED") ? 200 : 0);
     f->kind = rows[index].kind; f->count = rows[index].count; f->editable = s_fieldsEditable;
     snprintf(f->label, sizeof(f->label), "%s", rows[index].label);
@@ -295,8 +293,8 @@ int main() {
             int ids[48];
             const int n = rows.sectionRows(tab, GEVR_SET_INGAME, ids, 48);
             std::snprintf(what, sizeof(what), "%s: its rows (%d)", state, n);
-            /* Rules: mpmenu.c's 17 less its two fun copies, and the table's six fun rows; Audio: the table's five */
-            settingsFitFail(n == (tab == GEVR_PAUSE_RULES ? 15 + 6 : tab == GEVR_PAUSE_PLAYER ? 6 : 5), what);
+            /* Rules: mpmenu.c's 8 less its three fun copies, and the table's seven fun rows; Audio: the table's five */
+            settingsFitFail(n == (tab == GEVR_PAUSE_RULES ? 5 + 7 : tab == GEVR_PAUSE_PLAYER ? 4 : 5), what);
             online++;
         }
     }

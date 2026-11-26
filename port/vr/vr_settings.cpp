@@ -1,6 +1,7 @@
 #include "gevr_gexweapon.h"
 #include "gevr_romlayout.h"
 #include "gevr_icloud.h"
+#include "gevr_sync.h"
 
 extern "C" int VrICloudSync, VrICloudPacks;   // gevr_settings.c
 #include <stdio.h>
@@ -44,6 +45,11 @@ int VrTouchHaptics = 1;
  * fired it, an Xbox pad's trigger motors or a DualSense's adaptive triggers.
  * 0 to 100%, its own strength (#269); an ini's 1 is the old toggle's on. */
 int VrTriggerFeedback = 100;
+/* A DualSense's adaptive triggers (input.c inputTriggerTick): 1 = a feel for
+ * what the hand holds (a gun's bump that fires past it, fists, a knife, a
+ * throw, the gadgets) and the shot's buzz in the trigger; 0 = the triggers
+ * left free, the pad's rumble only. */
+int VrAdaptiveTriggers = 1;
 /* The walk's head bob in a flat game (src/game/bondhead.c, #269); stereo has
  * none either way. */
 int VrHeadBob = 1;
@@ -250,6 +256,7 @@ static void vrSettingsWrite(const std::string &text)
 #endif
     }
     gevrCloudFileSaved(VR_INI_PATH);   // iCloud on the Apple builds (port/ios/ios_icloud.mm)
+    gevrSyncFileSaved(VR_INI_PATH);    // the cross-platform sync (port/pc/gevr_sync.cpp)
 }
 
 // A multiplayer name for a player who hasn't chosen one. The Meta account name
@@ -474,11 +481,17 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "DismemberDamage=%.1f\n", VrDismemberDamage);
     iniPrintf(f, "DismemberChance=%d\n", VrDismemberChance);
     iniPrintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
+    iniPrintf(f, "MasterVolume=%.2f\n", VrMasterVolume);
     iniPrintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
     iniPrintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
     iniPrintf(f, "SfxVolume=%.2f\n", VrSfxVolume);
     iniPrintf(f, "; Your name in multiplayer, up to 15 characters.\n");
     iniPrintf(f, "PlayerName=%s\n", VrPlayerName);
+    for (int g = 0; g < 3; g++) {
+        iniPrintf(f, "Guest%dName=%s\n", g + 2, VrGuestName[g]);
+        iniPrintf(f, "Guest%dChr=%d\n", g + 2, VrGuestChr[g]);
+        for (int k = 0; k < 4; k++) iniPrintf(f, "Guest%dLoadout%d=%d\n", g + 2, k + 1, VrGuestLoadout[g][k]);
+    }
     iniPrintf(f, "; The multiplayer page's last choices. MpStage is the level id; the sets,\n");
     iniPrintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
     iniPrintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
@@ -489,6 +502,10 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
     iniPrintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
+    iniPrintf(f, "; 1 = the host's Handicaps rule: each player picks their own health.\nMpHandicaps=%d\n", VrMpHandicaps ? 1 : 0);
+    iniPrintf(f, "; The host's Lobby rule: 1 gathers everyone in the pre-match lobby before each match, 0 drops them into the warmup.\n"
+            "; MpWarmup: the practice after the lobby's START, 0 off, 1 30 s, 2 60 s, 3 2 min.\nMpLobby=%d\nMpWarmup=%d\n",
+            VrMpLobby ? 1 : 0, VrMpWarmup);
     iniPrintf(f, "FriendsShowDetail=%d\nFriendsAppearOffline=%d\nFriendsRestoreNoted=%d\n",
             VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted);
     iniPrintf(f, "FriendsSidebar=%d\nFriendsSearchable=%d\n", VrFriendsSidebar, VrFriendsSearchable);
@@ -533,6 +550,9 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; A pad's triggers: a shot buzzes the trigger that fired it (an Xbox pad's\n");
     iniPrintf(f, "; trigger motors, a DualSense's adaptive triggers), 0 to 100 (%%), 0 = off.\n");
     iniPrintf(f, "TriggerFeedback=%d\n", VrTriggerFeedback);
+    iniPrintf(f, "; A DualSense: 1 = adaptive triggers (a gun's bump to pull past, a feel for each weapon),\n");
+    iniPrintf(f, "; 0 = the triggers left free and the pad's rumble only.\n");
+    iniPrintf(f, "AdaptiveTriggers=%d\n", VrAdaptiveTriggers);
     iniPrintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
     iniPrintf(f, "TouchLayout=%s\n", VrTouchLayout);
     iniPrintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
@@ -1150,6 +1170,9 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpHealth") == 0) VrMpHealth = ival;
             else if (strcmp(key, "MpDual") == 0) VrMpDual = ival;
             else if (strcmp(key, "MpLoadouts") == 0) VrMpLoadouts = ival != 0;
+            else if (strcmp(key, "MpHandicaps") == 0) VrMpHandicaps = ival != 0;
+            else if (strcmp(key, "MpLobby") == 0) VrMpLobby = ival != 0;
+            else if (strcmp(key, "MpWarmup") == 0) VrMpWarmup = ival >= 0 && ival <= 3 ? ival : 0;
             else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
             else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = strtoull(eq + 1, NULL, 10); /* past 32 bits */
             else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;
@@ -1158,12 +1181,26 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpDifficulty") == 0) VrMpDifficulty = ival >= 0 && ival <= 3 ? ival : 0;
             else if (strncmp(key, "MpCustom", 8) == 0 && key[8] >= '1' && key[8] <= '4') VrMpCustom[key[8] - '1'] = ival;
             else if (strncmp(key, "MpLoadout", 9) == 0 && key[9] >= '1' && key[9] <= '4') VrMpLoadout[key[9] - '1'] = ival;
+            else if (strncmp(key, "Guest", 5) == 0 && key[5] >= '2' && key[5] <= '4') {
+                int g = key[5] - '2';
+                const char *rest = key + 6;
+                if (strcmp(rest, "Name") == 0) {
+                    strncpy(VrGuestName[g], eq + 1, sizeof(VrGuestName[g]) - 1);
+                    VrGuestName[g][sizeof(VrGuestName[g]) - 1] = '\0';
+                    VrGuestName[g][strcspn(VrGuestName[g], "\r\n")] = '\0';
+                } else if (strcmp(rest, "Chr") == 0) {
+                    VrGuestChr[g] = ival >= 0 ? ival : 0;
+                } else if (strncmp(rest, "Loadout", 7) == 0 && rest[7] >= '1' && rest[7] <= '4') {
+                    VrGuestLoadout[g][rest[7] - '1'] = ival;
+                }
+            }
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
             else if (strcmp(key, "ScreenPassthrough") == 0) VrScreenPassthrough = ival != 0;
             else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
             else if (strcmp(key, "TouchHaptics") == 0) VrTouchHaptics = ival != 0;
             else if (strcmp(key, "TouchControls") == 0) VrTouchControls = ival != 0;
             else if (strcmp(key, "TriggerFeedback") == 0) VrTriggerFeedback = ival == 1 ? 100 : ival < 0 ? 0 : ival > 100 ? 100 : ival;
+            else if (strcmp(key, "AdaptiveTriggers") == 0) VrAdaptiveTriggers = ival != 0;
             else if (strcmp(key, "PadDefaults") == 0) s_padDefaults = ival;
             else if (strcmp(key, "PadLookInvert") == 0) s_padLookInvert = ival != 0;
             else if (strcmp(key, "HeadBob") == 0) VrHeadBob = ival != 0;
@@ -1263,6 +1300,11 @@ extern "C" void vrSettingsLoad(void)
                 if (fval > VR_SCREEN_FOV_MAX) fval = VR_SCREEN_FOV_MAX;
                 VrScreenFov = fval;
             }
+            else if (strcmp(key, "MasterVolume") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrMasterVolume = fval;
+            }
             else if (strcmp(key, "MusicVolume") == 0) {
                 if (fval < 0.0f) fval = 0.0f;
                 if (fval > 1.0f) fval = 1.0f;
@@ -1346,4 +1388,16 @@ extern "C" void vrSettingsLoad(void)
     // person are open whatever an ini from elsewhere says.
     VrPlayMode = 0;
 #endif
+    vrSyncGuestSeatConfigs();
+}
+
+extern "C" void netSetLocalSeatConfig(int seat, const char *name, uint8_t chr_id, uint8_t input_class, const uint8_t loadout[4]);
+
+void vrSyncGuestSeatConfigs(void)
+{
+    for (int g = 0; g < 3; g++) {
+        uint8_t kit[4];
+        for (int k = 0; k < 4; k++) kit[k] = (uint8_t)VrGuestLoadout[g][k];
+        netSetLocalSeatConfig(g + 1, VrGuestName[g], (uint8_t)VrGuestChr[g], 2 /* NET_INPUT_PAD */, kit);
+    }
 }

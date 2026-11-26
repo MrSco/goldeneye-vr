@@ -19,16 +19,17 @@ def function(signature):
         depth+=(launcher[end]=='{')-(launcher[end]=='}');end+=1
     return launcher[start:end]
 
-start=launcher.index('if (netModePve(VrMpMode)) {',launcher.index('if (ImGui::BeginTabItem("Match"))'))
-opening=launcher.index('{',start);end=opening+1;depth=1
-while depth:
-    depth+=(launcher[end]=='{')-(launcher[end]=='}');end+=1
-coop=launcher[opening:end]
+# the Host page (Game, Advanced) and the Favorites page: the match itself is set up in the game
+# (docs/in-game-match-setup.md), so no match, roster or co-op rules pages are left to check
+launcher_host=launcher[launcher.index('void gevrMultiplayerPage('):launcher.index('/* The launcher is no longer pumping')]
+for gone in ('BeginTabItem("Match")','BeginTabItem("Lobby")','gevrLobbyRoster','"Ready"','"Start Hosting"','loadoutRows'):
+    assert gone not in launcher, gone+': the in-game setup replaced it'
+assert 'BeginTabItem("Game")' in launcher_host and 'BeginTabItem("Advanced")' in launcher_host
+assert 'ImGui::Button("Host"' in launcher_host and 'gevrMpStartHosting();\n            gevrMpLaunch(startMatch);' in launcher_host
 fixture=(root/'port/tests/launcher_compact_native.cpp').read_text(encoding='utf-8')
 generated.write_text(fixture.replace('/* INSERT_OPTIONS */','\n'.join(function(signature) for signature in
-    ('static void gevrMatchOptions(bool', 'static void gevrMovementSpeedOptions(bool', 'static void gevrMatchLiveOptions() {',
-     'static void gevrLobbyRoster(const', 'static const char *playerCountName(', 'static void gevrHostLobbyOptions(')))
-    .replace('/* INSERT_COOP */',coop),encoding='utf-8')
+    ('static void gevrMovementSpeedOptions(bool', 'static void gevrMatchLiveOptions() {', 'static void gevrHostAdvancedOptions(',
+     'static void gevrFavoriteOptions(', 'static void gevrHostLobbyOptions('))),encoding='utf-8')
 obj=Path(tempfile.gettempdir())/'gevr-launcher-net-match.o'
 subprocess.run([shutil.which('gcc') or 'gcc','-O2','-D_LANGUAGE_C','-Wno-builtin-declaration-mismatch','-I.','-Iport/include','-Iinclude','-Isrc',
                 '-c','port/src/net/net_match.c','-o',str(obj)],cwd=root,check=True)

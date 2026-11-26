@@ -45,8 +45,8 @@
 
 extern void gevrPlayerLayout(u32 *size, u32 *pausestate); // bondview2.c
 
-/* Crouch toggle for the left stick click; bondview2.c applies it. */
-static s32 gevrCrouchToggle = 0;
+/* Crouch toggle per player (left stick click / crouch key); bondview2.c applies it. */
+static s32 gevrCrouchToggle[MAX_PLAYER_COUNT];
 
 /* The touch RELOAD is held: its B reloads and never activates (lv.c), as
  * Midas's reload-only flag. 0 everywhere else. */
@@ -69,6 +69,56 @@ extern int flatTouchTakeLookDeg(float *yaw, float *pitch);
  * stick clicks recentre (GEVR PC's GETV_XR_RECENTER_CHORD).
  */
 extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
+extern s32 gevrMenuPanelCancel(s32 slot);   /* mpmenu.c: leaves a game screen in a match (Select Character...) */
+extern s32 gevrMpOptionsStartPressed(s32 slot);   /* mpmenu.c: a deathmatch warmup's START opens the Multiplayer Options folder */
+extern s32 gevrMpOptionsIsOpen(s32 slot);
+extern s32 gevrInMatchLobby(void);   /* mpmenu.c: the pre-match lobby on the title stage (docs/match-lobby.md) */
+extern void gevrMpOptionsQueueStart(s32 slot);   /* mpmenu.c: the folder's START tab, for a START taken here */
+
+#ifdef GEVR_FLAT   /* a PC window, a phone: the pads' START (the headset's Menu: below) */
+/*
+ * Horde online: a pad's START is not the campaign watch, which has nothing
+ * for a Horde run. It opens the seat's own Multiplayer Options folder
+ * (mpmenu.c) in the run's setup break, and with a split screen at any time,
+ * in the player's own view; one player's START in a run is the pause window,
+ * as the headset's Menu is (its Match tab: Retry Horde). With the folder up
+ * START is its START tab (START WAVE); over a game screen it leaves it.
+ * Co-op keeps its watch. The seat's START never reaches the game. A new
+ * seat's first START is the one that dropped it in (its Select Character is
+ * up): not a press here.
+ */
+extern int gevrNetSlotIsLocalHuman(int slot);
+static void inputHordeStart(s32 slot, OSContPad *npad)
+{
+    static int was[MAX_PLAYER_COUNT];
+    static int seated[MAX_PLAYER_COUNT];
+    const int start = (npad->button & START_BUTTON) != 0;
+    struct player *pl;
+
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) {
+        if (!gevrNetSlotIsLocalHuman(i)) seated[i] = 0;
+    }
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT) return;
+    pl = g_playerPointers[slot];
+    if (!seated[slot]) {
+        seated[slot] = 1;
+        was[slot] = 1;   /* held from the drop-in: an edge only once it is let go */
+    }
+    if (!netIsActive() || !netHordeActive() || pl == NULL) {
+        was[slot] = start;
+        return;
+    }
+    if (start && !was[slot]) {
+        if (gevrMpOptionsIsOpen(slot)) gevrMpOptionsQueueStart(slot);
+        else if (gevrMenuPanelCancel(slot)) pl->mpmenuon = 0;
+        else if (!pl->mpmenuon && gevrMpOptionsStartPressed(slot)) {}
+        else if (slot == netGetLocalSlot()) pl->mpmenuon = !pl->mpmenuon;   /* the pause window */
+        else pl->mpmenuon = 0;
+    }
+    npad->button &= ~START_BUTTON;
+    was[slot] = start;
+}
+#endif
 extern s32 gevrScopeZoomStick(void);  /* bondview2.c: aiming the sniper, this stick zooms */
 extern s32 gevrTeleportTakesStick(void);   /* gevr_teleport.c: the move stick aims a jump */
 extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator, the watch gadgets (#31) */
@@ -260,7 +310,10 @@ s32 gevrVrTakeRecenter(void)
 }
 s32 gevrCrouchToggled(void)
 {
-    return gevrCrouchToggle;
+    extern s32 get_cur_playernum(void);
+    s32 p = get_cur_playernum();
+    if (p < 0 || p >= MAX_PLAYER_COUNT) return 0;
+    return gevrCrouchToggle[p];
 }
 extern bool vr_leftHasWeapon;
 int vr_button_R_grip = false;
@@ -846,6 +899,8 @@ static inline void inputInitController(const s32 cidx, const s32 jidx)
     }
 }
 
+static void inputTriggerRelease(s32 slot);   /* below, with the trigger feedback */
+
 static inline void inputCloseController(const s32 cidx)
 {
     sysLogPrintf(LOG_NOTE, "input: removed controller '%d: (%s)' (id %d) from player %d",
@@ -853,6 +908,7 @@ static inline void inputCloseController(const s32 cidx)
 
     // reset player LEDs
     SDL_GameControllerSetPlayerIndex(pads[cidx], -1);
+    inputTriggerRelease(cidx);
 
     SDL_GameControllerClose(pads[cidx]);
 
@@ -943,6 +999,7 @@ static s32 s_ownSeated;                                     /* they joined: slot
 static s32 s_joinDev[INPUT_MAX_CONTROLLERS];                /* the join page's list: JOIN_OWN or a pad's SDL_JoystickID */
 static s32 s_joinCount;
 static s32 s_lastDevice = JOIN_NONE;                        /* the device that pressed something last */
+static u32 s_ownPresses;                                    /* the own controls' presses (online seats: inputOnlineTickDropIn) */
 static s32 s_ownTap;                                        /* a finger came down since the join page looked */
 static s32 s_soloPadSlot;                                   /* solo: the slot of the pad played last (its rumble) */
 #endif
@@ -1027,6 +1084,8 @@ static s32 inputPadIgnored(s32 jidx)
         }
         return 1;
     }
+#elif defined(GEVR_PC)
+    if (!pcTestInputPadAllowed(jidx)) return 1;   /* a test script's run: its own virtual pads only */
 #else
     (void)jidx;
 #endif
@@ -1103,6 +1162,19 @@ static u32 inputJoinPadHeld(SDL_GameController *pad)
     if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START)) b |= JOINP_JOIN | JOINP_GO;
     if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B)) b |= JOINP_LEAVE;
     return b;
+}
+
+/* The players the join page needs before START plays: two for Multiplayer, one for couch co-op (front.c) */
+static s32 s_joinMinimum = 2;
+
+void inputJoinSetMinimum(s32 players)
+{
+    s_joinMinimum = players < 1 ? 1 : players;
+}
+
+s32 inputJoinMinimum(void)
+{
+    return s_joinMinimum;
 }
 
 static s32 inputJoinFind(s32 dev)
@@ -1239,6 +1311,7 @@ static void inputSeatsCommit(void)
         } else {
             sysLogPrintf(LOG_NOTE, "input: '%s' waits for the next join (no slot left)", SDL_GameControllerName(pads[k]));
             SDL_GameControllerSetPlayerIndex(pads[k], -1);
+            inputTriggerRelease(k);
             SDL_GameControllerClose(pads[k]);
         }
     }
@@ -1402,7 +1475,7 @@ s32 inputJoinFrame(s32 onPrevTab, s32 onStartTab)
         }
     }
 
-    if (go && s_joinCount >= 2) {
+    if (go && s_joinCount >= s_joinMinimum) {
         inputSeatsCommit();
         return 1;
     }
@@ -1431,6 +1504,293 @@ s32 inputPlayerSlot(s32 player)
 #endif
     return player;
 }
+
+#ifdef GEVR_FLAT
+/*
+ * Online split screen (docs/online-split-screen.md): a seat for each device
+ * that joins. Alone, this machine's player reads slot 0 (the keyboard and
+ * mouse, and the first pad) as ever. A pad that drives no one presses START
+ * during the match to join: the match adds a local guest
+ * (netRequestAddLocalGuest), and the seats are the offline join's
+ * (inputSeatsCommit), player 1's device and each guest's pad in the match's
+ * seat order, so the split grows as players join. The first pad joins too
+ * when player 1 has been on the keyboard and mouse this stage (otherwise its
+ * START is player 1's pause). A guest leaving (Drop Out, Remove) frees its
+ * pad; alone again, the seats clear. (Owner, 2026-11-24: guests chosen up
+ * front with no controller stood still, and the screen should split as
+ * players 3 and 4 join.)
+ */
+static s32 s_onlineSlotDev[MAX_PLAYER_COUNT];   /* a local seat's device, by match slot: JOIN_OWN, a pad's id, JOIN_NONE */
+static s32 s_onlinePending = JOIN_NONE;           /* a pad that asked to join, until the match answers */
+static u32 s_onlinePendingUntil;
+static s32 s_onlineLate = JOIN_NONE;                /* a pad whose drop-in timed out here: the host may yet seat it */
+static u32 s_onlineLateUntil;
+static s32 s_onlineSeats;                          /* the seats this set up (s_seated is then theirs) */
+static s32 s_onlineP1Dev = JOIN_NONE;              /* player 1's device while alone: JOIN_OWN or slot 0's pad */
+static u32 s_onlineOwnBase;                        /* s_ownPresses when the stage began */
+static s32 s_onlineStage = -1;
+static s32 s_onlineWasActive;
+static u8 s_onlinePadHeld[INPUT_MAX_CONTROLLERS];
+
+/* A seat's device slot online: player 1's slot 0 alone; -1 for a seat whose pad is gone */
+static s32 inputOnlineDevForSeat(s32 seat)
+{
+    if (seat < 0 || seat >= INPUT_MAX_CONTROLLERS) return -1;
+    if (!s_onlineSeats || !s_seated) return seat == 0 ? 0 : -1;
+    if (seat >= s_joinCount) return -1;
+    if (s_joinDev[seat] != JOIN_OWN && inputJoinSlotOf(s_joinDev[seat]) < 0) return -1;
+    return s_seatSlot[seat];
+}
+
+static s32 inputOnlineDevSeated(s32 id)
+{
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) {
+        if (s_onlineSlotDev[i] == id && gevrNetSlotIsLocalHuman(i)) return 1;
+    }
+    return 0;
+}
+
+static void inputOnlineReset(void)
+{
+    if (s_onlineSeats) {
+        inputSeatsClear();
+        s_onlineSeats = 0;
+    }
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) s_onlineSlotDev[i] = JOIN_NONE;
+    for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_onlinePadHeld[k] = 0;
+    s_onlinePending = JOIN_NONE;
+    s_onlineLate = JOIN_NONE;
+    s_onlineP1Dev = JOIN_NONE;
+    s_onlineStage = -1;
+}
+
+/* The seats from the match's local players (and a pad waiting to join) */
+static void inputOnlineSeatsSync(void)
+{
+    extern int netLocalSlotCount(void);
+    extern int netSlotOfLocalSeat(int seat);
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    const s32 count = netLocalSlotCount();
+    s32 devs[INPUT_MAX_CONTROLLERS];
+    s32 n = 0;
+
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) {
+        if (!gevrNetSlotIsLocalHuman(i)) s_onlineSlotDev[i] = JOIN_NONE;
+    }
+    if (s_onlineLate != JOIN_NONE && SDL_TICKS_PASSED(SDL_GetTicks(), s_onlineLateUntil)) s_onlineLate = JOIN_NONE;
+    if (s_onlinePending != JOIN_NONE || s_onlineLate != JOIN_NONE) {
+        for (s32 seat = 1; seat < count; ++seat) {
+            const s32 slot = netSlotOfLocalSeat(seat);
+            if (slot >= 0 && slot < MAX_PLAYER_COUNT && s_onlineSlotDev[slot] == JOIN_NONE) {
+                extern void gevrMpOptionsDropIn(s32 slot);
+                /* the match took it; or, past the wait below, a host's late yes: the
+                 * seat is still the pad's that asked */
+                if (s_onlinePending != JOIN_NONE) {
+                    s_onlineSlotDev[slot] = s_onlinePending;
+                    s_onlinePending = JOIN_NONE;
+                } else {
+                    s_onlineSlotDev[slot] = s_onlineLate;
+                    s_onlineLate = JOIN_NONE;
+                }
+                /* the newcomer chooses their character in their own view first (mpmenu.c): in a
+                 * deathmatch's warmup from the Multiplayer Options folder, which it comes back to */
+                if (bossGetStageNum() != LEVELID_TITLE) gevrMpOptionsDropIn(slot);
+                break;
+            }
+        }
+    }
+    if (s_onlinePending != JOIN_NONE && SDL_TICKS_PASSED(SDL_GetTicks(), s_onlinePendingUntil)) {
+        /* refused (full, a team full: its notice says so), or the host is slow: kept a
+         * minute in case its yes still comes, so the seat gets its pad */
+        s_onlineLateUntil = SDL_GetTicks() + 60000;
+        s_onlineLate = s_onlinePending;
+        s_onlinePending = JOIN_NONE;
+    }
+    if (count >= 2 || s_onlinePending != JOIN_NONE) {
+        for (s32 seat = 0; seat < count && n < INPUT_MAX_CONTROLLERS; ++seat) {
+            const s32 slot = netSlotOfLocalSeat(seat);
+            s32 d = slot >= 0 && slot < MAX_PLAYER_COUNT ? s_onlineSlotDev[slot] : JOIN_NONE;
+            if (seat == 0 && d == JOIN_NONE) d = JOIN_OWN;
+            devs[n++] = d;
+        }
+        if (s_onlinePending != JOIN_NONE && n < INPUT_MAX_CONTROLLERS) devs[n++] = s_onlinePending;
+    }
+    if (n == 0) {
+        if (s_onlineSeats) {
+            inputSeatsClear();
+            s_onlineSeats = 0;
+            sysLogPrintf(LOG_NOTE, "input: online seats cleared (one local player)");
+        }
+        return;
+    }
+    s32 same = s_onlineSeats == n && s_seated == n;
+    for (s32 i = 0; same && i < n; ++i) same = s_joinDev[i] == devs[i];
+    if (same) return;
+    s_joinCount = n;
+    for (s32 i = 0; i < n; ++i) s_joinDev[i] = devs[i];
+    inputSeatsCommit();
+    s_onlineSeats = n;
+}
+
+static void inputOnlineTickDropIn(void)
+{
+    extern int netLocalSlotCount(void);
+    extern int netGetLocalSlot(void);
+    extern int netRequestAddLocalGuest(const char *name, u8 chr_id, u8 input_class, const u8 loadout[4]);
+    extern int gevrNativePauseOpen(void);
+    if (!netIsActive() || g_gevrStereo) {
+        if (s_onlineWasActive) {
+            inputOnlineReset();
+            s_onlineWasActive = 0;
+        }
+        return;
+    }
+    s_onlineWasActive = 1;
+    const s32 stage = bossGetStageNum();
+    if (stage != s_onlineStage) {
+        s_onlineStage = stage;
+        s_onlineOwnBase = s_ownPresses;
+    }
+    inputOnlineSeatsSync();
+    const s32 count = netLocalSlotCount();
+    const s32 ownUsed = s_ownPresses != s_onlineOwnBase;
+    s32 joined = 0;
+    /* the pre-match lobby takes a new pad's START as a match does: its seat gets a folder */
+    if (stage == LEVELID_TITLE ? !gevrInMatchLobby() : gevrNativePauseOpen()) {   /* the lobby's window is always up */
+        for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_onlinePadHeld[k] = 0;
+    } else {
+        for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
+            SDL_GameController *pad = pads[k];
+            if (!pad || !inputJoinablePad(pad)) {
+                s_onlinePadHeld[k] = 0;
+                continue;
+            }
+            const s32 id = (s32)inputControllerGetId(pad);
+            const s32 pressed = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START) != 0;
+            const s32 fresh = pressed && !s_onlinePadHeld[k];
+            s_onlinePadHeld[k] = pressed ? 1 : 0;
+            if (!fresh || joined || s_onlinePending != JOIN_NONE || inputOnlineDevSeated(id)) continue;
+            s32 p1 = JOIN_NONE;
+            if (count <= 1) {
+                const s32 p1own = s_onlineP1Dev == JOIN_OWN && ownUsed;
+                if (k == 0 && !p1own) continue;   /* player 1's pad: its START is player 1's */
+                p1 = p1own || k == 0 || !pads[0] ? JOIN_OWN : (s32)inputControllerGetId(pads[0]);
+            }
+            if (count >= INPUT_MAX_CONTROLLERS) continue;
+            if (p1 != JOIN_NONE) {
+                const s32 me = netGetLocalSlot();
+                if (me >= 0 && me < MAX_PLAYER_COUNT) s_onlineSlotDev[me] = p1;
+            }
+            s_onlinePending = id;
+            s_onlinePendingUntil = SDL_GetTicks() + 4000;
+            if (s_onlineLate == id) s_onlineLate = JOIN_NONE;   /* asked again: one pad, one seat */
+            joined = 1;
+            sysLogPrintf(LOG_NOTE, "input: '%s' asks to join as player %d", SDL_GameControllerName(pad), count + 1);
+            if (netRequestAddLocalGuest(NULL, 0xFF, 2 /* NET_INPUT_PAD */, NULL) < 0) {
+                s_onlinePending = JOIN_NONE;
+            }
+            inputOnlineSeatsSync();   /* the pad leaves player 1's slot now, before the game reads it */
+        }
+    }
+    /* player 1's device while alone: the keyboard and mouse, or slot 0's pad */
+    if (!joined && count <= 1 && s_onlinePending == JOIN_NONE) {
+        if (s_lastDevice == JOIN_OWN) {
+            s_onlineP1Dev = JOIN_OWN;
+        } else if (pads[0] && s_lastDevice == (s32)inputControllerGetId(pads[0])) {
+            s_onlineP1Dev = s_lastDevice;
+        }
+    }
+}
+#endif
+
+#ifdef GEVR_FLAT
+/*
+ * A couch match with a seat to spare (net_core.c gevrCouchSeats: two or three
+ * players, four loaded): a pad that did not join presses START and plays at
+ * once as the next player, the screen splitting again (front.c
+ * gevrCouchDropIn). Its START that dropped it in is not a pause.
+ */
+static s32 s_couchPadHeld[INPUT_MAX_CONTROLLERS];
+static s32 s_couchHoldStart[INPUT_MAX_CONTROLLERS];   /* a player's START held from the drop-in */
+
+static void inputCouchTickDropIn(void)
+{
+    extern int gevrCouchSeats(void);
+    extern s32 gevrCouchDropIn(void);
+    extern int gevrNativePauseOpen(void);
+    const s32 seats = gevrCouchSeats();
+
+    /* Players lowered on the options page after more joined: the match has the
+     * fewer, and the rest go back to waiting pads that may drop in */
+    if (!netIsActive() && seats >= 2 && s_seated > seats && s_joinCount > seats) {
+        s_joinCount = seats;
+        inputSeatsCommit();
+    }
+    if (netIsActive() || g_gevrStereo || seats < 2 || seats >= INPUT_MAX_CONTROLLERS || s_seated != seats
+            || bossGetStageNum() == LEVELID_TITLE || gevrNativePauseOpen()) {
+        for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_couchPadHeld[k] = 1;   /* a press already down is not one */
+        return;
+    }
+    for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
+        SDL_GameController *pad = pads[k];
+        if (!pad || !inputJoinablePad(pad)) {
+            s_couchPadHeld[k] = 0;
+            continue;
+        }
+        const s32 id = (s32)inputControllerGetId(pad);
+        const s32 pressed = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START) != 0;
+        const s32 fresh = pressed && !s_couchPadHeld[k];
+        s_couchPadHeld[k] = pressed;
+        if (!fresh || inputJoinFind(id) >= 0) continue;   /* a seated pad's START is its pause */
+        const s32 player = gevrCouchDropIn();
+        if (player < 0) return;
+        sysLogPrintf(LOG_NOTE, "input: '%s' drops in as player %d", SDL_GameControllerName(pad), player + 1);
+        s_joinDev[s_joinCount++] = id;
+        inputSeatsCommit();
+        s_couchHoldStart[player] = 1;
+        for (s32 j = 0; j < INPUT_MAX_CONTROLLERS; ++j) s_couchPadHeld[j] = 1;   /* the pads moved slots */
+        return;
+    }
+}
+#endif
+
+#ifdef GEVR_FLAT
+/*
+ * Couch co-op began (front.c, net_core.c netCouchCoopStart): the join page's
+ * players become the party's local seats, each with the device it joined
+ * with, as an online party's local guests are (inputOnlineSeatsSync).
+ */
+/*
+ * Couch co-op's seats are an online party's, where the own controls (keyboard
+ * and mouse, touch) are always the first seat: mouse look and the menus read
+ * them there. Before the party starts, the own controls move to the front of
+ * the join page's list; the pads keep their order after them.
+ */
+void inputJoinOwnFirst(void)
+{
+    const s32 own = inputJoinFind(JOIN_OWN);
+
+    if (own <= 0) return;
+    for (s32 i = own; i > 0; --i) s_joinDev[i] = s_joinDev[i - 1];
+    s_joinDev[0] = JOIN_OWN;
+    inputSeatsCommit();
+}
+
+void inputCouchCoopAdopt(void)
+{
+    extern int netSlotOfLocalSeat(int seat);
+
+    for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) s_onlineSlotDev[i] = JOIN_NONE;
+    for (s32 p = 0; p < s_joinCount; ++p) {
+        const s32 slot = netSlotOfLocalSeat(p);
+        if (slot >= 0 && slot < MAX_PLAYER_COUNT) s_onlineSlotDev[slot] = s_joinDev[p];
+    }
+    s_onlineP1Dev = s_joinCount > 0 ? s_joinDev[0] : JOIN_NONE;
+    s_onlineSeats = 0;   /* the next sync commits them */
+    sysLogPrintf(LOG_NOTE, "input: couch co-op: %d seat(s) from the join page", s_joinCount);
+}
+#endif
 
 /* The player the keyboard and mouse (or the touch controls) drive offline */
 s32 inputOwnPlayer(void)
@@ -1568,7 +1928,8 @@ int gevrTvRemoteHeld(int *dx, int *dy, int *centre);   // port/ios/ios_app.m
 #endif
 #ifdef GEVR_IOS
 void pcReportForeground(int active);   // port/pc/pc_reports.cpp
-void gevrIosDualSenseTrigger(int right, float amp);   // port/ios/ios_app.m
+void gevrIosDualSenseFeel(int right, int mode, float start, float end, float force0, float force1);   // port/ios/ios_app.m
+void gevrIosDualSenseBuzz(int right, float start, float amp, float freq);   // port/ios/ios_app.m
 #endif
 
 static int inputEventFilter(void *data, SDL_Event *event)
@@ -1682,6 +2043,7 @@ static int inputEventFilter(void *data, SDL_Event *event)
             }
 #ifdef GEVR_FLAT
             s_lastDevice = JOIN_OWN;
+            s_ownPresses++;
 #endif
             break;
 
@@ -1696,12 +2058,14 @@ static int inputEventFilter(void *data, SDL_Event *event)
             }
 #ifdef GEVR_FLAT
             s_lastDevice = JOIN_OWN;   /* the join page's player 1, if it chose Multiplayer */
+            if (!event->key.repeat) s_ownPresses++;
 #endif
             break;
 
 #ifdef GEVR_FLAT
         case SDL_FINGERDOWN:
             s_lastDevice = JOIN_OWN;
+            s_ownPresses++;
             s_ownTap = 1;
             break;
 #endif
@@ -2085,9 +2449,18 @@ static struct player *inputReadPlayer(s32 player)
  * to the C buttons for play) moves the cursor too. What the keyboard's stick
  * keys already set wins. Player 1's pad and, in a local split screen, each
  * further player's.
+ *
+ * rows: an online watch page of rows (mpmenu.c gevrMenuRowsOpen: PAUSE,
+ * LOBBY, FUN), where the stick's up and down step the selected row's value.
+ * There the d-pad's up and down (C-Up and C-Down) and the left stick's only
+ * move the cursor, the right stick steps the value whichever way it is
+ * pushed, and left and right on the d-pad or the left stick still turn the
+ * page, as the headset's sticks work there. The d-pad's up and down had also
+ * stepped the value: moving onto CHARACTER changed it, and the FAV rows
+ * toggled on the way past (user, 2026-11-24).
  */
 static void inputFlatPadSticks(SDL_GameController *pad, const struct controllercfg *pcfg, bool menu,
-                               f32 lx, f32 ly, OSContPad *npad)
+                               bool rows, f32 lx, f32 ly, OSContPad *npad)
 {
     const bool swapped = pcfg->swapSticks == 0;   /* default swapSticks=1 means L=move, R=look */
     const f32 rx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
@@ -2106,6 +2479,15 @@ static void inputFlatPadSticks(SDL_GameController *pad, const struct controllerc
         if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) sx = 1.0f;
         if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) sy = 1.0f;
         if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) sy = -1.0f;
+    }
+    if (menu && rows) {
+        const f32 ax = moveX < 0.0f ? -moveX : moveX, ay = moveY < 0.0f ? -moveY : moveY;
+        const f32 bx = lookX < 0.0f ? -lookX : lookX, by = lookY < 0.0f ? -lookY : lookY;
+        sx = ax > ay ? moveX : 0.0f;
+        if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) sx = -1.0f;
+        if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) sx = 1.0f;
+        sy = bx > by ? lookX : lookY;
+        if (ay > 0.5f && ay > ax) npad->button |= moveY > 0.0f ? U_CBUTTONS : D_CBUTTONS;
     }
     if (npad->stick_x == 0) {
         npad->stick_x = inputAxisScale((s32)(sx * 32767.0f),
@@ -2144,28 +2526,71 @@ s32 inputConsumePrevWeapon(s32 player)
 s32 inputReadController(s32 idx, OSContPad *npad)
 {
     extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    extern int netLocalSeatOfSlot(int slot);
+    extern int bossGetStageNum(void);
+    extern int gevrCoopMenuFollowing(void);
     /* An online-only slot (4..7, src/joy.c gevrReadSlotPads) has no port, binds
-     * or settings of its own; the online branches below fill its pad. */
+     * or settings of its own; online local seats and remote copies are handled below. */
     const bool slotPad = idx >= INPUT_MAX_CONTROLLERS && idx < INPUT_MAX_SLOT_PADS && netIsActive();
 
     if (idx < 0 || (idx >= INPUT_MAX_CONTROLLERS && !slotPad) || !npad) {
         return -1;
     }
 
+    /* the front end's menus read this machine's player as the first; the pre-match
+     * lobby's folders (mpmenu.c) read each local seat's pad by its slot, as a match does */
+    const int inMenus = bossGetStageNum() == 90 /* LEVELID_TITLE */ && !gevrInMatchLobby();
+    const int localSlot = netIsActive() && !inMenus ? netGetLocalSlot() : 0;
+    const s32 localSeat = netIsActive() && !inMenus ? netLocalSeatOfSlot(idx) : -1;
+    const bool isLocalOnline = netIsActive() && !inMenus && localSeat >= 0;
+
+    if (inMenus && netIsActive() && gevrCoopMenuFollowing()) {
+        s_gevrReloadInput.context = s_gevrReloadInput.pending = 0;
+        memset(npad, 0, sizeof(*npad));
+        return 0;
+    }
+
+    if (netIsActive() && !inMenus && !isLocalOnline) {
+        memset(npad, 0, sizeof(*npad));
+        if (netIsRemotePlayerActive(idx)) {
+            const struct netplayermove *m = netGetRemotePlayerMove(idx);
+            if (m) {
+                /* Remote positions are authoritative. Feeding their movement
+                 * back through the local walk simulation moves them twice and
+                 * makes the character bounce between ticks. */
+                if ((m->ucmd & UCMD_FIRE) && g_playerPointers[idx] &&
+                    !g_playerPointers[idx]->bonddead) {
+                    npad->button |= Z_TRIG;
+                }
+            }
+        }
+        return 0;
+    }
+
 #ifdef GEVR_FLAT
     /*
      * Offline the game asks for player idx: in a local split screen that is
-     * the slot of the device that joined as it (inputSeatsCommit). A player
-     * with no device reads as no pad, so a pad plugged in or out is counted
-     * at the next read (joy.c joyCheckStatus on the error's change), not a
-     * couple of seconds later.
+     * the slot of the device that joined as it (inputSeatsCommit). Online,
+     * localSeat (0..3) maps through inputOnlineDevForSeat to device slot 0..3
+     * even if the player's network slot is 4..7.
      */
     const s32 player = idx;
-    if (!slotPad && !netIsActive()) {
+    s32 devSlot = idx;
+    if (!netIsActive()) {
         if (!inputControllerConnected(idx)) {
             return -1;
         }
-        idx = inputPlayerSlot(idx);
+        devSlot = inputPlayerSlot(idx);
+        idx = devSlot;
+    } else if (isLocalOnline) {
+        devSlot = inputOnlineDevForSeat(localSeat);
+        if (devSlot < 0 || devSlot >= INPUT_MAX_CONTROLLERS) {
+            memset(npad, 0, sizeof(*npad));
+            return 0;
+        }
+    } else {
+        devSlot = 0;
     }
 #endif
 
@@ -2180,22 +2605,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         return 0;
     }
 
-    if (!slotPad) {
+    if (!slotPad || isLocalOnline) {
 #ifdef GEVR_FLAT
-        /*
-         * Online, this machine's player is its slot in the match (the host's
-         * 0, a guest's 1 or more), but its keyboard, mouse and first pad are
-         * slot 0's binds: inputSetDefaultKeyBinds gives the keys to slot 0
-         * alone. Read by the slot, a guest's WASD, fire and use read nothing
-         * and it couldn't move (a player's report, 2026-11-21: "you can't move
-         * if you join as a flat player"). Every other slot online is a remote
-         * copy, filled below.
-         */
-        extern int netGetLocalSlot(void);
-        const s32 bindIdx = netIsActive() && bossGetStageNum() != LEVELID_TITLE && idx == netGetLocalSlot() ? 0 : idx;
+        const s32 bindIdx = netIsActive() ? devSlot : idx;
         const s32 slots = inputSoloSlots(bindIdx);
 #else
-        const s32 slots = 1 << idx;
+        const s32 slots = 1 << (isLocalOnline ? 0 : idx);
 #endif
         s32 xdiff = 0, ydiff = 0;
         u8 prevWeapDown = 0;
@@ -2224,8 +2639,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
 #ifdef GEVR_FLAT
         if (bossGetStageNum() != LEVELID_TITLE && !gevrNativePauseOpen()) {
-            const s32 pslot = netIsActive() ? netGetLocalSlot() : player;
-            if (pslot >= 0 && pslot < INPUT_MAX_SLOT_PADS && (!netIsActive() || idx == pslot)) {
+            const s32 pslot = player;
+            if (pslot >= 0 && pslot < INPUT_MAX_SLOT_PADS) {
                 if (prevWeapDown && !s_prevWeaponHeld[pslot]) {
                     s_prevWeaponPending[pslot] = 1;
                 }
@@ -2247,42 +2662,41 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         {
             static bool restartHeld = false;
 #ifdef GEVR_FLAT
-            const bool firstPlayer = player == 0;
+            const bool firstPlayer = isLocalOnline ? (localSeat == 0) : (player == 0);
 #else
             const bool firstPlayer = idx == 0;
 #endif
             if (firstPlayer) {
                 if (restartDown && !restartHeld && !gevrNativePauseOpen() && !inputIsBindingCapture()
                         && gevrSpeedrunRestartRequest()) {
-                    gevrCrouchToggle = 0;   /* the same stage again: the crouch's reset (below) keys on a new one */
+                    memset(gevrCrouchToggle, 0, sizeof(gevrCrouchToggle));
                 }
                 restartHeld = restartDown;
             }
         }
         /*
-         * Crouch toggles on its own key (5.25 report: flat had none; aim + Back
-         * crouches as on the N64, and stays crouched once aim is let go). As the
-         * Quest's left stick click: bondview2.c reads gevrCrouchToggled, a new
-         * level stands.
+         * Crouch toggles on its own key per player (5.25 report: flat had none).
+         * A new level stands everyone up.
          */
         {
-            static bool crouchKeyHeld = false;
+            static bool crouchKeyHeld[MAX_PLAYER_COUNT];
             static s32 crouchKeyStage = -1;
+            if (bossGetStageNum() != crouchKeyStage) {
+                crouchKeyStage = bossGetStageNum();
+                memset(gevrCrouchToggle, 0, sizeof(gevrCrouchToggle));
+                memset(crouchKeyHeld, 0, sizeof(crouchKeyHeld));
+            }
 #ifdef GEVR_FLAT
-            const bool firstPlayer = player == 0;
+            const s32 cslot = player;
 #else
-            const bool firstPlayer = idx == 0;
+            const s32 cslot = idx;
 #endif
-            if (firstPlayer) {
-                if (bossGetStageNum() != crouchKeyStage) {
-                    crouchKeyStage = bossGetStageNum();
-                    gevrCrouchToggle = 0;
-                }
-                if (crouchKeyDown && !crouchKeyHeld && bossGetStageNum() != LEVELID_TITLE
+            if (cslot >= 0 && cslot < MAX_PLAYER_COUNT) {
+                if (crouchKeyDown && !crouchKeyHeld[cslot] && bossGetStageNum() != LEVELID_TITLE
                         && !gevrNativePauseOpen() && !inputIsBindingCapture()) {
-                    gevrCrouchToggle = !gevrCrouchToggle;
+                    gevrCrouchToggle[cslot] = !gevrCrouchToggle[cslot];
                 }
-                crouchKeyHeld = crouchKeyDown;
+                crouchKeyHeld[cslot] = crouchKeyDown;
             }
         }
         npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);
@@ -2290,46 +2704,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     }
 
     /* the first port's settings for the headset's own slot when it has no port */
+#ifdef GEVR_FLAT
+    const struct controllercfg *cfg = &padsCfg[devSlot >= 0 && devSlot < INPUT_MAX_CONTROLLERS ? devSlot : 0];
+#else
     const struct controllercfg *cfg = &padsCfg[slotPad ? 0 : idx];
-
-
-    extern int netGetLocalSlot(void);
-    extern int bossGetStageNum(void);
-    extern int gevrCoopMenuFollowing(void);
-    /*
-     * Co-op (#94): the party's menus are the title stage, which has no player
-     * slots and reads the first controller: this headset's, wherever its slot.
-     * A headset following the host's menus takes no input of its own there.
-     */
-    const int inMenus = bossGetStageNum() == 90; /* LEVELID_TITLE */
-    const int localSlot = netIsActive() && !inMenus ? netGetLocalSlot() : 0;
+#endif
     bool reloadGameplay = false;
-
-    if (inMenus && netIsActive() && gevrCoopMenuFollowing()) {
-        s_gevrReloadInput.context = s_gevrReloadInput.pending = 0;
-        memset(npad, 0, sizeof(*npad));
-        return 0;
-    }
-
-    if (netIsActive() && idx != localSlot) {
-        memset(npad, 0, sizeof(*npad));
-        if (netIsRemotePlayerActive(idx)) {
-            const struct netplayermove *m = netGetRemotePlayerMove(idx);
-            if (m) {
-                /* Remote positions are authoritative. Feeding their movement
-                 * back through the local walk simulation moves them twice and
-                 * makes the character bounce between ticks. */
-                if ((m->ucmd & UCMD_FIRE) && g_playerPointers[idx] &&
-                    !g_playerPointers[idx]->bonddead) {
-                    npad->button |= Z_TRIG;
-                }
-                /* The crouch arrives with the state (net_player_sync.c
-                 * crouchpos). As a C-down press it also stepped the copy
-                 * back, or turned its look up, by control style. */
-            }
-        }
-        return 0;
-    }
 
 #ifdef GEVR_FLAT
     /*
@@ -2341,7 +2721,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
      * headset's mapping below is skipped; the shared tail still applies.
      * Gamepad sticks: not yet (GoldenEye's twin-stick styles, as Midas).
      */
-    if (idx == localSlot) {
+    if (isLocalOnline ? (localSeat == 0) : (idx == localSlot)) {
         if (g_CurrentPlayer != NULL && cur_player_get_control_type() != CONTROLLER_CONFIG_SOLITARE) {
             cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
         }
@@ -2352,10 +2732,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         struct player *const me = inputReadPlayer(player);
         const bool paused = me && me->pause_state != 0;
         const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
-                          (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon);
-        SDL_GameController *pad = pads[0];
+                          (netIsActive() && me && me->mpmenuon);
+        extern s32 gevrMenuRowsOpen(s32 slot);
+        const bool rows = menu && gevrMenuRowsOpen(player);
+        SDL_GameController *pad = pads[devSlot];
         if (pad) {
-            const struct controllercfg *pcfg = &padsCfg[0];
+            const struct controllercfg *pcfg = &padsCfg[devSlot];
             f32 lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
             f32 ly = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
 #ifdef GEVR_TVOS
@@ -2397,7 +2779,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
             }
 #endif
-            inputFlatPadSticks(pad, pcfg, menu, lx, ly, npad);
+            inputFlatPadSticks(pad, pcfg, menu, rows, lx, ly, npad);
             if (!s_seated && !netIsActive() && inputPadActive(pad)) {
                 s_soloPadSlot = 0;
             }
@@ -2407,7 +2789,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (!(inputSoloSlots(idx) & (1 << k))) {
                 continue;
             }
-            inputFlatPadSticks(pads[k], &padsCfg[k], menu,
+            inputFlatPadSticks(pads[k], &padsCfg[k], menu, rows,
                                SDL_GameControllerGetAxis(pads[k], SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
                                -SDL_GameControllerGetAxis(pads[k], SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
             if (inputPadActive(pads[k])) {
@@ -2440,9 +2822,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static s32 crouchstage = -1;
             if (bossGetStageNum() != crouchstage) {
                 crouchstage = bossGetStageNum();
-                gevrCrouchToggle = 0;
+                memset(gevrCrouchToggle, 0, sizeof(gevrCrouchToggle));
             }
-            if ((flatTouchTakeCrouch() & 1) && !menu) gevrCrouchToggle = !gevrCrouchToggle;
+            if ((flatTouchTakeCrouch() & 1) && !menu && player >= 0 && player < MAX_PLAYER_COUNT)
+                gevrCrouchToggle[player] = !gevrCrouchToggle[player];
         }
 #ifdef GEVR_PC_FLAT
         /* gepc-ref: in the front end the free mouse's left button selects (A)
@@ -2499,25 +2882,53 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
                 LOGI("input: panel opened%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
             }
+            /* Horde online: this window's first player's START (inputHordeStart) */
+            if (!s_gevrPanel) inputHordeStart(netGetLocalSlot(), npad);
             if (gevrNativePauseOpen()) {   /* the panel, or the online pause, has the input */
                 npad->button = 0;
                 npad->stick_x = npad->stick_y = 0;
             }
             if (t < s_gevrStartUntil) npad->button |= START_BUTTON;
         }
-    } else if (!netIsActive() && idx < INPUT_MAX_CONTROLLERS && pads[idx]) {
+    } else if ((isLocalOnline && localSeat >= 1 && devSlot >= 0 && devSlot < INPUT_MAX_CONTROLLERS)
+               || (!netIsActive() && idx < INPUT_MAX_CONTROLLERS && pads[idx])) {
         /*
-         * A local split screen (GoldenEye's own, 2 to 4 players, offline):
+         * A local split screen (offline or online, 2 to 4 local players):
          * each further pad is its own player's, its buttons from its binds
          * above and its sticks read as player 1's pad's; in its pause the
          * d-pad moves the cursor too. The keyboard, the mouse, the touch
-         * controls and the panel stay with slot 0 (the own controls' player).
+         * controls and the full panel stay with seat 0.
          */
-        SDL_GameController *pad = pads[idx];
-        struct player *const me = inputReadPlayer(player);
-        inputFlatPadSticks(pad, &padsCfg[idx], bossGetStageNum() == LEVELID_TITLE || (me && me->pause_state != 0),
-                           SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
-                           -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
+        const s32 pdev = isLocalOnline ? devSlot : idx;
+        SDL_GameController *pad = pads[pdev];
+        /* the pre-match lobby's title stage has no players: a guest's pad drives their folder only */
+        struct player *const me = bossGetStageNum() == LEVELID_TITLE ? NULL : inputReadPlayer(player);
+        if (isLocalOnline && me != NULL) {
+            s32 prev = get_cur_playernum();
+            set_cur_player(player);
+            if (cur_player_get_control_type() != CONTROLLER_CONFIG_SOLITARE) {
+                cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
+            }
+            set_cur_player(prev);
+        }
+        if (pad) {
+            const bool menu = bossGetStageNum() == LEVELID_TITLE || (me && (me->pause_state != 0 || (netIsActive() && me->mpmenuon)));
+            extern s32 gevrMenuRowsOpen(s32 slot);
+            inputFlatPadSticks(pad, &padsCfg[pdev], menu, menu && gevrMenuRowsOpen(player),
+                               SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
+                               -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
+        }
+        /* a couch drop-in's START that seated it is not a pause (inputCouchTickDropIn) */
+        if (!netIsActive() && player >= 0 && player < INPUT_MAX_CONTROLLERS && s_couchHoldStart[player]) {
+            if (npad->button & START_BUTTON) npad->button &= ~START_BUTTON;
+            else s_couchHoldStart[player] = 0;
+        }
+        /* Horde online: a split screen's guest's START is their own folder, as the first player's */
+        if (isLocalOnline && me != NULL) inputHordeStart(player, npad);
+        if (gevrNativePauseOpen()) {
+            npad->button = 0;
+            npad->stick_x = npad->stick_y = 0;
+        }
     } else   /* never true below: the headset's mapping is for the local slot */
 #endif
     /* Quest screen mode: ordinary GoldenEye 1.2 controls, no tracked-hand
@@ -3342,7 +3753,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static s32 crouchstage = -1;
             if (bossGetStageNum() != crouchstage) {
                 crouchstage = bossGetStageNum();
-                gevrCrouchToggle = 0;
+                memset(gevrCrouchToggle, 0, sizeof(gevrCrouchToggle));
             }
             if (lclick && !wasclicked) {
                 pressedat = now;
@@ -3350,7 +3761,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             if (lclick && rclick) spoilt = true;
             if (!lclick && wasclicked && !spoilt && !menu && now - pressedat < 700) {
-                gevrCrouchToggle = !gevrCrouchToggle;
+                const s32 cs = (localSlot >= 0 && localSlot < MAX_PLAYER_COUNT) ? localSlot : 0;
+                gevrCrouchToggle[cs] = !gevrCrouchToggle[cs];
             }
             wasclicked = lclick;
         }
@@ -3468,7 +3880,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (!fired && !s_gevrPanel && now - downat >= 1000) {
                     fired = true;
                     if (gevrSpeedrunRestartRequest()) {
-                        gevrCrouchToggle = 0;
+                        memset(gevrCrouchToggle, 0, sizeof(gevrCrouchToggle));
                     }
                     LOGI("input: grips + left stick hold -> restart mission\n");
                 }
@@ -3526,7 +3938,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         XrVector2f look = right;
         if (menu && left.x * left.x + left.y * left.y >= right.x * right.x + right.y * right.y)
             look = left;
-        if (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon) {
+        /* The game's own screens (Select Character, Select Stage: mpmenu.c, on the
+         * head-locked HUD in stereo) take either stick, both ways, as the menus do:
+         * the stage grid's rows go up and down. */
+        extern s32 gevrMenuPanelIsOpen(s32 slot);
+        if (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon && !gevrMenuPanelIsOpen(localSlot)) {
             /* Keep page navigation on the left stick and volume on the right.
              * A diagonal adjustment must not also change pages. The left
              * stick's up and down move the LOBBY page's cursor (mpmenu.c), so
@@ -3591,7 +4007,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if(netIsActive() && !inMenus && idx==localSlot) {
             const int start=(npad->button & START_BUTTON)!=0;
             if(start && !startHeld && g_playerPointers[localSlot]) {
-                g_playerPointers[localSlot]->mpmenuon=!g_playerPointers[localSlot]->mpmenuon;
+                /* a game screen up (mpmenu.c): Menu leaves it unchanged and closes the menu; in a
+                 * deathmatch's warmup it opens the Multiplayer Options folder, as a pad's START does */
+                if(gevrMenuPanelCancel(localSlot))g_playerPointers[localSlot]->mpmenuon=0;
+                else if(!g_playerPointers[localSlot]->mpmenuon && gevrMpOptionsStartPressed(localSlot)) {}
+                else g_playerPointers[localSlot]->mpmenuon=!g_playerPointers[localSlot]->mpmenuon;
                 g_gevrWatchGesturePending=0;
             }
             startHeld=start;
@@ -3806,7 +4226,10 @@ void inputUpdate(void)
          */
         const s32 scripted = pcTestInputActive();
         const s32 frontEnd = bossGetStageNum() == LEVELID_TITLE;
-        const s32 panel = gevrNativePauseOpen();
+        /* the pause window, or one of the game's screens it opened (Select Character,
+         * the photos, Handicap, Teams): the mouse is the pointer on either */
+        extern s32 gevrMenuPanelIsOpen(s32 slot);
+        const s32 panel = gevrNativePauseOpen() || (netIsActive() && gevrMenuPanelIsOpen(netGetLocalSlot()));
         const s32 focused = scripted || SDL_GetKeyboardFocus() != NULL;
         if (scripted) {
             /* A test script drives the mouse (port/pc/pc_testinput.c). The real
@@ -3864,6 +4287,10 @@ void inputUpdate(void)
             inputUpdateCursor(frontEnd, panel);
         }
 #endif
+#ifdef GEVR_FLAT
+        inputOnlineTickDropIn();
+        inputCouchTickDropIn();
+#endif
         // inputUpdateMouse(); Removed for VR
     }
 }
@@ -3874,9 +4301,10 @@ s32 inputControllerConnected(s32 idx)
         return 0;
     }
     if (netIsActive()) {
+        extern int gevrNetSlotIsLocalHuman(int slot);
         /* co-op (#94): the party's menus read this headset's controller as the first */
-        if (bossGetStageNum() == 90 /* LEVELID_TITLE */) return idx == 0;
-        return (idx == netGetLocalSlot() || netIsRemotePlayerActive(idx)) ? 1 : 0;
+        if (bossGetStageNum() == 90 /* LEVELID_TITLE */ && !gevrInMatchLobby()) return idx == 0;
+        return (gevrNetSlotIsLocalHuman(idx) || netIsRemotePlayerActive(idx)) ? 1 : 0;
     }
 #ifdef GEVR_FLAT
     if (s_seated) {
@@ -3938,17 +4366,130 @@ static void inputPadRumble(s32 idx, f32 amp, f32 seconds)
  * VrTriggerFeedback): a shot buzzes the trigger that fired it. The right gun
  * fires on Z, the right trigger, and the left gun on R, the left trigger (the
  * pad binds above). An Xbox One or Series pad has a motor in each trigger
- * (SDL_GameControllerRumbleTriggers: Windows, and Apple's GameController);
- * a DualSense's adaptive trigger strikes the finger in its vibration mode
- * (SDL's DualSense effects on the PC; Apple's own GCDualSenseAdaptiveTrigger
- * on iPhone, iPad and Apple TV, where SDL sends none). A DualSense trigger
- * keeps a mode until told otherwise, so inputUpdate turns it off again once a
- * shot's buzz is over. Its strength is its own row, 0 to 100% (#269: it
- * followed Pad vibration, twice it, so the triggers couldn't stay strong
- * with the rumble turned down).
+ * (SDL_GameControllerRumbleTriggers: Windows, and Apple's GameController).
+ * Its strength is its own row, 0 to 100% (#269: it followed Pad vibration,
+ * twice it, so the triggers couldn't stay strong with the rumble turned down).
+ *
+ * A DualSense's adaptive triggers (SDL's DualSense effects on the PC; Apple's
+ * own GCDualSenseAdaptiveTrigger on iPhone, iPad and Apple TV, where SDL sends
+ * none) also take a feel from what the hand holds (the owner, 2026-11-23): a
+ * gun's trigger has a bump that gives, as a real trigger breaks, and the shot
+ * goes only once the finger is past it (inputTrigFireAxis: before, it fired
+ * at the old threshold, ahead of the bump); fists push back lightly, a knife
+ * stiffens as it cuts, a throw winds up, the detonator clicks and the camera's
+ * shutter clicks light, the other gadgets hold like a device's button. The
+ * shot's or the strike's buzz is the weapon's own, past the bump, and the
+ * trigger goes back to its feel once the buzz is over. Adaptive triggers off
+ * (VrAdaptiveTriggers) leaves a DualSense's triggers free: the pad's rumble
+ * only. A DualSense trigger keeps a mode until told otherwise, so menus, the
+ * pause, a dead player and a closed pad set it free again.
  */
 extern int VrTriggerFeedback;
+extern int VrAdaptiveTriggers;
+
+enum {
+    TRIGMODE_OFF,
+    TRIGMODE_WEAPON,     /* resistance from start to end, where it gives: a gun's break */
+    TRIGMODE_FEEDBACK,   /* a steady push from start on */
+    TRIGMODE_SLOPE,      /* a push from start to end, start strength to end strength */
+};
+
+enum {
+    TRIGFEEL_NONE,       /* free: menus, an empty off hand, the aim trigger */
+    TRIGFEEL_PISTOL,
+    TRIGFEEL_MAGNUM,
+    TRIGFEEL_AUTO,
+    TRIGFEEL_SHOTGUN,
+    TRIGFEEL_SNIPER,
+    TRIGFEEL_LAUNCHER,
+    TRIGFEEL_BEAM,       /* the lasers and the taser */
+    TRIGFEEL_FIST,
+    TRIGFEEL_KNIFE,
+    TRIGFEEL_THROW,      /* grenades, mines, throwing knives, plastique, bugs */
+    TRIGFEEL_DETONATOR,
+    TRIGFEEL_CAMERA,
+    TRIGFEEL_GADGET,     /* the door decoder, the bomb defuser, the data thief, key items */
+    TRIGFEEL_COUNT
+};
+
+typedef struct {
+    u8 mode;
+    f32 start, end;      /* 0 at rest to 1 pulled full; a DualSense's zones are tenths */
+    f32 force0, force1;  /* 0 to 1, times Trigger feedback */
+    /* the shot's or the strike's buzz: amplitude (times Trigger feedback), SDL's
+     * frequency in Hz, Apple's 0 to 1, how long */
+    f32 buzzAmp;
+    u8 buzzHz;
+    f32 buzzFreq;
+    u16 buzzMs;
+} InputTrigFeel;
+
+static const InputTrigFeel s_trigFeels[TRIGFEEL_COUNT] = {
+    [TRIGFEEL_NONE]      = { TRIGMODE_OFF,      0.0f, 0.0f, 0.0f,  0.0f,  1.0f, 40, 0.60f,  90 },
+    [TRIGFEEL_PISTOL]    = { TRIGMODE_WEAPON,   0.2f, 0.5f, 0.55f, 0.0f,  0.8f, 40, 0.60f,  90 },
+    [TRIGFEEL_MAGNUM]    = { TRIGMODE_WEAPON,   0.3f, 0.6f, 0.9f,  0.0f,  1.0f, 30, 0.45f, 140 },
+    [TRIGFEEL_AUTO]      = { TRIGMODE_WEAPON,   0.2f, 0.4f, 0.35f, 0.0f,  0.7f, 60, 0.80f, 120 },
+    [TRIGFEEL_SHOTGUN]   = { TRIGMODE_WEAPON,   0.3f, 0.6f, 0.9f,  0.0f,  1.0f, 25, 0.35f, 160 },
+    [TRIGFEEL_SNIPER]    = { TRIGMODE_WEAPON,   0.3f, 0.5f, 0.75f, 0.0f,  0.9f, 35, 0.50f, 120 },
+    [TRIGFEEL_LAUNCHER]  = { TRIGMODE_WEAPON,   0.3f, 0.7f, 1.0f,  0.0f,  1.0f, 20, 0.30f, 220 },
+    [TRIGFEEL_BEAM]      = { TRIGMODE_FEEDBACK, 0.2f, 1.0f, 0.3f,  0.3f,  0.5f, 90, 1.00f, 100 },
+    [TRIGFEEL_FIST]      = { TRIGMODE_FEEDBACK, 0.0f, 1.0f, 0.2f,  0.2f,  0.9f, 15, 0.20f,  70 },
+    [TRIGFEEL_KNIFE]     = { TRIGMODE_SLOPE,    0.0f, 0.9f, 0.1f,  0.6f,  0.7f, 50, 0.70f,  80 },
+    [TRIGFEEL_THROW]     = { TRIGMODE_SLOPE,    0.1f, 0.8f, 0.05f, 0.5f,  0.6f, 30, 0.40f,  60 },
+    [TRIGFEEL_DETONATOR] = { TRIGMODE_WEAPON,   0.2f, 0.3f, 1.0f,  0.0f,  0.5f, 150, 1.00f, 50 },
+    [TRIGFEEL_CAMERA]    = { TRIGMODE_WEAPON,   0.2f, 0.3f, 0.4f,  0.0f,  0.0f, 0, 0.00f,    0 },
+    [TRIGFEEL_GADGET]    = { TRIGMODE_FEEDBACK, 0.3f, 1.0f, 0.25f, 0.25f, 0.4f, 100, 0.90f, 60 },
+};
+
+static s32 inputTrigFeelFor(s32 item)
+{
+    switch (GEVR_ITEM_AS(item)) {
+        case ITEM_UNARMED: case ITEM_FIST:
+            return TRIGFEEL_FIST;
+        case ITEM_KNIFE:
+            return TRIGFEEL_KNIFE;
+        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK:
+        case ITEM_FLAREPISTOL:
+            return TRIGFEEL_PISTOL;
+        case ITEM_RUGER: case ITEM_GOLDENGUN:
+            return TRIGFEEL_MAGNUM;
+        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL:
+        case ITEM_SPECTRE: case ITEM_M16: case ITEM_FNP90:
+            return TRIGFEEL_AUTO;
+        case ITEM_SHOTGUN: case ITEM_AUTOSHOT:
+            return TRIGFEEL_SHOTGUN;
+        case ITEM_SNIPERRIFLE:
+            return TRIGFEEL_SNIPER;
+        case ITEM_GRENADELAUNCH: case ITEM_ROCKETLAUNCH: case ITEM_TANKSHELLS:
+            return TRIGFEEL_LAUNCHER;
+        case ITEM_LASER: case ITEM_WATCHLASER: case ITEM_TASER:
+            return TRIGFEEL_BEAM;
+        case ITEM_TRIGGER:
+            return TRIGFEEL_DETONATOR;
+        case ITEM_CAMERA:
+            return TRIGFEEL_CAMERA;
+        case ITEM_THROWKNIFE: case ITEM_GRENADE: case ITEM_TIMEDMINE: case ITEM_PROXIMITYMINE:
+        case ITEM_REMOTEMINE: case ITEM_PLASTIQUE: case ITEM_BOMBCASE: case ITEM_BUG: case ITEM_MICROCAMERA:
+            return TRIGFEEL_THROW;
+        default:
+            return item > ITEM_FIST && item < ITEM_IDS_MAX ? TRIGFEEL_GADGET : TRIGFEEL_NONE;
+    }
+}
+
+/* where a feel's shot goes, 0 to 1: a tenth past a gun's bump (the
+ * DualSense gives somewhere in the end's tenth, its zones), else 0
+ * (TRIG_THRESHOLD) */
+static f32 inputTrigFeelFirePoint(s32 feel)
+{
+    const InputTrigFeel *f = &s_trigFeels[feel];
+    return f->mode == TRIGMODE_WEAPON ? (f->end + 0.1f > 0.95f ? 0.95f : f->end + 0.1f) : 0.f;
+}
+
 static u64 trigBuzzUntilUs[INPUT_MAX_CONTROLLERS][2];   /* each pad's DualSense trigger buzz: [0] left, [1] right */
+static s32 trigFeelSet[INPUT_MAX_CONTROLLERS][2];        /* the feel each trigger was given, -1 none yet */
+static s32 trigFeelPct[INPUT_MAX_CONTROLLERS][2];        /* at which Trigger feedback */
+static SDL_GameController *trigFeelPad[INPUT_MAX_CONTROLLERS];
+static f32 trigFirePoint[INPUT_MAX_CONTROLLERS][2];      /* 0, or where the shot goes (inputTrigFireAxis) */
 
 static s32 inputPadIsDualSense(SDL_GameController *pad)
 {
@@ -3957,6 +4498,16 @@ static s32 inputPadIsDualSense(SDL_GameController *pad)
 #else
     return 0;
 #endif
+}
+
+/* The axis a trigger presses its button at: past a gun's bump on a DualSense
+ * that has it, else TRIG_THRESHOLD */
+static s32 inputTrigFireAxis(s32 slot, s32 trig)
+{
+    if (slot >= 0 && slot < INPUT_MAX_CONTROLLERS && trig >= 0 && trig < 2 && trigFirePoint[slot][trig] > 0.f) {
+        return (s32)(trigFirePoint[slot][trig] * 32767.f);
+    }
+    return TRIG_THRESHOLD;
 }
 
 /* SDL's DualSense output from SDL_GameControllerSendEffect's data on, as
@@ -3971,35 +4522,158 @@ typedef struct {
     Uint8 leftTriggerEffect[11];
 } InputDualSenseFx;
 
-/* amp 0 turns the trigger's effect off */
-static void inputDualSenseTrigger(SDL_GameController *pad, s32 right, f32 amp)
+#if !defined(GEVR_VISIONOS) && !defined(GEVR_IOS) && SDL_VERSION_ATLEAST(2, 0, 16)
+/* a position's zone, 0 to 9, and a strength's force, 1 to 8 (the DualSense's own steps) */
+static s32 inputDsZone(f32 pos) { const s32 z = (s32)(pos * 10.f + 0.5f); return z < 0 ? 0 : z > 9 ? 9 : z; }
+static s32 inputDsForce(f32 v) { const s32 f = (s32)(v * 8.f + 0.5f); return f < 1 ? 1 : f > 8 ? 8 : f; }
+
+/* zone strengths (0 none, 1 to 8) as the DualSense's multiple-position
+ * feedback, effect 0x21: ten zones of three bits each, and which are on */
+static void inputDsZoneFeedback(Uint8 *effect, const s32 force[10])
 {
+    u32 active = 0;
+    u64 forces = 0;
+    for (s32 i = 0; i < 10; i++) {
+        if (force[i] > 0) {
+            active |= 1u << i;
+            forces |= (u64)((force[i] - 1) & 7) << (3 * i);
+        }
+    }
+    effect[0] = 0x21;
+    effect[1] = active & 0xff;
+    effect[2] = (active >> 8) & 0xff;
+    effect[3] = forces & 0xff;
+    effect[4] = (forces >> 8) & 0xff;
+    effect[5] = (forces >> 16) & 0xff;
+    effect[6] = (forces >> 24) & 0xff;
+}
+#endif
+
+/* A trigger's feel (scale: Trigger feedback), mode TRIGMODE_OFF sets it free */
+/* this build can put a feel on a DualSense's triggers: without one, the fire
+ * point stays where it always was (a bump to pull past must be felt) */
+#if defined(GEVR_VISIONOS) || (!defined(GEVR_IOS) && !SDL_VERSION_ATLEAST(2, 0, 16))
+#define INPUT_TRIG_FEEL_SENDS 0
+#else
+#define INPUT_TRIG_FEEL_SENDS 1
+#endif
+
+static void inputDualSenseFeel(SDL_GameController *pad, s32 right, const InputTrigFeel *f, f32 scale)
+{
+    const f32 f0 = f->force0 * scale, f1 = f->force1 * scale;
 #if defined(GEVR_VISIONOS)
-    (void)pad; (void)right; (void)amp;   /* no ios_app.m there, and SDL's Apple driver sends no effects */
+    (void)pad; (void)right; (void)f0; (void)f1; (void)f;   /* no ios_app.m there, and SDL's Apple driver sends no effects */
 #elif defined(GEVR_IOS)
     (void)pad;
-    gevrIosDualSenseTrigger(right, amp);
+    gevrIosDualSenseFeel(right, f->mode, f->start, f->end, f0, f1);
 #elif SDL_VERSION_ATLEAST(2, 0, 16)
     InputDualSenseFx fx;
     Uint8 *effect = right ? fx.rightTriggerEffect : fx.leftTriggerEffect;
     memset(&fx, 0, sizeof(fx));
     fx.enableBits1 = right ? 0x04 : 0x08;
-    if (amp > 0.f) {
-        /* the simple vibration: 40 Hz, the amplitude, from the trigger's rest on */
-        effect[0] = 0x06;
-        effect[1] = 40;
-        effect[2] = (Uint8)(amp * 255.f);
-        effect[3] = 0;
-    } else {
-        effect[0] = 0x05;   /* off */
+    switch (f->mode) {
+        case TRIGMODE_WEAPON: {
+            /* effect 0x25: resistance from the start zone (2 to 7) to the end
+             * zone (past it, up to 8), where the trigger gives */
+            s32 start = inputDsZone(f->start), end = inputDsZone(f->end);
+            start = start < 2 ? 2 : start > 7 ? 7 : start;
+            end = end <= start ? start + 1 : end > 8 ? 8 : end;
+            const u32 zones = (1u << start) | (1u << end);
+            effect[0] = 0x25;
+            effect[1] = zones & 0xff;
+            effect[2] = (zones >> 8) & 0xff;
+            effect[3] = (Uint8)(inputDsForce(f0) - 1);
+            break;
+        }
+        case TRIGMODE_FEEDBACK:
+        case TRIGMODE_SLOPE: {
+            s32 force[10];
+            const s32 a = inputDsZone(f->start), b = f->mode == TRIGMODE_SLOPE ? inputDsZone(f->end) : 9;
+            for (s32 i = 0; i < 10; i++) {
+                if (i < a) {
+                    force[i] = 0;
+                } else if (f->mode == TRIGMODE_FEEDBACK || i >= b || b <= a) {
+                    force[i] = inputDsForce(f->mode == TRIGMODE_FEEDBACK ? f0 : f1);
+                } else {
+                    force[i] = inputDsForce(f0 + (f1 - f0) * (f32)(i - a) / (f32)(b - a));
+                }
+            }
+            inputDsZoneFeedback(effect, force);
+            break;
+        }
+        default:
+            effect[0] = 0x05;   /* off */
+            break;
     }
     SDL_GameControllerSendEffect(pad, &fx, sizeof(fx));
 #else
-    (void)pad; (void)right; (void)amp;
+    (void)pad; (void)right; (void)f; (void)f0; (void)f1;
 #endif
 }
 
-static void inputTriggerShot(s32 slot, s32 hand)
+/* A trigger's buzz from start (0 to 1) on: amp 0 to 1, SDL's Hz, Apple's frequency 0 to 1 */
+static void inputDualSenseBuzz(SDL_GameController *pad, s32 right, f32 start, f32 amp, u8 hz, f32 freq)
+{
+#if defined(GEVR_VISIONOS)
+    (void)pad; (void)right; (void)start; (void)amp; (void)hz; (void)freq;
+#elif defined(GEVR_IOS)
+    (void)pad; (void)hz;
+    gevrIosDualSenseBuzz(right, start, amp, freq);
+#elif SDL_VERSION_ATLEAST(2, 0, 16)
+    InputDualSenseFx fx;
+    Uint8 *effect = right ? fx.rightTriggerEffect : fx.leftTriggerEffect;
+    memset(&fx, 0, sizeof(fx));
+    fx.enableBits1 = right ? 0x04 : 0x08;
+    (void)freq;
+    /* the simple vibration: the frequency, the amplitude, from start on */
+    effect[0] = 0x06;
+    effect[1] = hz;
+    effect[2] = (Uint8)(amp * 255.f);
+    effect[3] = (Uint8)(start * 255.f);
+    SDL_GameControllerSendEffect(pad, &fx, sizeof(fx));
+#else
+    (void)pad; (void)right; (void)start; (void)amp; (void)hz; (void)freq;
+#endif
+}
+
+/* The item a slot's trigger holds a feel for: its player's hand, in play only */
+static s32 inputTrigFeelWanted(s32 slot, s32 trig)
+{
+    extern s32 getPlayerCount(void);
+    extern int netGetLocalSlot(void);
+    struct player *pl = NULL;
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR) || defined(GEVR_FLAT)
+    const s32 panel = gevrNativePauseOpen();   /* the in-game panel or the online pause */
+#else
+    const s32 panel = 0;
+#endif
+    if (!VrAdaptiveTriggers || VrTriggerFeedback <= 0 || bossGetStageNum() == LEVELID_TITLE
+        || panel || lvlGetControlsLockedFlag()) {
+        return TRIGFEEL_NONE;
+    }
+    if (!netIsActive() && getPlayerCount() >= 2) {
+        for (s32 p = 0; p < getPlayerCount() && p < INPUT_MAX_CONTROLLERS; p++) {
+            if (inputPlayerSlot(p) == slot) {
+                pl = g_playerPointers[p];
+                break;
+            }
+        }
+    } else if (slot == inputPlayerRumbleSlot(0)) {
+        const s32 me = netIsActive() ? netGetLocalSlot() : 0;
+        pl = me >= 0 && me < 4 ? g_playerPointers[me] : NULL;
+    }
+    if (!pl || pl->bonddead || pl->pause_state != 0 || pl->mpmenuon) {
+        return TRIGFEEL_NONE;
+    }
+    /* the left trigger is a gun's only in two hands (one gun: it aims) */
+    const s32 item = pl->hands[trig ? GUNRIGHT : GUNLEFT].weaponnum;
+    if (!trig && item <= ITEM_FIST) {
+        return TRIGFEEL_NONE;
+    }
+    return inputTrigFeelFor(item);
+}
+
+static void inputTriggerShot(s32 slot, s32 hand, s32 item)
 {
     static SDL_GameController *told;
     SDL_GameController *pad = pads[slot];
@@ -4009,6 +4683,7 @@ static void inputTriggerShot(s32 slot, s32 hand)
     const f32 amp = VrTriggerFeedback >= 100 ? 1.f : VrTriggerFeedback / 100.f;
     const s32 right = hand != 1;
     const s32 dualSense = inputPadIsDualSense(pad);
+    const InputTrigFeel *feel = &s_trigFeels[inputTrigFeelFor(item)];
 #if SDL_VERSION_ATLEAST(2, 0, 18)
     const s32 motors = !dualSense && SDL_GameControllerHasRumbleTriggers(pad);
 #else
@@ -4017,34 +4692,88 @@ static void inputTriggerShot(s32 slot, s32 hand)
     if (told != pad) {
         told = pad;
         sysLogPrintf(LOG_NOTE, "input: pad '%s' trigger feedback: %s", SDL_GameControllerName(pad),
-                     dualSense ? "DualSense adaptive triggers" : motors ? "trigger motors" : "none");
+                     dualSense ? (VrAdaptiveTriggers ? "DualSense adaptive triggers" : "none (adaptive triggers off)")
+                     : motors ? "trigger motors" : "none");
+    }
+    if (feel->buzzAmp <= 0.f || feel->buzzMs == 0) {
+        return;
     }
     if (dualSense) {
-        inputDualSenseTrigger(pad, right, amp);
-        trigBuzzUntilUs[slot][right] = sysGetMicroseconds() + 120000;
+        if (!VrAdaptiveTriggers) {
+            return;
+        }
+        /* a gun's buzz is past its bump, where the finger is once it fires */
+        const f32 start = feel->mode == TRIGMODE_WEAPON ? feel->end : 0.f;
+        inputDualSenseBuzz(pad, right, start, feel->buzzAmp * amp, feel->buzzHz, feel->buzzFreq);
+        trigBuzzUntilUs[slot][right] = sysGetMicroseconds() + (u64)feel->buzzMs * 1000u;
+        trigFeelSet[slot][right] = -1;   /* the feel again once the buzz is over */
     }
 #if SDL_VERSION_ATLEAST(2, 0, 18)
     else if (motors) {
-        const u16 level = (u16)(amp * 65535.f);
-        SDL_GameControllerRumbleTriggers(pad, right ? 0 : level, right ? level : 0, 90);
+        const u16 level = (u16)(feel->buzzAmp * amp * 65535.f);
+        SDL_GameControllerRumbleTriggers(pad, right ? 0 : level, right ? level : 0, feel->buzzMs);
     }
 #endif
 }
 
-/* each frame: a DualSense trigger's buzz ends */
+/* each frame: a DualSense trigger's buzz ends, and each trigger takes the
+ * feel of what its hand holds (only when that changes: a DualSense is sent
+ * nothing while its triggers stay as they are) */
 static void inputTriggerTick(void)
 {
     u64 now = 0;
+#if defined(GEVR_IOS)
+    /* iOS sends a feel to every DualSense at once (ios_app.m): with two or more,
+     * one player's feel would sit on another's pad, so none is raised */
+    s32 dualsenses = 0;
+    for (s32 p = 0; p < INPUT_MAX_CONTROLLERS; p++) dualsenses += pads[p] && inputPadIsDualSense(pads[p]);
+    const s32 feelSends = dualsenses <= 1;
+#else
+    const s32 feelSends = 1;
+#endif
     for (s32 p = 0; p < INPUT_MAX_CONTROLLERS; p++) {
-        for (s32 i = 0; i < 2; i++) {
-            if (!trigBuzzUntilUs[p][i]) continue;
-            if (!now) now = sysGetMicroseconds();
-            if (now < trigBuzzUntilUs[p][i]) continue;
-            trigBuzzUntilUs[p][i] = 0;
-            if (inputPadIsDualSense(pads[p])) {
-                inputDualSenseTrigger(pads[p], i, 0.f);
-            }
+        SDL_GameController *pad = pads[p];
+        if (pad != trigFeelPad[p]) {
+            trigFeelPad[p] = pad;
+            trigFeelSet[p][0] = trigFeelSet[p][1] = -1;
+            trigBuzzUntilUs[p][0] = trigBuzzUntilUs[p][1] = 0;
         }
+        if (!inputPadIsDualSense(pad) || !INPUT_TRIG_FEEL_SENDS || !feelSends) {
+            trigFirePoint[p][0] = trigFirePoint[p][1] = 0.f;
+            continue;
+        }
+        for (s32 i = 0; i < 2; i++) {
+            const s32 want = inputTrigFeelWanted(p, i);
+            trigFirePoint[p][i] = inputTrigFeelFirePoint(want);
+            if (trigBuzzUntilUs[p][i]) {
+                if (!now) now = sysGetMicroseconds();
+                if (now < trigBuzzUntilUs[p][i]) continue;
+                trigBuzzUntilUs[p][i] = 0;
+                trigFeelSet[p][i] = -1;
+            }
+            if (trigFeelSet[p][i] == want && trigFeelPct[p][i] == VrTriggerFeedback) {
+                continue;
+            }
+            trigFeelSet[p][i] = want;
+            trigFeelPct[p][i] = VrTriggerFeedback;
+            inputDualSenseFeel(pad, i, &s_trigFeels[want], VrTriggerFeedback >= 100 ? 1.f : VrTriggerFeedback / 100.f);
+        }
+    }
+}
+
+/* a closing pad's triggers set free: a DualSense keeps its last mode */
+static void inputTriggerRelease(s32 slot)
+{
+    if (slot < 0 || slot >= INPUT_MAX_CONTROLLERS || !inputPadIsDualSense(pads[slot])) {
+        return;
+    }
+    for (s32 i = 0; i < 2; i++) {
+        if (trigFeelSet[slot][i] != TRIGFEEL_NONE || trigBuzzUntilUs[slot][i]) {
+            inputDualSenseFeel(pads[slot], i, &s_trigFeels[TRIGFEEL_NONE], 0.f);
+        }
+        trigFeelSet[slot][i] = TRIGFEEL_NONE;
+        trigBuzzUntilUs[slot][i] = 0;
+        trigFirePoint[slot][i] = 0.f;
     }
 }
 
@@ -4054,7 +4783,21 @@ static s32 inputRumbleSlot(void)
 {
     extern s32 get_cur_playernum(void);
     extern s32 getPlayerCount(void);
-    if (!netIsActive() && getPlayerCount() >= 2) {
+    if (netIsActive()) {
+#ifdef GEVR_FLAT
+        extern int netLocalSlotCount(void);
+        extern int netLocalSeatOfSlot(int slot);
+        if (netLocalSlotCount() >= 2) {
+            const s32 seat = netLocalSeatOfSlot(get_cur_playernum());
+            if (seat >= 0 && seat < INPUT_MAX_CONTROLLERS) {
+                const s32 dev = inputOnlineDevForSeat(seat);
+                if (dev >= 0 && dev < INPUT_MAX_CONTROLLERS) return dev;
+            }
+        }
+#endif
+        return inputPlayerRumbleSlot(0);
+    }
+    if (getPlayerCount() >= 2) {
         const s32 p = get_cur_playernum();
         if (p >= 0 && p < INPUT_MAX_CONTROLLERS) return inputPlayerSlot(p);
     }
@@ -4110,6 +4853,14 @@ int inputPadVrState(float sticks[4], float triggers[2], unsigned int *buttons)
     }
     triggers[0] = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) / 32767.f;
     triggers[1] = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) / 32767.f;
+    for (i = 0; i < 2; i++) {
+        /* a gun's bump on a DualSense (inputTrigFireAxis): the headset's
+         * trigger presses at half a pull, so the bump's far side is half */
+        const f32 fp = trigFirePoint[0][i], v = triggers[i];
+        if (fp > 0.f && fp < 1.f) {
+            triggers[i] = v < fp ? v * 0.49f / fp : 0.5f + (v - fp) * 0.5f / (1.f - fp);
+        }
+    }
     *buttons = 0;
     for (i = 0; i < (s32)(sizeof(map) / sizeof(map[0])); i++) {
         if (SDL_GameControllerGetButton(pad, map[i].b)) {
@@ -4360,15 +5111,16 @@ static struct WeaponRumbleProfile getWeaponRumbleProfile(s32 item_id) {
 }
 
 void gevrRumbleGunfire(s32 hand, s32 item_id) {
+    extern int gevrNetSlotIsLocalHuman(int slot);
     extern int netGetLocalSlot(void);
     extern s32 get_cur_playernum(void);
-    /* Another player's copy fires on this headset too: only the local
-     * player's own gun reaches the controllers. */
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot()) {
+    /* Another player's copy fires on this machine too: only local human
+     * players' own guns reach the controllers. */
+    if (netIsActive() && !gevrNetSlotIsLocalHuman(get_cur_playernum())) {
         return;
     }
     /* per-gun recoil: the shot kicks this hand's grip pose (vr_input.cpp vrRecoilKick) */
-    if (g_gevrStereo && VrPerWeaponRecoil) {
+    if (g_gevrStereo && VrPerWeaponRecoil && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())) {
         f32 strength;
         const int cls = gevrRecoilFor(item_id, &strength);
         vrRecoilKick(hand, cls, strength);
@@ -4380,7 +5132,7 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
     }
 
     // VR Haptics
-    if (vr_haptics_ready()) {
+    if (vr_haptics_ready() && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())) {
         // GUNRIGHT = 0 -> OpenXR 1 (right hand)
         // GUNLEFT  = 1 -> OpenXR 0 (left hand)
         s32 targetHand = (hand == 1) ? 0 : 1;
@@ -4411,7 +5163,7 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
     if (pads[slot] && padsCfg[slot].rumbleOn && padsCfg[slot].rumbleScale > 0.f) {
         inputPadRumble(slot, padsCfg[slot].rumbleScale > 1.f ? 1.f : padsCfg[slot].rumbleScale, 0.2f);
     }
-    inputTriggerShot(slot, hand);
+    inputTriggerShot(slot, hand, item_id);
 }
 
 s32 s_gevrExplosionDamage = 0;
@@ -4443,10 +5195,11 @@ void gevrRumbleDamage(f32 damage_amount, s32 is_explosion) {
 s32 inputControllerMask(void)
 {
     if (netIsActive()) {
+        extern int gevrNetSlotIsLocalHuman(int slot);
         s32 mask = 0;
-        if (bossGetStageNum() == 90 /* LEVELID_TITLE: the party's menus */) return 1;
+        if (bossGetStageNum() == 90 /* LEVELID_TITLE: the party's menus */ && !gevrInMatchLobby()) return 1;
         for (int i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
-            if (i == netGetLocalSlot() || netIsRemotePlayerActive(i)) {
+            if (gevrNetSlotIsLocalHuman(i) || netIsRemotePlayerActive(i)) {
                 mask |= (1 << i);
             }
         }
@@ -4686,7 +5439,7 @@ s32 inputKeyPressed(u32 vk)
         vk = vk % INPUT_MAX_CONTROLLER_BUTTONS;
         if (vk == 30 || vk == 31) {
             const s32 trig = SDL_CONTROLLER_AXIS_TRIGGERLEFT + vk - 30;
-            return SDL_GameControllerGetAxis(pads[idx], trig) > TRIG_THRESHOLD;
+            return SDL_GameControllerGetAxis(pads[idx], trig) > inputTrigFireAxis(idx, (s32)vk - 30);
         }
 #ifdef GEVR_TVOS
         /* the Siri Remote's click and Play/Pause: inputReadController's own
@@ -5388,9 +6141,31 @@ int gevrMpMenuOpen(void)
 
 #if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR) || defined(GEVR_FLAT)   /* the headset, a phone, a PC window */
 int gevrNativePauseOpen(void) {
-    if(s_gevrPanel)return 1;   /* the in-game panel, solo or online */
+    if(s_gevrPanel)return 1;   /* the in-game panel, solo or online (F10 / Back / P1 Full Menu) */
+    if (netIsActive()) {
+        extern int netLocalSlotCount(void);
+        /* Online split-screen: START opens GoldenEye's per-viewport translucent
+         * watch menu inside only that player's viewport, not the full-screen panel.
+         * Horde has no such page (its players have the campaign watch): the first
+         * player's START opens this window over the views (input.c above). */
+        if (netLocalSlotCount() > 1 && !netHordeActive()) return 0;
+    }
     int slot=netIsActive()?netGetLocalSlot():-1;
-    return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon;
+    /* the game's own screen is up instead, Select Character or Select Stage (mpmenu.c) */
+    extern s32 gevrMenuPanelIsOpen(s32 slot);
+    /* the pre-match lobby: one player's screen is this window, up until the match (docs/match-lobby.md),
+     * once its screen is (hosting starts the session in the launcher's last frame, before the game runs) */
+    if (gevrInMatchLobby()) {
+        extern s32 gevrLobbyScreenUp(void);
+        return gevrLobbyScreenUp() && slot>=0 && slot<INPUT_MAX_SLOT_PADS && !gevrMenuPanelIsOpen(slot);
+    }
+    return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon
+        && !gevrMenuPanelIsOpen(slot);
+}
+void gevrNativePauseOpenPanel(void) {
+    s_gevrPanel = 1;
+    int slot = netIsActive() ? netGetLocalSlot() : -1;
+    if (slot >= 0 && slot < INPUT_MAX_SLOT_PADS && g_playerPointers[slot]) g_playerPointers[slot]->mpmenuon = 0;
 }
 void gevrNativePauseResume(void) {
     s_gevrPanel=0;

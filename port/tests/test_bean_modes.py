@@ -72,6 +72,8 @@ fixture = r'''
 #define ZERO_7F08991C 0
 #define CHEAT_NO_RADAR_MP 1
 #define LOGI(...) ((void)0)
+/* bondview2.c: a hit's push limited to unit length (not what this checks) */
+static void gevrHitPushDir(float *, float *) {}
 /* port/include/hudaspect.h on a 4:3 screen: PORT_HUD_ASPECT emits nothing */
 #define GE_HUD_ASPECT_NONE 0x00u
 #define GE_HUD_ASPECT_LEFT 0x10u

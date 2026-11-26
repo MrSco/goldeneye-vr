@@ -52,6 +52,8 @@ int gfx_prewarm_bean_textures(void) { return 0; }
 void gevrLoadingBegin(void) { }
 void gevrLoadingProgress(float progress) { (void)progress; }
 void gevrLoadingEnd(void) { }
+/* port/src/input.c (a screen's builds): the full pause window mpmenu.c opens has no screen here */
+void gevrNativePauseOpenPanel(void) { }
 int gfx_prewarm_shaders(void) { return 0; }
 int gfx_create_framebuffer(uint32_t width, uint32_t height, int upscale, int autoresize)
 {

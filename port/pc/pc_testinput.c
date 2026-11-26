@@ -6,7 +6,11 @@
  * runs while someone uses the computer: the game never grabs the real mouse
  * or raises its window.
  *
- *   GoldenEyeVR.exe --boot-stage 33 --input-script test.txt
+ *   GoldenEyeVR.exe --boot-stage 33 --input-script test.txt [--hidden]
+ *
+ * --hidden: the window is never shown (flat_window.cpp), for a run beside
+ * someone at the desktop; the shots still read its frame. A scripted run
+ * plays its own virtual pads only (pcTestInputPadAllowed).
  *
  * One command a line, at a time in milliseconds from the first game frame:
  *
@@ -247,6 +251,18 @@ s32 pcTestInputActive(void)
 {
 	if (s_active < 0) tiLoad();
 	return s_active;
+}
+
+/*
+ * Whether the game may take SDL's device jidx as a pad. A scripted run plays
+ * its own virtual pads only: it turns on SDL's background pad input for them
+ * (the window never has the focus), and a real pad on the desk is someone's
+ * in another window (owner, 2026-11-25: "goldeneye shouldn't take input when
+ * not in focus"). Off a script, every pad.
+ */
+s32 pcTestInputPadAllowed(s32 jidx)
+{
+	return !pcTestInputActive() || SDL_JoystickIsVirtual(jidx);
 }
 
 /*

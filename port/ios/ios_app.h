@@ -20,7 +20,11 @@ void gevrIosFatalError(const char *msg);
 void gevrTvRemoteLogPoll(void);   /* Apple TV: the Siri Remote's raw input to the log (#268) */
 int gevrTvRemoteMenu(int *step, int *select);   /* Apple TV: a 2nd generation remote's clicks */
 int gevrTvRemoteHeld(int *dx, int *dy, int *centre);   /* the same remote's ring and centre, held */
-void gevrIosDualSenseTrigger(int right, float amp);   /* a DualSense trigger's buzz; 0 turns it off */
+/* A DualSense trigger's feel (input.c inputDualSenseFeel): mode 0 off, 1 a
+ * weapon's bump from start to end, 2 a push from start on, 3 a slope from
+ * start to end; forces 0 to 1 */
+void gevrIosDualSenseFeel(int right, int mode, float start, float end, float force0, float force1);
+void gevrIosDualSenseBuzz(int right, float start, float amp, float freq);   /* a DualSense trigger's buzz from start on */
 
 #ifdef __cplusplus
 }

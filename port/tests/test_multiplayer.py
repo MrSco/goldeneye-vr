@@ -51,6 +51,7 @@ def build():
     dll = C.CDLL(str(NATIVE/("multiplayer_native"+SUFFIX)))
     dll.test_gain.argtypes = [C.c_int, C.c_float]; dll.test_gain.restype = C.c_float
     dll.test_ping.argtypes = [C.c_uint32]*3
+    dll.test_same_name_reconnect.argtypes = [C.c_uint32]*2
     dll.test_group.argtypes = [C.c_int]*6
     dll.test_roster.argtypes = [C.c_int,C.POINTER(C.c_uint8),C.POINTER(C.c_uint8)]
     dll.test_spatial_render.argtypes = [C.c_uint,C.POINTER(C.c_float),C.c_uint,C.POINTER(C.c_float),C.c_int,C.POINTER(C.c_float)]
@@ -62,21 +63,25 @@ def build_core():
     source=(ROOT/"port/src/net/net_core.c").read_text(encoding="utf-8")
     masked=re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',lambda m:"".join("\n" if c=="\n" else " " for c in m.group()),source,flags=re.S)
     keep={"netResetLobbyState","netIsHost","netGetState","netGetConnectedPlayerCount","netGetMaxPlayers","netPlayerInRound","netVoiceSameGroup","netVoiceModeForPair","netTeamRosterReady","netGetSlotTeam","netGetSlotPing","netSlotIsSpectator","netVoiceSlotSpectating","netTeamScore","netSetSlotTeam","netLobbySetConfig","netLobbySetReady","netHostRoundEnded","netStageEligible","netLatchRoundSettings","netValidConfig","netWriteRoundSettings","netReadRoundSettings","netSendMatchSnapshot","netHostLost","netForgetPlayerScore","netClearVotes","netBroadcastBuf","netBroadcastPacket","netBroadcastLobbyState","netCancelRound","netSendCountdown"}
-    keep.update({"netLobbyCanLaunch","netRoundRosterReady","netLocalReady","gevrNetSetReady","netActiveFunFlags","netActiveLineMode","netActiveGunSize","netActiveMovementSpeed","gevrNetConfigGet","gevrNetConfigSet","netScheduleRound","netAllLoaded","netReadyProgress","netHostStartRoundNow","netHostContinue","netIsActive","netDamageAllowed","netApplyAmmoPacket","netObjectByIndex","netSnapshotObjectType","netSendAmmoState"})
+    keep.update({"netLobbyCanLaunch","netRoundRosterReady","netLocalReady","gevrNetSetReady","netActiveFunFlags","netActiveLineMode","netActiveGunSize","netActiveMovementSpeed","gevrNetConfigGet","gevrNetConfigSet","netConfigTakeScenario","gevrNetScenarioAccepted","netSessionCount","netStageLoadCount","netLobbyReturnCount","netVoteRequested","netWarmupSettingsPending","netScheduleRound","netAllLoaded","netReadyProgress","netHostStartRoundNow","netHostContinue","netIsActive","netDamageAllowed","netSetSlotChoosing","netSlotChoosing","netSlotChoosingSeen","netApplyAmmoPacket","netObjectByIndex","netSnapshotObjectType","netSendAmmoState"})
     keep.update({"netInvalidateHitSlot","netClearHostHits","netSetHostEqualization","netGetHostEqualization","netHostBaseDelayMs","netGetSlotHostDelayMs","netHostEqualizationText","netTransitionRoundPhase","netBroadcastRoundPhase","netObserveHitMove","netHitReportAllowed","netProcessHitReport","netExecuteHostHit","netQueueHostHit","netDrainHostHits","netSlotOccupied","netSendHitReport"})
     keep.update({"netStartPad","netStartPadShare","netBroadcastVotes","netClearVotes","netTeamScore","netGetSlotTeam","netSetSlotTeam","netVoiceModeForPair"})
     keep.update({"netConfigSlots","netLobbyMinPlayers", "netCoopSession", "gevrCoopFastReinforcements"})
-    keep.update({"netJoinStartsSpectating", "netReceiveStageReady", "netLobbyHostLaunchMatch", "netSendMatchStartTo", "netHordeActive", "netHordeRunning", "netAllPlayersLoaded", "netHordeAdmitPlayers", "netMpPlayerCount", "netGetPlayingCount"})
+    keep.update({"netJoinStartsSpectating", "netReceiveStageReady", "netLobbyHostLaunchMatch", "netSendMatchStartTo", "netHordeActive", "netHordeRunning", "netAllPlayersLoaded", "netHordeAdmitPlayers", "netMpPlayerCount", "netGetPlayingCount",
+                 "netHordeSetupBreak", "netHordeRestartPending", "netHordeHostCanStart", "netHordeHostStart", "netHordeStartWave"})
     keep.update({"netSendModMessage","netReceiveMod","netReadModName"})   # mods' messages (NET_MSG_MOD)
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase","netHostRestartWarmup","netDedicatedSeat","netSetDedicated","netIsDedicated","netContentPart","netContentPartName","netContentWrite","netContentDiffers","netClientContentRefused","netTakeJoinRefusal","netModPart","netSendModRequired","netReceiveModRequired","netReadPrintable","netModRefusalText"})
-    keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
+    keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netRoundNoticeTextFit","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
     keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar","netRoundLoadStage","netRoundFullMap","netRoundMatchesLoadedMap"})
     keep.update({"netLocalInputClass","netInputClassName","netInputIsFlat","netGetFlatPlayerCount","netSendInputClass","netClientInputTick","netReceiveInputClass"})
     keep.update({"netSlotInputNow","netHostInputTableTick","netReceiveInputClasses","netGetSlotInputClass"})
     keep.update({"netLocalPlatform","netSlotPlatformNow","netReceivePlatforms","netGetSlotPlatform","netDeviceKey","netGetSlotDeviceKey",
                  "netGetLocalDeviceKey","netGetSlotDeviceName","netBuildOf","netGetSlotBuild","netGetLocalBuild","netGetSlotAppVersion"})
-    keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
+    keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netTeamHumans","netJoinerSide","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady","netPveLoadGraceOver"})
+    keep.update({"netLobbyRule","netInMatchLobby","netLobbyRuleOn","netHostEnterLobby","netHostCanEnterLobby","netHostIdleReset","netLobbyReadyCount","netWarmupClockSeconds"})
+    keep.update({"netSlotHandicapIndex","netSetSlotHandicap","netGetSlotHandicap","netRoundHandicapIndex","netSlotHandicapEditable","netLobbySetHandicapSlot","netHostSetSlotHandicap","netSyncRoundHandicaps","netSlotHandicapJoined","netGetActiveSlotTeam"})
+    keep.update({"netPeerSlotMask","netPeerOwnsSlot","netPeerAttachSlot","netPeerDetachSlot","netPeerPrimarySlot","netPeerSeenBefore","netSlotSyncIndex","netPeerVoiceSameGroup","netLocalSlotCount","netSlotIsLocalHuman","gevrNetSlotIsLocalHuman","netLocalSeatOfSlot","netSlotOfLocalSeat","netGetSlotOwner","gevrLocalViewCount","gevrLocalViewIndex","netSetLocalDesiredCount","netSetLocalSeatConfig","netTakeLocalGuestNotice","netLobbySetReadySlot","netLobbySetCharacterSlot","netLobbySetLoadoutSlot","netLobbySetTeamSlot","netSetVoteSlot","netRemoveLocalSlotEntry","netLocalGuestStartsSpectating","netHostDropSingleSlot","netSendLocalGuestReply","netRequestAddLocalGuest","netRequestRemoveLocalGuest","netReceiveLocalGuest","netCleanName","netSetJoinerName"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
         if m.group(1) in keep: continue
@@ -89,6 +94,11 @@ def build_core():
     for start,end in reversed(replacements):source=source[:start]+(" fixtureDamage(target,attacker,weapon,dmg,vx,vz); " if "static void netApplyDamage(" in source[max(0,start-170):start] else "")+source[end:]
     subset=NATIVE/"net_core_test_subset.inc";subset.write_text(source,encoding="utf-8")
     fixture=(ROOT/"port/tests/net_core_native.c").read_text(encoding="utf-8").replace('../src/net/net_core.c',subset.as_posix())
+    # the damage modifiers of front.c's MP_handicap_table, so the handicap test multiplies by the game's own
+    table=re.search(r"MP_handicap_table\[\] = \{(.*?)\n\};",(ROOT/"src/game/front.c").read_text(encoding="utf-8"),re.S).group(1)
+    damage=re.findall(r"\{[^{}]*?,\s*0,\s*([0-9.]+)\}",table)
+    if len(damage)!=11: raise RuntimeError("front.c MP_handicap_table: %d rows"%len(damage))
+    fixture=fixture.replace("/* MP_HANDICAP_TABLE */",",".join(d+"f" for d in damage))
     generated=NATIVE/"net_core_native.c";generated.write_text(fixture,encoding="utf-8")
     args=[shutil.which("gcc") or "gcc","-std=c11","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
     args += SHARED
@@ -302,6 +312,8 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_timestamp_and_life_packet_roundtrips(self): self.assertEqual(self.lib.test_timing_protocol(),0)
     def test_owner_damage_and_respawn_packets(self): self.assertEqual(self.core.test_core_owner_packets(),0)
     def test_clock_exchange_authentication(self): self.assertEqual(self.core.test_core_clock_exchange(),0)
+    def test_lobby_returns_votes_and_pending_settings(self): self.assertEqual(self.core.test_core_lobby_returns(),0)
+    def test_pre_match_lobby_start_warmup_and_return(self): self.assertEqual(self.core.test_core_match_lobby(),0)
     def test_shot_timestamp_replay_and_respawn_validation(self): self.assertEqual(self.core.test_core_timed_hits(),0)
     def test_late_join_round_and_migration_identity(self): self.assertEqual(self.core.test_core_combat_identity(),0)
     def test_host_delay_timing_and_trades(self): self.assertEqual(self.core.test_core_host_delay(),0)
@@ -328,6 +340,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_coop_load_grace_drops_unloaded_teammate(self): self.assertEqual(self.core.test_core_coop_load_grace(),0)
     def test_horde_solo_launch_and_coop_rules(self): self.assertEqual(self.core.test_core_horde_lobby(),0)
     def test_horde_initial_party_and_late_admission(self): self.assertEqual(self.core.test_core_horde_admission(),0)
+    def test_horde_setup_break_and_host_settings(self): self.assertEqual(self.core.test_core_horde_setup(),0)
     def test_coop_guard_drops_detach_and_activate(self): self.assertEqual(self.coop_drops.test_coop_guard_drops(),0)
     def test_coop_guard_hand_removal_and_replacement(self): self.assertEqual(self.coop_drops.test_coop_guard_hand_changes(),0)
     def test_coop_guard_pickups_remain_individual(self): self.assertEqual(self.coop_drops.test_coop_guard_pickups_are_local(),0)
@@ -349,6 +362,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_line_edges_and_vertex_ring_offset(self): self.assertEqual(self.lib.test_line_indices(),0)
     def test_gauge_clearance_and_symmetry(self): self.assertEqual(self.lib.test_gauge_geometry(),0)
     def test_host_pending_and_active_teams(self): self.assertEqual(self.core.test_core_teams(),0)
+    def test_per_player_handicaps(self): self.assertEqual(self.core.test_core_handicaps(),0)
     def test_pve_teammates_voice_full_volume(self): self.assertEqual(self.core.test_core_pve_voice_teammates(),0)
     def test_closing_door_escape_preserves_entry_collision(self): self.assertEqual(self.lib.test_door_escape(),0)
     def test_combat_allocator_canaries_and_merge(self): self.assertEqual(self.allocator.test_vtxstore(),0)
@@ -369,8 +383,11 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_eight_slots_packets_teams_and_pads(self): self.assertEqual(self.core.test_core_eight_slots(),0)
     def test_bot_roster(self): self.assertEqual(self.core.test_core_bot_roster(),0)
     def test_bot_join_and_election(self): self.assertEqual(self.core.test_core_bot_join(),0)
+    def test_bot_join_keeps_teams_within_capacity(self): self.assertEqual(self.core.test_core_bot_join_teams(),0)
     def test_bot_owner(self): self.assertEqual(self.core.test_core_bot_owner(),0)
     def test_full_maps(self): self.assertEqual(self.core.test_core_full_maps(),0)
+    def test_no_teleport_rule(self): self.assertEqual(self.core.test_core_no_teleport_rule(),0)
+    def test_online_splitscreen_protocol_and_peers(self): self.assertEqual(self.core.test_core_online_splitscreen(),0)
     def test_bot_floor_routes(self): self.assertEqual(self.botnav.test_botnav(),0)
     def test_bot_glass_routes(self): self.assertEqual(self.botnav.test_botnav_glass(),0)
     def test_sound_through_portals(self): self.assertEqual(self.sndpath.test_sndpath(),0)
@@ -384,6 +401,13 @@ class MultiplayerNativeTests(unittest.TestCase):
         self.assertEqual(self.lib.test_ping(42,0,100),65535)
         self.assertEqual(self.lib.test_ping(99999,100,200),65534)
         self.assertEqual(self.lib.test_ping(42,0xfffffffe,2),42)
+    def test_same_name_live_is_another_device(self):
+        # a live connection with the name (heard from within 2 s) is another device, kept
+        self.assertEqual(self.lib.test_same_name_reconnect(1000,2500),0)
+        self.assertEqual(self.lib.test_same_name_reconnect(0xfffffff0,100),0)
+        # a quiet one, or one never heard from, is the player back: dropped
+        self.assertEqual(self.lib.test_same_name_reconnect(1000,3001),1)
+        self.assertEqual(self.lib.test_same_name_reconnect(0,100),1)
     def test_latency_expiry_and_host_migration(self): self.assertEqual(self.core.test_core_latency_and_migration(),0)
     def test_packet_roundtrip_and_all_truncations(self): self.assertEqual(self.lib.test_protocol(),0)
     def test_invalid_config_and_player_counts(self): self.assertEqual(self.lib.test_config_validation(),0)

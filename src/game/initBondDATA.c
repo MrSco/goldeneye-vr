@@ -246,7 +246,7 @@ void init_player_BONDdata_stats(void)
     g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT] = NULL;
     if (getPlayerCount() == 1
 #ifdef GEVR
-        || (netIsActive() && netActiveDualWield() && (get_cur_playernum() == netGetLocalSlot() ||
+        || (netIsActive() && netActiveDualWield() && (gevrNetSlotIsLocalHuman(get_cur_playernum()) ||
             mempGetBankSizeLeft(MEMPOOL_STAGE) > (s32)(size_item_buffer[1] * (getPlayerCount() + 1) + 0x100000)))
 #endif
     ) {

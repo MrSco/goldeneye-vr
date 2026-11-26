@@ -111,6 +111,13 @@ static void serverJoin(const char *target, int port)
 		host[colon - host] = '\0';
 	}
 	netLobbySetCharacter((uint8_t)VrMpChr);
+	if (sysArgCheck("--local-players")) {
+		int lp = sysArgGetInt("--local-players", 1);
+		if (lp < 1) lp = 1;
+		if (lp > GEVR_MAX_LOCAL_PLAYERS) lp = GEVR_MAX_LOCAL_PLAYERS;
+		netSetLocalDesiredCount(lp);
+		sysLogPrintf(LOG_NOTE, "client: requesting %d local players", lp);
+	}
 	if (!netConnect(host, (uint16_t)port)) {
 		sysFatalError("client: could not connect to %s:%d", host, port);
 	}
@@ -131,8 +138,11 @@ static void serverJoin(const char *target, int port)
 	if (netGetMatchConfig()->mode != NET_MODE_COOP) {
 		bossSetLoadedStage(g_StageNum);
 	}
-	netLobbySetReady(true);   /* as a player ticks Ready: the host's round start waits for it */
-	sysLogPrintf(LOG_NOTE, "client: in the match as slot %d, stage %d", netGetLocalSlot(), netGetMatchConfig()->stage);
+	for (int s = 0; s < netLocalSlotCount(); s++) {
+		int sl = netSlotOfLocalSeat(s);
+		if (sl >= 0) netLobbySetReadySlot(sl, true);
+	}
+	sysLogPrintf(LOG_NOTE, "client: in the match as slot %d (%d local), stage %d", netGetLocalSlot(), netLocalSlotCount(), netGetMatchConfig()->stage);
 }
 
 /* --list: the values goldeneye-vr.ini's match keys take, from the game's own
@@ -152,6 +162,7 @@ static void serverList(void)
 	for (i = 0; i < 7; i++) printf("  %3d  %s\n", i, netGameLengthName(i));
 	printf("\nMpHealth=\n");
 	for (i = 0; i < netHealthCount(); i++) printf("  %3d  %s\n", i, netHealthName(i));
+	printf("\nMpHandicaps=  1: each player picks their own health (protocol 29), 0: everyone plays at MpHealth\n");
 	printf("\nMpBotMode=\n");
 	for (i = 0; i < NET_BOT_MODE_COUNT; i++) printf("  %3d  %s\n", i, netBotModeName(i));
 	printf("\nMpBotCount=  1-%d (with MpBotMode=2)\n\nMpBotDifficulty=\n", GEVR_MAX_PLAYERS - 1);
@@ -279,12 +290,22 @@ void gevrLauncherRun(void)
  */
 void gevrLobbyGameTick(void)
 {
-	static long long lastNs, warmupNs, emptyNs;
+	static long long lastNs, warmupNs, emptyNs, lobbyReadyNs;
 	static bool idleSeen;
 	static double lastCpu;
 	static u32 lastFrames;
 	const long long now = serverNowNs();
 	const bool botsOnly = sysArgCheck("--bots-only");
+
+	/* a headless client (--connect) READYs in the pre-match lobby, as a player there
+	 * would: every local seat (--local-players), as its first join does */
+	if (!netIsDedicated() && netInMatchLobby()) {
+		extern int netSlotReady(int slot);
+		for (int s = 0; s < netLocalSlotCount(); s++) {
+			const int sl = netSlotOfLocalSeat(s);
+			if (sl >= 0 && !netSlotReady(sl)) netLobbySetReadySlot(sl, true);
+		}
+	}
 
 	/*
 	 * Nobody presses Start Round on a server, so it does, as the host's row
@@ -292,7 +313,27 @@ void gevrLobbyGameTick(void)
 	 * a player in it (or --bots-only), players playing meanwhile. The host's
 	 * own checks then wait for everyone to load and the teams to be whole.
 	 */
-	if (netIsDedicated() && netGetPhase() == NET_PHASE_WARMUP && netHostCanStartRound() && !netHostStartRequested()
+	/*
+	 * The pre-match lobby (the Lobby rule, docs/match-lobby.md): the players
+	 * ready up there, so the server starts once all of them are READY, or
+	 * 60 s after the first one is (nobody waits on a player who walked away).
+	 */
+	if (netIsDedicated() && netInMatchLobby() && netHostCanStartRound() && !netHostStartRequested() && !botsOnly) {
+		int humans = 0;
+		const int ready = netLobbyReadyCount(&humans);
+
+		warmupNs = 0;
+		if (humans == 0 || ready == 0) {
+			lobbyReadyNs = 0;
+		} else if (ready == humans || (lobbyReadyNs && now - lobbyReadyNs >= 60000000000ll)) {
+			sysLogPrintf(LOG_NOTE, "server: the lobby's START (%d of %d ready)", ready, humans);
+			netHostStartRoundNow();
+			lobbyReadyNs = 0;
+		} else if (lobbyReadyNs == 0) {
+			lobbyReadyNs = now;
+		}
+	} else if (netIsDedicated() && netGetPhase() == NET_PHASE_WARMUP && netHostCanStartRound() && !netHostStartRequested()
+	    && netWarmupSecondsLeft() == 0   /* the lobby's Warmup rule runs its own practice clock */
 	    && (netGetHumanPlayerCount() > 0 || botsOnly)) {
 		if (warmupNs == 0) {
 			warmupNs = now;
@@ -316,8 +357,8 @@ void gevrLobbyGameTick(void)
 		if (emptyNs == 0) {
 			emptyNs = now;
 		} else if (now - emptyNs >= 3000000000ll) {
-			sysLogPrintf(LOG_NOTE, "server: nobody left in the round: back to warmup");
-			netHostRestartWarmup();
+			sysLogPrintf(LOG_NOTE, "server: nobody left in the round: back to the %s", netLobbyRuleOn() ? "lobby" : "warmup");
+			netHostIdleReset();
 			emptyNs = 0;
 		}
 	} else {

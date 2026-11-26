@@ -37,6 +37,7 @@ extern "C" void pc_write_shot(const char *name, int w, int h);   // flat_render.
 #else
 /* no test scripts off PC */
 static inline int pcTestInputActive(void) { return 0; }
+static inline int pcTestInputPadAllowed(s32) { return 1; }
 static inline void pcTestInputFrame(s32 *, s32 *, u32 *, s32 *) { }
 static inline int pcTestInputPointer(s32 *, s32 *) { return 0; }
 static inline int pcTestInputLeftDown(void) { return 0; }
@@ -102,6 +103,7 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
     s_rectH = dh > 0 ? dh : 1;
 
     if (!readFbo) glGenFramebuffers(1, &readFbo);
+    const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, srcTex, 0);
@@ -116,6 +118,7 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
         pc_write_shot(shot, winW, winH);   // flat_render.cpp
     }
 #endif
+    if (scissor) glEnable(GL_SCISSOR_TEST);
     if (!g_flatPresentNoSwap) flatSwapWindow();
     return true;
 }
@@ -128,6 +131,10 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
 void flatLauncherInit(ImGuiIO &io);
 void flatLauncherFeedInput(ImGuiIO &io);
 static bool s_enterHeldAtOpen = false;   // the Enter (Start) that opened the pause
+/* A pad's A or B, or Escape, still held as the window comes back from the game's
+ * own screen (Select Character, Select Stage: mpmenu.c): the B that left the
+ * screen also closed the window, the A reopened the screen. Not a press until let go. */
+static bool s_faceAHeldAtOpen = false, s_faceBHeldAtOpen = false, s_escHeldAtOpen = false;
 extern "C" void gevrFeedPauseInput(int opening)
 {
     static bool watching = false;
@@ -139,6 +146,7 @@ extern "C" void gevrFeedPauseInput(int opening)
     if (opening) {
         s_clickCount = 0;   // presses from before it opened
         s_enterHeldAtOpen = true;   // its Enter, still down, would press the focused Resume (5.25 report)
+        s_faceAHeldAtOpen = s_faceBHeldAtOpen = s_escHeldAtOpen = true;   // cleared below once up
     }
     flatLauncherFeedInput(io);
 }
@@ -352,7 +360,7 @@ void flatLauncherFeedInput(ImGuiIO &io)
     const Uint8 *keys = SDL_GetKeyboardState(nullptr);
     bool padKeys = false;   // iOS: with a pad connected, the arrows and Return are visionOS's, not a keyboard's (input.c)
 #ifdef GEVR_IOS
-    for (int i = 0; i < SDL_NumJoysticks() && !padKeys; i++) padKeys = SDL_IsGameController(i) != SDL_FALSE;
+    for (int i = 0; i < SDL_NumJoysticks() && !padKeys; i++) padKeys = SDL_IsGameController(i) && pcTestInputPadAllowed(i);
 #endif
     auto key = [&](SDL_Scancode sc) -> bool {
         if (scripted) return pcTestInputKey(sc) != 0;
@@ -368,7 +376,9 @@ void flatLauncherFeedInput(ImGuiIO &io)
     io.AddKeyEvent(ImGuiKey_RightArrow, key(SDL_SCANCODE_RIGHT));
     io.AddKeyEvent(ImGuiKey_Tab, key(SDL_SCANCODE_TAB));
     io.AddKeyEvent(ImGuiKey_Space, key(SDL_SCANCODE_SPACE));
-    io.AddKeyEvent(ImGuiKey_Escape, key(SDL_SCANCODE_ESCAPE));
+    const bool escDown = key(SDL_SCANCODE_ESCAPE);
+    if (!escDown) s_escHeldAtOpen = false;
+    io.AddKeyEvent(ImGuiKey_Escape, escDown && !s_escHeldAtOpen);
     io.AddKeyEvent(ImGuiKey_LeftShift, key(SDL_SCANCODE_LSHIFT));
     io.AddKeyEvent(ImGuiKey_LeftCtrl, key(SDL_SCANCODE_LCTRL));
     // Return activates; in a text box the launcher's queue types it, and ImGui
@@ -390,7 +400,7 @@ void flatLauncherFeedInput(ImGuiIO &io)
 #ifndef GEVR_TVOS
         if (padSeen) break;
 #endif
-        if (!SDL_IsGameController(i)) continue;
+        if (!SDL_IsGameController(i) || !pcTestInputPadAllowed(i)) continue;
         SDL_GameController *pad = SDL_GameControllerOpen(i);   // the one input.c holds, by reference
         if (!pad) continue;
         padSeen = true;
@@ -438,6 +448,10 @@ void flatLauncherFeedInput(ImGuiIO &io)
         moved = true;
     }
 #endif
+    if (!faceA) s_faceAHeldAtOpen = false;
+    if (!faceB) s_faceBHeldAtOpen = false;
+    faceA = faceA && !s_faceAHeldAtOpen;
+    faceB = faceB && !s_faceBHeldAtOpen;
     if (padSeen) {
         io.AddKeyEvent(ImGuiKey_GamepadDpadUp, up);
         io.AddKeyEvent(ImGuiKey_GamepadDpadDown, down);
@@ -474,7 +488,7 @@ bool flatLauncherStickClick(int hand)
     }
     bool down = false;
     for (int i = 0; i < SDL_NumJoysticks() && !down; i++) {
-        if (!SDL_IsGameController(i)) continue;
+        if (!SDL_IsGameController(i) || !pcTestInputPadAllowed(i)) continue;
         SDL_GameController *pad = SDL_GameControllerOpen(i);
         if (!pad) continue;
         down = SDL_GameControllerGetButton(pad, hand ? SDL_CONTROLLER_BUTTON_RIGHTSTICK : SDL_CONTROLLER_BUTTON_LEFTSTICK) != 0;

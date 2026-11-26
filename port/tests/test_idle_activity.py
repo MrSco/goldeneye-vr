@@ -8,7 +8,7 @@ from test_reinforcements import block
 ROOT = Path(__file__).resolve().parents[2]
 sync = (ROOT / "port/src/net/net_player_sync.c").read_text(encoding="utf-8")
 helper = block(sync, "static bool netSyncLocalActivity(")
-assert "if (netSyncLocalActivity(pl->speedforwards, pl->speedsideways, &move)) netTouchLocalActivity();" in sync
+assert "if (netSyncLocalActivity(playernum, pl->speedforwards, pl->speedsideways, &move)) netTouchLocalActivity();" in sync
 
 fixture = r"""
 #include <assert.h>
@@ -21,29 +21,34 @@ int main(void) {
     struct netplayermove m;
     memset(&m, 0, sizeof(m));
     m.pos.x = 100.0f; m.angles[0] = 30.0f;
-    assert(netSyncLocalActivity(0, 0, &m));          /* the first pose */
+    assert(netSyncLocalActivity(0, 0, 0, &m));          /* the first pose */
     /* A headset left in a match: still, aiming, crouched. Nobody is there. */
     m.ucmd = UCMD_AIMVALID | UCMD_AIMVALID_LEFT | UCMD_DUCK;
-    for (int i = 0; i < 100; i++) assert(!netSyncLocalActivity(0, 0, &m));
+    for (int i = 0; i < 100; i++) assert(!netSyncLocalActivity(0, 0, 0, &m));
     /* Tracking jitter under the thresholds is not activity. */
     m.angles[0] += 1.5f; m.pos.x += 0.03f;
-    assert(!netSyncLocalActivity(0, 0, &m));
+    assert(!netSyncLocalActivity(0, 0, 0, &m));
     /* Firing, either hand. */
     m.ucmd = UCMD_AIMVALID | UCMD_FIRE;
-    assert(netSyncLocalActivity(0, 0, &m));
+    assert(netSyncLocalActivity(0, 0, 0, &m));
     m.ucmd = UCMD_FIRE_LEFT;
-    assert(netSyncLocalActivity(0, 0, &m));
+    assert(netSyncLocalActivity(0, 0, 0, &m));
     m.ucmd = UCMD_AIMVALID;
-    assert(!netSyncLocalActivity(0, 0, &m));
+    assert(!netSyncLocalActivity(0, 0, 0, &m));
     /* Walking, strafing, looking, moving. */
-    assert(netSyncLocalActivity(0.5f, 0, &m));
-    assert(netSyncLocalActivity(0, -0.5f, &m));
+    assert(netSyncLocalActivity(0, 0.5f, 0, &m));
+    assert(netSyncLocalActivity(0, 0, -0.5f, &m));
     m.angles[1] += 5.0f;
-    assert(netSyncLocalActivity(0, 0, &m));
-    assert(!netSyncLocalActivity(0, 0, &m));
+    assert(netSyncLocalActivity(0, 0, 0, &m));
+    assert(!netSyncLocalActivity(0, 0, 0, &m));
     m.pos.z += 1.0f;
-    assert(netSyncLocalActivity(0, 0, &m));
-    assert(!netSyncLocalActivity(0, 0, &m));
+    assert(netSyncLocalActivity(0, 0, 0, &m));
+    assert(!netSyncLocalActivity(0, 0, 0, &m));
+    /* Each local seat keeps its own last pose (split screen): seat 1's first pose is
+     * activity, and moving seat 1 leaves seat 0 still. */
+    assert(netSyncLocalActivity(1, 0, 0, &m));
+    assert(!netSyncLocalActivity(1, 0, 0, &m));
+    assert(!netSyncLocalActivity(0, 0, 0, &m));
     return 0;
 }
 """.replace("/* HELPER */", helper)

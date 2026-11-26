@@ -23,6 +23,7 @@ s32 sysArgGetInt(const char *arg, s32 defval);
 u64 sysGetMicroseconds(void);
 
 void sysFatalError(const char *fmt, ...) __attribute__((noreturn));
+void sysUserError(const char *fmt, ...) __attribute__((noreturn));
 
 s32 sysLogIsOpen(void);
 void sysLogPrintf(s32 level, const char *fmt, ...);

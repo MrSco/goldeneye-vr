@@ -9,8 +9,15 @@ extern "C" {
 enum { CFG_STAGE, CFG_SCENARIO, CFG_WEAPON_SET, CFG_GAME_LENGTH, CFG_HEALTH,
        CFG_DUAL_WIELD, CFG_LOADOUTS, CFG_NEXT_ROUND, CFG_CUSTOM0, CFG_CUSTOM1,
        CFG_CUSTOM2, CFG_CUSTOM3, CFG_VOICE_MODE, CFG_FRIENDLY_FIRE, CFG_FUN_FLAGS, CFG_GUN_SIZE,
-       CFG_MAX_PLAYERS, CFG_FAST_REINFORCEMENTS, CFG_BOT_MODE, CFG_BOT_COUNT, CFG_BOT_DIFFICULTY, CFG_MOVEMENT_SPEED };
+       CFG_MAX_PLAYERS, CFG_FAST_REINFORCEMENTS, CFG_BOT_MODE, CFG_BOT_COUNT, CFG_BOT_DIFFICULTY, CFG_MOVEMENT_SPEED,
+       CFG_HANDICAPS, CFG_HORDE_STAGE, CFG_HORDE_START_WAVE, CFG_LOBBY, CFG_WARMUP };
 int gevrNetConfigGet(int field);
+/* Horde's setup break and START WAVE (net_core.c; horde_rules.h hordeHoldSetup) */
+int netHordeActive(void);
+int netHordeSetupBreak(void);
+int netHordeRestartPending(void);
+int netHordeHostCanStart(void);
+void netHordeHostStart(void);
 /* Online in a co-op mission: where retail reads two or more players as a
  * deathmatch, the game asks this and plays the solo mission's rules. */
 int gevrCoopActive(void);
@@ -23,10 +30,34 @@ void gevrNetConfigSet(int field, int value);
 int gevrNetSlotChr(int slot);
 int gevrNetSlotIsBot(int slot);       /* the host runs this slot with AI input (gevr_bot.c) */
 int gevrNetOwnsSlot(int slot);        /* this headset decides the slot's life: its own, the host's bots */
+int gevrNetSlotIsLocalHuman(int slot); /* controlled by a local human at this machine */
+int gevrLocalViewCount(void);         /* viewports drawn on this screen (online: local humans; a couch match: its seats; offline: getPlayerCount) */
+int gevrLocalViewIndex(int slot);     /* 0..3 viewport index on this screen, or -1 if remote/bot */
+int gevrCouchLoadPlayers(int players, int eligible); /* a couch match loads four for drop-ins (net_core.c) */
+int gevrCouchSeats(void);             /* a couch match's seated players (slots 0..n-1), 0 if not one */
+int gevrCouchSeatAdd(void);           /* a drop-in's slot, or -1 */
+int gevrSlotInWorld(int slot);        /* the slot's player is in the world (online: occupied; couch: seated) */
+int gevrSlotInRound(int slot);        /* ... and in the round (online: not spectating) */
+int gevrViewsBySeat(void);            /* views from gevrLocalViewCount/Index: online, or a couch match */
 int gevrNetBotFoes(int a, int b);     /* b is a's foe: not itself, not its side in a team round */
 int gevrNetBotDifficulty(void);       /* the round's NET_BOT_MEAT .. NET_BOT_DARK */
 int gevrNetBotRowsEditable(void);     /* the host's bot rows: deathmatch, outside a round in progress */
 int netGetSlotTeam(int slot);
+int netGetActiveSlotTeam(int slot);   /* the round's (netGetSlotTeam: the next round's) */
+/* Per-player health (protocol 29, net_rules.h NET_HANDICAP_*): the slot's value, the
+ * table index it will play with, the round's, whether this machine may change it */
+int netGetSlotHandicap(int slot);
+int netSlotHandicapIndex(int slot);
+int netRoundHandicapIndex(int slot);
+int netSlotHandicapEditable(int slot);
+int gevrNetScenarioAccepted(int scenario);
+unsigned netSessionCount(void);      /* hosting, joining or leaving: a new session */
+unsigned netStageLoadCount(void);    /* this machine's stage loads */
+unsigned netLobbyReturnCount(void);  /* the host's RETURN TO LOBBY, as this machine has seen them */
+int netVoteRequested(void);          /* the host asked for the next round's votes */
+int netWarmupSettingsPending(void);  /* the host's changes wait for a reload into the warmup (START) */   /* the host's setter would take it (the folder's Scenario list) */
+void netLobbySetHandicapSlot(int slot, int value);   /* a local seat's own (the host's seat: the host's) */
+void netHostSetSlotHandicap(int slot, int value);    /* the host: anyone's */
 int netGetSlotPing(int slot);
 /* Local host policy. Cap is clamped to 0..80 ms. */
 void netSetHostEqualization(int enabled, unsigned cap_ms);
@@ -40,6 +71,10 @@ int netTeamRosterReady(void);
 void netLobbySetTeam(unsigned char team);
 int netTeamScore(int team);
 int netDamageAllowed(int attacker, int target);
+/* a local player choosing their character after dropping in: no damage (net_core.c) */
+void netSetSlotChoosing(int slot, int choosing);
+int netSlotChoosing(int slot);
+int netSlotChoosingSeen(int slot);   /* any machine's player, from their moves */
 void gevrVoiceListenerBasis(float forward[3], float up[3]);
 int gevrNetSlotLoadout(int slot, int k);
 unsigned char gevrNetItemAt(int idx);
@@ -65,6 +100,7 @@ void netHostRequestVotes(void);
 int netHostStartRequested(void);
 int netWarmupSecondsLeft(void);
 void netRoundNoticeText(char *text, unsigned size);
+void netRoundNoticeTextFit(char *text, unsigned size, int narrow);   /* narrow: quarter views */
 int netHostKickPlayer(int slot);
 int netHostCanKickPlayer(int slot);
 int netLobbySlotConnected(int slot);

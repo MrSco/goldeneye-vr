@@ -536,18 +536,46 @@ int gevrTvRemoteHeld(int *dx, int *dy, int *centre)
 #endif
 
 /*
- * A DualSense's adaptive trigger buzzes as a shot fires (input.c
- * inputTriggerShot): SDL's Apple driver sends a DualSense no effects, so
+ * A DualSense's adaptive triggers (input.c inputDualSenseFeel and
+ * inputDualSenseBuzz): SDL's Apple driver sends a DualSense no effects, so
  * GameController's own, on every DualSense connected (one, in practice).
- * amp 0 turns the trigger's effect off.
+ * The feel is what the hand holds: a gun's bump that gives (the weapon mode),
+ * a steady push, or a slope; the buzz is a shot's or a strike's.
  */
-void gevrIosDualSenseTrigger(int right, float amp)
+void gevrIosDualSenseFeel(int right, int mode, float start, float end, float force0, float force1)
 {
     for (GCController *c in GCController.controllers) {
         if (![c.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) continue;
         GCDualSenseGamepad *ds = (GCDualSenseGamepad *)c.extendedGamepad;
         GCDualSenseAdaptiveTrigger *t = right ? ds.rightTrigger : ds.leftTrigger;
-        if (amp > 0.f) [t setModeVibrationWithStartPosition:0.f amplitude:amp frequency:0.6f];
+        switch (mode) {
+            case 1:
+                [t setModeWeaponWithStartPosition:start endPosition:end resistiveStrength:force0];
+                break;
+            case 2:
+                [t setModeFeedbackWithStartPosition:start resistiveStrength:force0];
+                break;
+            case 3:
+                if (@available(iOS 15.4, tvOS 15.4, macOS 12.3, *)) {
+                    [t setModeSlopeFeedbackWithStartPosition:start endPosition:end startStrength:force0 endStrength:force1];
+                } else {
+                    [t setModeFeedbackWithStartPosition:start resistiveStrength:(force0 + force1) * 0.5f];
+                }
+                break;
+            default:
+                [t setModeOff];
+                break;
+        }
+    }
+}
+
+void gevrIosDualSenseBuzz(int right, float start, float amp, float freq)
+{
+    for (GCController *c in GCController.controllers) {
+        if (![c.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) continue;
+        GCDualSenseGamepad *ds = (GCDualSenseGamepad *)c.extendedGamepad;
+        GCDualSenseAdaptiveTrigger *t = right ? ds.rightTrigger : ds.leftTrigger;
+        if (amp > 0.f) [t setModeVibrationWithStartPosition:start amplitude:amp frequency:freq];
         else [t setModeOff];
     }
 }

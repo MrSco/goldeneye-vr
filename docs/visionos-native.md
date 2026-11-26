@@ -76,6 +76,19 @@ Conventions:
   At 55-68 fps on 90 Hz, the pictures were held a ragged 1 or 2 slots, and the
   world shook with a still head. Compositor Services aborts if a frame is queried
   before the last one was ended, so frames can't simply be skipped.
+- **One eye at a time.** ANGLE on Metal has no `GL_OVR_multiview`, so
+  `gevr_mv_emu.cpp` gives each eye its own framebuffer and sends every draw once per
+  eye. Through v0.5.27 it switched framebuffers between the eyes on every draw. On
+  Metal each switch ends a render pass, which stores both whole eye images and loads
+  them again. Dam's ~300 draws took 20 ms a frame at 45 fps and 47 ms once
+  SpaceWarp's motion pass doubled them, and the hold grew to 4 slots (22.5 fps)
+  (report 09265b33, 2026-11-25: "erratic visual movement, even in one eye"). Now
+  every stereo frame is kept and replayed, left eye whole and then right eye whole
+  (`gevr_mv_emu_view_pass`, `gevr_vr_replay_frame`), which is one render pass per
+  eye. SpaceWarp is off by default on visionOS (`vr_spacewarp_setting_on`): Vision
+  Pro is fast enough without it. In the simulator after the fix, the game thread
+  draws for about 3 ms a frame and spends the rest waiting in `xrWaitFrame` (the
+  perf line's DRAW counts that wait).
 - **Sense grip:** Apple's `.grip` turned +5.037 degrees about X. That is
   Klepton's net turn for an OpenXR game: its controller side's -37 and its OpenXR
   side's +37 cancel. Build 9 had only the -37, and the gun pointed down.

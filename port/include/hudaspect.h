@@ -35,12 +35,12 @@
     } while (0)
 
 extern float portNativeAspect(void);   /* port/fast3d/gfx_pc.cpp */
-extern int getPlayerCount(void);        /* src/game/player.c */
+extern int gevrLocalViewCount(void);    /* port/src/net/net_core.c */
 
-/* 1.3334 so a 4:3 screen emits nothing. A local split screen (2-4 players)
- * gets nothing either: the modes anchor to the whole screen's edges, and each
- * player's HUD belongs in its own view, where the game lays it out. */
+/* 1.3334 so a 4:3 screen emits nothing. A local split screen (2-4 local views,
+ * offline or online) gets nothing either: the modes anchor to the whole screen's
+ * edges, and each player's HUD belongs in its own view, where the game lays it out. */
 #define PORT_HUD_ASPECT(gdl, mode) \
-    do { if (portNativeAspect() > 1.3334f && getPlayerCount() < 2) { gSPHudAspectEXT((gdl)++, (mode)); } } while (0)
+    do { if (portNativeAspect() > 1.3334f && gevrLocalViewCount() < 2) { gSPHudAspectEXT((gdl)++, (mode)); } } while (0)
 
 #endif

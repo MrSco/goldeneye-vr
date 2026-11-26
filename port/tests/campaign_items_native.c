@@ -39,6 +39,9 @@ int netGetLocalSlot(void) { return 0; }
 bool netIsHost(void) { return host; }
 int netCoopActive(void) { return coop; }
 bool netSlotOccupied(int slot) { return slot < 4; }
+/* split screen (net_core.c): this machine's humans; here the one local player, slot 0 */
+bool netSlotIsLocalHuman(int slot) { return slot == 0; }
+struct player *g_playerPointers[MAX_PLAYER_COUNT] = { &players[0], &players[1], &players[2], &players[3] };
 void sysLogPrintf(s32 level, const char *fmt, ...) { if (level==LOG_ERROR) overflow++; }
 ObjectRecord *objFindByTagId(s32 tag) { return tag>=0 && tag<10 ? &tagged[tag] : NULL; }
 s32 objectiveGetCount(void) { return objective_count; }

@@ -63,7 +63,7 @@ enum {
     GEVR_LTAB_COUNT
 };
 // Play's sub-tabs
-enum { GEVR_LSUB_PLAY_MAIN, GEVR_LSUB_PLAY_GHOSTS };
+enum { GEVR_LSUB_PLAY_MAIN, GEVR_LSUB_PLAY_GHOSTS, GEVR_LSUB_PLAY_SYNC };
 // Online's sub-tabs
 enum { GEVR_LSUB_HOST, GEVR_LSUB_JOIN, GEVR_LSUB_PLAYER, GEVR_LSUB_AUDIO, GEVR_LSUB_FAVORITES };
 // Controls' sub-tabs (visibility table picks flat vs VR entries)
@@ -140,6 +140,7 @@ inline const GevrSubSpec *gevrLauncherSubTable(int &count) {
         // Play
         { GEVR_LTAB_PLAY,     GEVR_LSUB_PLAY_MAIN,   "General",          GEVR_CTX_ALL_LAUNCHER },
         { GEVR_LTAB_PLAY,     GEVR_LSUB_PLAY_GHOSTS, "Ghosts",           GEVR_CTX_ALL_LAUNCHER },
+        { GEVR_LTAB_PLAY,     GEVR_LSUB_PLAY_SYNC,   "Sync",             GEVR_CTX_ALL_LAUNCHER },
         // Online
         { GEVR_LTAB_ONLINE,   GEVR_LSUB_HOST,        "Host",             GEVR_CTX_ALL_LAUNCHER },
         { GEVR_LTAB_ONLINE,   GEVR_LSUB_JOIN,        "Join",             GEVR_CTX_ALL_LAUNCHER },

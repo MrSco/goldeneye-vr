@@ -16,6 +16,7 @@
 #include "gevr_romlayout.h"
 #include "gevr_modpack.h"
 #include "gevr_icloud.h"
+#include "gevr_sync.h"
 
 #define EEPROM_SIZE (EEP16K_MAXBLOCKS * 8)
 #define EEPROM_FNAME "eeprom.bin"
@@ -297,6 +298,15 @@ static void gevrInjectEnd(void)
 	gevrInjectTurn = 0.0f;
 	gevrFrameTimingInput(0, 0, 0, 0);
 }
+/* The input being applied, for a headset's windows (vr_launcher.cpp
+ * gevrFeedPauseInput: the pause window and the match lobby's), which read the
+ * controllers rather than pad 0; 0 when no gevr_input.txt is being applied. */
+int gevrInjectedPad(unsigned *buttons, int *x, int *y)
+{
+	if (gevrInjectFrames <= 0 && !gevrInjectUntilUs) return 0;
+	*buttons = gevrInjectButtons; *x = gevrInjectX; *y = gevrInjectY;
+	return 1;
+}
 static void gevrPollInjectedInput(void)
 {
 	static u32 sTick;
@@ -497,6 +507,7 @@ static inline void osEeepromSave(const char *fname)
 		ok = fclose(fp) == 0 && ok;
 		if (ok && rename(tmp, path) == 0) {
 			gevrCloudFileSaved(path);   /* iCloud on the Apple builds (port/ios/ios_icloud.mm) */
+			gevrSyncFileSaved(path);    /* the cross-platform sync (port/pc/gevr_sync.cpp) */
 			return;
 		}
 		sysLogPrintf(LOG_WARNING, "could not replace EEPROM `%s`: %s", path, strerror(errno));
@@ -508,6 +519,7 @@ static inline void osEeepromSave(const char *fname)
 		fwrite(eeprom, 1, EEPROM_SIZE, fp);
 		fclose(fp);
 		gevrCloudFileSaved(path);
+		gevrSyncFileSaved(path);
 	} else {
 		sysLogPrintf(LOG_ERROR, "could not save EEPROM to `%s`: %s", path, strerror(errno));
 	}

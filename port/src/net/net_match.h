@@ -105,6 +105,14 @@ const char *netItemName(int item);         /* by item id; "" when not offered */
 /* The modes of the lobby's DUAL WIELD and NEXT ROUND rows */
 enum { NET_DUAL_OFF = 0, NET_DUAL_DOUBLES = 1, NET_DUAL_ANY = 2 };
 enum { NET_NEXT_VOTE = 0, NET_NEXT_SHUFFLE = 1, NET_NEXT_PLAYLIST = 2 };
+/*
+ * The pre-match lobby (NetMatchConfig.lobby, docs/match-lobby.md): the party
+ * gathers on the title stage, no map loaded, until the host's START; then the
+ * map loads, with a warmup first when the host's Warmup rule asks for one.
+ */
+enum { NET_WARMUP_RULE_OFF = 0, NET_WARMUP_RULE_30 = 1, NET_WARMUP_RULE_60 = 2, NET_WARMUP_RULE_120 = 3, NET_WARMUP_RULE_COUNT = 4 };
+static inline int netWarmupRuleSeconds(int rule) { return rule == NET_WARMUP_RULE_30 ? 30 : rule == NET_WARMUP_RULE_60 ? 60 : rule == NET_WARMUP_RULE_120 ? 120 : 0; }
+const char *netWarmupRuleName(int rule);
 const char *netDualWieldName(int mode);
 const char *netNextRoundName(int mode);
 const char *netVoiceModeName(int mode);

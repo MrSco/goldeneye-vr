@@ -6,6 +6,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef GEVR_PC
+/* the cross-platform sync's kick after an import (port/pc/gevr_sync.cpp), not linked here */
+void gevrSyncKick(void) {}
+#endif
+
 int main(int argc, char **argv)
 {
 	char line[1024];

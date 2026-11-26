@@ -59,15 +59,27 @@ extern void netPlayerSyncBeforeTick(s32 playernum);
 extern void netPlayerSyncAfterTick(s32 playernum);
 extern u64 sysGetMicroseconds(void);
 extern bool netSlotOccupied(int slot);
+extern int gevrCouchLoadPlayers(int players, int eligible);   /* a couch match's drop-in seats (net_core.c) */
+extern int gevrCouchSeats(void);
+extern int gevrSlotInWorld(int slot);
+extern int gevrViewsBySeat(void);
 extern bool netTakeRoundReset(void);
 extern void netStageLoaded(void);
 extern void netCoopStageLoaded(void);   /* co-op (#94): a new mission's guards (net_coop.c) */
 extern int netCoopActive(void);
 extern int netCoopSession(void);
+extern int netInMatchLobby(void);   /* the pre-match lobby: the session lasts through its title stage */
 extern void netCoopMissionEnded(int result);
 extern int netGetLocalSlot(void);
 static bool s_net_slot_enabled[MAX_PLAYER_COUNT];
 static bool s_net_session_started;
+
+/* couch co-op left from its menus (front.c gevrCouchCoopLeave): the title stage
+ * goes on, not reloaded as for a session that dropped */
+void bossNetSessionForget(void)
+{
+    s_net_session_started = FALSE;
+}
 static bool s_net_config_on_load;   /* a round reset's settings wait for its stage's load */
 #endif
 
@@ -595,6 +607,25 @@ void bossMainloop(void)
                 localSelectedNumPlayers = get_selected_num_players();
             }
         }
+#ifdef GEVR
+        {
+            /* a couch match of two or three loads four: a pad can drop in (net_core.c) */
+            s32 couch = FALSE;
+#ifdef GEVR_FLAT
+            extern s32 g_gevrStereo;
+            extern s32 gevrCouchRoomForDropIns(s32 seated);   /* front.c: the scenario's size, no 2.x styles */
+            couch = g_StageNum != LEVELID_TITLE && !g_gevrStereo && !get_is_ramrom_flag() && !gevrCoopActive()
+                && gevrCouchRoomForDropIns(localSelectedNumPlayers);
+#endif
+            localSelectedNumPlayers = gevrCouchLoadPlayers(localSelectedNumPlayers, couch);
+            if (gevrCouchSeats() > 0)
+            {
+                extern void gevrCouchPrepareSeats(s32 seated);
+                gevrCouchPrepareSeats(gevrCouchSeats());
+                sysLogPrintf(LOG_NOTE, "couch: %d seated, four loaded for drop-ins", gevrCouchSeats());
+            }
+        }
+#endif
 
         init_player_data_ptrs_construct_viewports(localSelectedNumPlayers);
         dynInitMemory();
@@ -605,10 +636,11 @@ void bossMainloop(void)
             gevrStageFrontLoad();
         }
         /* a co-op party's menus are the title stage: the session goes on (#94) */
-        if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession())
+        /* and so is the pre-match lobby (docs/match-lobby.md) */
+        if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession() && !netInMatchLobby())
             gevrLobbySessionStopped();
         for (int slot = 0; slot < MAX_PLAYER_COUNT; slot++) s_net_slot_enabled[slot] = TRUE;
-        s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession());
+        s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession() || netInMatchLobby());
         netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
         {
             extern void gevrBotStageLoaded(void);
@@ -717,10 +749,10 @@ void bossMainloop(void)
                                     s_net_config_on_load = TRUE;
                                     bossSetLoadedStage(netRoundLoadStage());
                                 }
-                                if (netIsActive()) {
+                                if (gevrViewsBySeat()) {   /* online, or a couch match's empty seats */
                                     for (i = 0; i < getPlayerCount(); i++) {
                                         if (g_playerPointers[i] && g_playerPointers[i]->prop) {
-                                            bool occupied = netSlotOccupied(i);
+                                            bool occupied = gevrSlotInWorld(i);
                                             if (occupied != s_net_slot_enabled[i]) {
                                                 if (occupied) chrpropEnable(g_playerPointers[i]->prop);
                                                 else chrpropDisable(g_playerPointers[i]->prop);
@@ -741,7 +773,7 @@ void bossMainloop(void)
                                 for (i = 0; i < getPlayerCount(); i++)
                                 {
                                     s32 playernum = get_nth_player_from_shuffled(i);
-                                    if (netIsActive() && !netSlotOccupied(playernum)) continue;
+                                    if (!gevrSlotInWorld(playernum)) continue;
                                     set_cur_player(playernum);
 
                                     localPlayer = g_CurrentPlayer;
@@ -751,6 +783,11 @@ void bossMainloop(void)
                                     viSetViewPosition(localPlayer->viewleft, localPlayer->viewtop);
 
 #ifdef GEVR
+                                    {
+                                        /* a character chosen in the match: this player's body (bondview2.c) */
+                                        extern void gevrNetBodyFollowsCharacter(void);
+                                        gevrNetBodyFollowsCharacter();
+                                    }
                                     netPlayerSyncBeforeTick(playernum);
                                     {
                                         /* the host's bot: its AI fills the pad the tick reads (gevr_bot.c) */
@@ -977,7 +1014,8 @@ void gevrCoopMissionEndLocal(s32 result)
     mpwatchSetStopPlayFlag();
     for (i = 0; i < getPlayerCount(); i++)
     {
-        if (g_playerPointers[i] && i == netGetLocalSlot())
+        extern int gevrNetSlotIsLocalHuman(int slot);
+        if (g_playerPointers[i] && gevrNetSlotIsLocalHuman(i))   /* every seat on this screen (split screen) */
         {
             s32 prev = get_cur_playernum();
             set_cur_player(i);

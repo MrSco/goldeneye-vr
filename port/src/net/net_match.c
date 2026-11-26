@@ -200,6 +200,10 @@ const char *netNextRoundName(int mode) {
     return mode == NET_NEXT_SHUFFLE ? "Shuffle" : mode == NET_NEXT_PLAYLIST ? "Playlist" : "Vote";
 }
 
+const char *netWarmupRuleName(int rule) {
+    return rule == NET_WARMUP_RULE_30 ? "30 s" : rule == NET_WARMUP_RULE_60 ? "60 s" : rule == NET_WARMUP_RULE_120 ? "2 min" : "Off";
+}
+
 const char *netVoiceModeName(int mode) { return mode == NET_VOICE_COUCH ? "Couch" : "Proximity"; }
 const char *netTeamName(int team) { return team == NET_TEAM_RED ? "Red" : team == NET_TEAM_BLUE ? "Blue" : "Unassigned"; }
 const char *netBotModeName(int mode) {

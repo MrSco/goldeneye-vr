@@ -10,6 +10,34 @@
 #include "gevr_modpack.h"   /* the START row's mod campaigns (GEVR_MOD_ID_MAX) */
 #include <vector>
 #include "gevr_ghosts_ui.h"
+#include "gevr_sync.h"   // Play tab: Google Drive sync (stubs: no GEVR_PC here)
+/* Play > Sync drawn with its longest state: linked, a pack on its way, a device
+ * name, and five saves set aside, as a build with the Google client shows it */
+static int gevrTestSyncDrive(GevrSyncDriveInfo *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->state = GEVR_SYNC_DRIVE_LINKED;
+    out->syncing = 1;
+    snprintf(out->account, sizeof(out->account), "a.rather.long.address.for.a.player@gmail.com");
+    snprintf(out->status, sizeof(out->status), "Sync: 12 settings from your other devices");
+    return out->state;
+}
+static int gevrTestSyncProgress(float *done, char *buf, int size)
+{
+    *done = 0.4f;
+    snprintf(buf, (size_t)size, "Sync: downloading ge007-bean-community-edition");
+    return 1;
+}
+static int gevrTestSyncSavesAside(char (*names)[96], int max)
+{
+    int n = 0;
+    for (; n < 5 && n < max; n++) snprintf(names[n], 96, "eeprom-hack-mario.bin.before-sync-2026112%d-201400", n);
+    return n;
+}
+#define gevrSyncDrive gevrTestSyncDrive
+#define gevrSyncProgress gevrTestSyncProgress
+#define gevrSyncSavesAside gevrTestSyncSavesAside
+#include "gevr_sync_ui.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>
 #include <cstdlib>
@@ -73,12 +101,31 @@ static bool netModePve(int mode) { return mode == 1 || mode == 2; }
 static bool gevrConfigHasTeams(int, int scenario) { return scenario != 0; }
 static bool gevrLobbyHasTeams(const NetMatchConfig *c) { return gevrConfigHasTeams(c->mode, c->scenario); }
 static float mpBottom, mpLimit, mpRight, mpLimitX, mpButtons;
+/* Host > Advanced's live column (vr_launcher.cpp gevrMatchLiveOptions) as drawn: the movement
+ * speed's slider and Reset, host hit equalization, the delay cap's label and slider */
+static void gevrMatchLiveOptions() {
+    ImGui::TextUnformatted("Movement speed");
+    const float resetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - resetWidth - ImGui::GetStyle().ItemSpacing.x);
+    int percent = 100;
+    ImGui::SliderInt("##MovementSpeed", &percent, 50, 200, "%d%% (default)");
+    ImGui::SameLine();
+    ImGui::Button("Reset##MovementSpeed");
+    bool equalized = true;
+    ImGui::Checkbox("Host hit equalization", &equalized);
+    int limit = 80;
+    ImGui::TextUnformatted("Host delay cap (ms)");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::SliderInt("##HostDelayCap", &limit, 0, 80);
+}
+/* ADVANCED_OPTIONS */
 static void gevrMultiplayerPage(int sub, bool &, bool, const ImVec4 &, const ImVec4 &, const ImVec4 &) {
     customPages++;
     /* AUDIO_OPTIONS */
     gevrLauncherBeginBody("##mpbody");
     if (sub == GEVR_LSUB_HOST) {
-        ImGui::Dummy(ImVec2(0, ImGui::GetFrameHeight()));   // Lobby, Match, Fun
+        ImGui::Dummy(ImVec2(0, ImGui::GetFrameHeight()));   // the Game and Advanced tabs
         /* FUN_PAGE */
     } else if (sub == GEVR_LSUB_AUDIO) {
         audioOptions();
@@ -87,8 +134,8 @@ static void gevrMultiplayerPage(int sub, bool &, bool, const ImVec4 &, const ImV
     mpBottom = w->DC.CursorMaxPos.y; mpLimit = w->ClipRect.Max.y; mpRight = w->DC.CursorMaxPos.x; mpLimitX = w->ClipRect.Max.x;
     ImGui::EndChild();
     ImGui::Separator();
-    gevrLauncherStatus("Waiting for joined players to ready up.");
-    ImGui::Button("Launch", ImVec2(0, ImGui::GetFrameHeight() * 1.5f));
+    gevrLauncherStatus("Host goes straight into the match; it is set up there.");
+    ImGui::Button("Host", ImVec2(ImGui::GetFontSize() * 8.0f, ImGui::GetFrameHeight() * 1.5f));
     mpButtons = ImGui::GetItemRectMax().y;
 }
 
@@ -212,8 +259,9 @@ int main() {
     pages += sweep("co-op host");
     s_host = 0; s_coop = 0; s_config.mode = 0; s_config.scenario = 1; s_netSpeed = 4;
     pages += sweep("deathmatch joiner");
-    // 13 a state: Comfort & display > Graphics joined General (the graphics rows had run General out of room)
-    check(pages == 4 * 13, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
+    // 14 a state: Comfort & display > Graphics joined General (the graphics rows had run General out of room),
+    // Play > Sync (Google Drive) joined Play's sub-tabs
+    check(pages == 4 * 14, "every settings page, Ghosts, Sync, and Multiplayer's Fun and Audio, in four states");
     // both tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     int bars = 0;

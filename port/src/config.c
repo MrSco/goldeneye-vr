@@ -9,6 +9,7 @@
 #include "system.h"
 #include "utils.h"
 #include "gevr_icloud.h"
+#include "gevr_sync.h"
 
 #define CONFIG_MAX_SECNAME 128
 #define CONFIG_MAX_KEYNAME 256
@@ -237,6 +238,7 @@ s32 configSave(const char *fname)
 
 	fsFileFree(f);
 	gevrCloudFileSaved(fname);   /* iCloud on the Apple builds (port/ios/ios_icloud.mm) */
+	gevrSyncFileSaved(fname);    /* the cross-platform sync (port/pc/gevr_sync.cpp) */
 	return 1;
 }
 

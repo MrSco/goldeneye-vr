@@ -40,6 +40,8 @@ void netEndLocalShot(void);
 
 /* Session Management */
 bool netHostStart(uint16_t port);
+bool netCouchCoopStart(int seats);   /* couch co-op: a co-op party on this machine only, its seats the players */
+int netCouchCoopActive(void);
 bool netConnect(const char *host_addr, uint16_t port);
 bool netResolveHost(const char *name, char *ip, size_t cap);   /* blocks on DNS: off the frame thread */
 void netDisconnect(void);
@@ -54,6 +56,16 @@ bool netIsDedicated(void);              /* a dedicated server: nobody plays here
 int netSendModMessage(int kind, int to, const char *mod, const char *channel, const void *data, int len);
 void netSetDedicated(bool dedicated);   /* port/server, at start */
 int netGetLocalSlot(void);
+int netLocalSlotCount(void);        /* local human players on this machine (0 dedicated, 1..4) */
+bool netSlotIsLocalHuman(int slot); /* true if slot is controlled by a human at this machine */
+int netLocalSeatOfSlot(int slot);   /* 0..3 local viewport/seat index for slot, or -1 */
+int netSlotOfLocalSeat(int seat);   /* match slot 0..7 for local seat 0..3, or -1 */
+int netGetSlotOwner(int slot);      /* primary slot of the machine owning slot, or -1 */
+void netSetLocalDesiredCount(int count); /* 1..GEVR_MAX_LOCAL_PLAYERS before host/connect */
+void netSetLocalSeatConfig(int seat, const char *name, uint8_t chr_id, uint8_t input_class, const uint8_t loadout[4]);
+int netRequestAddLocalGuest(const char *name, uint8_t chr_id, uint8_t input_class, const uint8_t loadout[4]);
+bool netRequestRemoveLocalGuest(int slot);
+const char *netTakeLocalGuestNotice(void);
 int netGetHostSlot(void);
 int netGetConnectedPlayerCount(void);
 int netGetHumanPlayerCount(void);   /* connected slots that are not bots */
@@ -73,11 +85,18 @@ void netHostContinue(void);
 void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
 void netHostRestartWarmup(void);   /* host: this map again, in warmup (a dedicated server left empty) */
+/* The pre-match lobby (docs/match-lobby.md): the party on the title stage until the host's START */
+int netInMatchLobby(void);          /* this round is the lobby (every machine) */
+int netLobbyRuleOn(void);           /* the host's Lobby rule, pending */
+int netHostCanEnterLobby(void);     /* host: RETURN TO LOBBY would take everyone to it now */
+void netHostIdleReset(void);        /* host: a dedicated server left empty: the lobby (its rule on) or the warmup */
+int netLobbyReadyCount(int *humans); /* the humans in it who are READY (a dedicated server's seat aside); *humans all of them */
 int netCountdownSecondsLeft(void);
 void netHostRequestVotes(void);
 int netHostStartRequested(void);
 int netWarmupSecondsLeft(void);
 void netRoundNoticeText(char *text, unsigned size);
+void netRoundNoticeTextFit(char *text, unsigned size, int narrow);   /* narrow: quarter views */
 int netHostKickPlayer(int slot);
 int netHostCanKickPlayer(int slot);
 int netLobbySlotConnected(int slot);
@@ -95,9 +114,14 @@ uint32_t netGetWorldEpoch(void);
 
 /* Lobby Operations */
 void netLobbySetReady(bool ready);
+void netLobbySetReadySlot(int slot, bool ready);
+int netSlotReady(int slot);
 void netLobbySetCharacter(uint8_t chr_id);
+void netLobbySetCharacterSlot(int slot, uint8_t chr_id);
 void netSetPreferredCharacter(uint8_t chr_id);
 void netLobbySetLoadout(const uint8_t items[4]);   /* my four spawn guns */
+void netLobbySetLoadoutSlot(int slot, const uint8_t items[4]);
+void netLobbySetTeamSlot(int slot, uint8_t team);
 bool netLobbyHostLaunchMatch(void);
 int netLobbyCanLaunch(void);
 
@@ -139,6 +163,7 @@ void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size
 
 /* Ballots (mpmenu.c NEXT MAP / NEXT WEAPONS rows); kind is NET_BALLOT_* */
 void netSetLocalVote(int kind, int idx);    /* -1: no vote */
+void netSetVoteSlot(int slot, int kind, int idx);
 int netGetVote(int kind, int slot);         /* -1 none */
 
 /* Host migration (vr_launcher.cpp gevrLobbyGameTick drives the transports) */

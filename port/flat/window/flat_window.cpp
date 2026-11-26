@@ -653,6 +653,11 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
         // ...so the window never has focus, and SDL would drop its (virtual) pad's input
         SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     }
+    // --hidden: a test script's window is never shown at all (owner, 2026-11-25:
+    // "not show the window while i'm using the computer"); its shots still read the frame
+    if (pcTestInputActive() && sysArgCheck("--hidden")) {
+        sysLogPrintf(LOG_NOTE, "SDL: the window stays hidden (--hidden)");
+    } else
 #endif
     SDL_ShowWindow(wnd);
 

@@ -5,25 +5,32 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.27 (versionCode 140, protocol 27), 2026-11-23, tag on
-37cd0d7a ([notes](docs/releases/v0.5.27.md)): analytical 3D volumetric
-explosions and world-anchored lingering smoke (#249, Graphics → Explosions,
-Classic default, FP16 + startup pre-warm + spatial cluster merging, Quest 3
-120 Hz 0 missed frames across 1- and 4-grenade chaos); 64-bit monitor scrolling
-negative delta sign-extension and UV wrap (#309, PR #311); Steam Frame scope
-fix (#321: 2-layer `GL_OVR_multiview` scope FBO + layer-0 blit so Mesa/Zink
-accepts `num_views = 2` draws, and per-eye `glFramebufferTextureLayer` HUD
-layer + explicit `uVP0`/`uVP1` uniforms fixing right-eye lens displacement).
-Protocol 27 unchanged: plays online with v0.5.26 to v0.5.22. 9 downloads from
-one commit; TestFlight iOS 149, tvOS 11 and visionOS 24 with iCloud
-(`GEVR_ICLOUD=1`). Gates: `port/tests` 122/122 on Windows and 122/122 on Linux,
-Java unit tests (three flavours), dedicated server gate passed (19 kills, 3.8%
-peak CPU awake, 0.4% idle); explosions, smoke and Dam monitors played by the
-user on a Quest 3. PR #311, PR #322.
-**Next:** the mod system (`mod-system`, #292), host rule against teleporting
-(protocol 28), bolts that move on the meshes, the iCloud dev profiles remade
-(INVALID since Push).
-**Before it:** v0.5.26 (versionCode 139, protocol 27), tag on e8ca03bd
+**Release:** v0.5.28 (versionCode 141, protocol 29), 2026-11-26, tag on
+3ebff7ea ([notes](docs/releases/v0.5.28.md)): online match setup in the game
+on the original N64 screens and the pre-match lobby (PR #343,
+[docs/match-lobby.md](docs/match-lobby.md)), online split screen (PR #332),
+couch co-op and couch drop-in, cross-platform sync over Google Drive
+([docs/cloud-sync.md](docs/cloud-sync.md)) with a save check at START, Vision
+Pro drawing each eye whole (simulator 8-10 -> 60 fps), PRs #333 #336 #338 #350,
+ENet datagrams fit a 1280-byte path (co-op over Tailscale dropped the guest at
+a mission's start) and ENet timeouts as disconnects. Protocol 29: plays online
+only with v0.5.28. 9 downloads from one commit; TestFlight iOS 150, visionOS 25
+and tvOS 12 with iCloud. Gates: `port/tests` 128 on Windows + the 4 WSL-only
+20/20 in WSL, Java 49x3, server gate (23 kills, 6.9% CPU awake); Quest
+release smoke (Dam with Bean, saves unchanged); Quest<->PC co-op both ways;
+all-platform dry run (iPhone/Apple TV/Vision Pro simulators in Dam at 60 fps,
+test_icloud, phone APK on the Pixel 8 emulator, Linux zip in WSLg). Release
+scripts fixed on the way: mac_release.sh exports GEVR_ICLOUD=1, the Drive
+checks use Python zipfile (WSL has no unzip; Git Bash's unzip missed the exes).
+**Help wanted:** couch play with real pads, two headsets with the lobby,
+Apple hardware, Steam Frame, PC VR, the START save check by hand.
+**Next:** the mod system (`mod-system`, #292), host rule against teleporting,
+bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
+Push).
+**Before it:** v0.5.27 (versionCode 140, protocol 27), tag on 37cd0d7a
+([notes](docs/releases/v0.5.27.md)): volumetric explosions (#249), scrolling
+monitors (#309), Steam Frame scope (#321).
+**Earlier:** v0.5.26 (versionCode 139, protocol 27), tag on e8ca03bd
 ([notes](docs/releases/v0.5.26.md)), PR #295 (hand reload default, Graphics tab
 with per-headset Auto defaults, reload mode in multiplayer, Add friend, doors/truck
 `CHRFLAG_HIDDEN`, iCloud sync on TestFlight); v0.5.25 (versionCode 138), tag on
