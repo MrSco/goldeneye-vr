@@ -1162,7 +1162,11 @@ in-game screen). We maintain the adapters, not the mods.
     isn't drawn on a gun model without that matrix. `"hand"` with `hand`: on that controller's grip (VR). A
     body anchor (`hip_gun`, `hip_off`, `back_gun`, `back_off`, `chest`,
     `belt`, as `mod.hands.anchor`): on the slot's centre on the torso, kept
-    while a mod runs even with body slots off (VR). `"guard"` with
+    while a mod runs even with body slots off (VR). Where a player's body
+    is drawn without tracking (that player's copy on the others' headsets
+    when it's flat or a bot, the flat third person's own body), both go on
+    the body model as drawn instead: see "Without tracking" under "On the
+    other players". A flat first-person view draws neither. `"guard"` with
     `guard` (a guard's id) and `part`, one of the body parts the game's
     hits name (`bondaicommands.h` `HITTARGET`): `chest`, `head`,
     `pelvis`, `left_shoulder`, `right_shoulder`, `left_arm`,
@@ -1246,8 +1250,42 @@ in-game screen). We maintain the adapters, not the mods.
       tracked grip, a body anchor on the torso the body's yaw turns, at
       its centre from the owner's own fit (or the default for its height),
       at a gun model's units and the match's gun size, as the owner's
-      headset builds them. None for a hand or a head not tracked (a flat
-      player, a bot), as the owner's flat headset draws none.
+      headset builds them.
+    - Without tracking (a flat player, a bot, a VR player's hand or head
+      while it isn't tracked): the same anchors on that player's body
+      model as it was just drawn (`gevr_avatar.c`
+      `gevrAvatarModelAttachFrame()`), so every mode shows them. The
+      matrices are the body's own for this view, read in `chrRenderProp()`
+      before they go to fixed point: the ones its N64 lists and Bean's
+      GPU-skinned body were drawn from (a GE-X body is the cartridge's).
+      Nothing new is animated.
+      - A hand: the node the game hangs that hand's gun on
+        (`chrEquipWeapon()`: `Switches[3]` the right, `Switches[5]` the
+        left, on the wrists, joints 9 and 8), the left one turned half
+        about its Z as the game turns its gun. Its axes are the held gun's
+        (`gevr_heldgun.c` `gevrHeldGunFit()`: X the hand's left, Y up, Z
+        along the barrel), at the grip 4 cm ahead of the wrist, where the
+        avatar puts a tracked grip. A part sits on that hand as it sits on
+        the gun the hand holds.
+      - The body: the torso from the rig's joints (GoldenEye's JointID is
+        Perfect Dark's part + 1: 1 the pelvis, 3 the neck, 4 and 5 the
+        left and right upper arms): up from the pelvis to the neck, right
+        from the left shoulder to the right, ahead the way the model faces.
+        The eye is placed above and ahead of the neck as the tracked torso
+        places it (`GEVR_BODY_NECK_*`). The anchor's centre is laid from
+        there in the torso's terms, from the owner's own fit or the default
+        for its height, as for the tracked pose. A torso bent by the
+        animation carries its anchors with it.
+      - The cartridge's bodies and Bean's skins on them are checked against
+        this (`test_bean_mapping.py`): the guns' nodes are under the
+        wrists, the rest pose faces +Z with its left at +X, and the skin
+        is drawn from those matrices.
+    - This player's own on its own body: in the flat third person
+      (`gevr_thirdperson.c`), this player's hand and body parts are drawn
+      on the body it sees, as "Without tracking" lays them, the body
+      anchors at this player's own fit. First person is unchanged: the
+      flat view draws none, and VR draws them at the controllers and the
+      torso as before.
     - Drawn in the body's passes (`chr.c` `chrRenderProp()`), in each
       view of the copy, through the same draw as the owner's (a pack mesh
       through the C10 display list, once, in the solid pass).
