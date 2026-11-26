@@ -322,14 +322,7 @@ int gevrModGameAttach(const GevrModAttach *a)
     {
         if (s_attach[i].id < 0)
         {
-            /* this player's own first: another player's is set aside */
-            if (!s_remoteWarned)
-            {
-                sysLogPrintf(LOG_WARNING, "mods: attach: all %d in use; another player's set aside for this player's",
-                             GEVR_MODAPI_ATTACH_MAX);
-                s_remoteWarned = TRUE;
-            }
-            slot = &s_attach[i];
+            slot = &s_attach[i];   /* this player's own first: another player's is set aside */
         }
     }
     if (slot == NULL)
@@ -350,6 +343,12 @@ int gevrModGameAttach(const GevrModAttach *a)
     if ((f = attachLoad(a->model, a->like)) == NULL)
     {
         return 0;
+    }
+    if (slot->id < 0 && !s_remoteWarned)
+    {
+        sysLogPrintf(LOG_WARNING, "mods: attach: all %d in use; another player's set aside for this player's",
+                     GEVR_MODAPI_ATTACH_MAX);
+        s_remoteWarned = TRUE;
     }
     memset(slot, 0, sizeof(*slot));
     slot->id = s_nextId++;
