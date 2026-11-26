@@ -89,6 +89,19 @@ void netSetVirtualTransport(ENetVirtualSendCallback sendCallback,
     s_virtual_context = context;
     if (s_host) enet_host_set_virtual_transport(s_host, sendCallback, receiveCallback, context);
 }
+
+/* ENet's datagrams, with their IP and UDP headers, fit a path of 1280 bytes
+ * (VPNs such as Tailscale and WireGuard, IPv6's minimum). ENet's default, 1280
+ * bytes of UDP payload, did not: on such a path every near-full datagram was
+ * lost, its reliable messages were resent in datagrams just as full, and the
+ * peer timed out at the first burst (a co-op mission's start, Quest host and
+ * PC guest, 2026-11-25). A peer takes the mtu its connect names, so the
+ * joiner's sets both directions. */
+#define NET_ENET_MTU 1200
+static void netHostSetUp(void) {
+    s_host->mtu = NET_ENET_MTU;
+    enet_host_set_virtual_transport(s_host, s_virtual_send, s_virtual_receive, s_virtual_context);
+}
 static int s_local_slot = 0;
 static int s_host_slot = 0;   /* the host's slot: 0, or the elected one after a migration */
 
@@ -846,7 +859,7 @@ static bool netHostStartOn(const char *ip, uint16_t port) {
         NET_ERR("Failed to create ENet host on port %d!", address.port);
         return false;
     }
-    enet_host_set_virtual_transport(s_host, s_virtual_send, s_virtual_receive, s_virtual_context);
+    netHostSetUp();
     
     s_state = NET_STATE_HOSTING_LOBBY;
     s_phase = NET_PHASE_WAITING;
@@ -969,7 +982,7 @@ bool netConnect(const char *host_addr, uint16_t port) {
         NET_ERR("Failed to create client ENet host!");
         return false;
     }
-    enet_host_set_virtual_transport(s_host, s_virtual_send, s_virtual_receive, s_virtual_context);
+    netHostSetUp();
     
     ENetAddress address;
     enet_address_set_ip(&address, host_addr ? host_addr : "127.0.0.1");
@@ -6225,7 +6238,7 @@ bool netHostTakeOver(uint16_t port) {
         netMigrationGiveUpNow();
         return false;
     }
-    enet_host_set_virtual_transport(s_host, s_virtual_send, s_virtual_receive, s_virtual_context);
+    netHostSetUp();
     s_state = NET_STATE_INGAME;
     netResetCombatEpoch();
     s_takeover_pending = false;

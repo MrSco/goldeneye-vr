@@ -2557,7 +2557,7 @@ extern "C" {
 			int receivedLength;
 			ENetBuffer buffer;
 			buffer.data = host->packetData[0];
-			buffer.dataLength = host->mtu;
+			buffer.dataLength = sizeof(host->packetData[0]);   /* GEVR: a peer's datagrams may be bigger than this host's mtu */
 			receivedLength = host->virtualReceiveCallback != NULL
 				? host->virtualReceiveCallback(&host->receivedAddress, &buffer, host->virtualTransportContext) : 0;
 			if (receivedLength == 0)
