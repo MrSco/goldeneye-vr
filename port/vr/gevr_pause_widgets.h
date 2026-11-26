@@ -483,15 +483,17 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     }
     if(!model.coop) {
         ImGui::SetCursorPos(ImVec2(row0,886));
-        if(model.host) {char start[64];snprintf(start,sizeof(start),model.countdown>0?"Starting in %d":model.soloWarmup?(model.lobby?"Practice on the map":"Restart warmup"):model.startRequested?"Waiting for ready":!model.rosterReady?"Request ready":model.warmup?"Start match":"Next warmup",model.countdown);ImGui::BeginDisabled(!model.canStart || model.countdown>0);if(ImGui::Button(start,ImVec2(model.lobby?400:300,52)))gevrPauseAction("START MATCH");ImGui::EndDisabled();}
-        else if(ImGui::Button(model.localReady?"Unready":"Ready up",ImVec2(model.lobby?400:300,52))) {
+        if(model.host) {char start[64];snprintf(start,sizeof(start),model.countdown>0?"Starting in %d":model.soloWarmup?(model.lobby?"Practice on the map":"Restart warmup"):model.startRequested?"Waiting for ready":!model.rosterReady?"Request ready":model.warmup?"Start match":"Next warmup",model.countdown);/* one ID whatever it reads: a pad's focus stays on it as the label changes (a joiner makes Practice Start match) */
+            char startId[96];snprintf(startId,sizeof(startId),"%s###gevrstart",start);
+            ImGui::BeginDisabled(!model.canStart || model.countdown>0);if(ImGui::Button(startId,ImVec2(model.lobby?400:300,52)))gevrPauseAction("START MATCH");ImGui::EndDisabled();}
+        else if(ImGui::Button(model.localReady?"Unready###gevrready":"Ready up###gevrready",ImVec2(model.lobby?400:300,52))) {
             GevrPauseField f;for(int i=0;gevrPauseReadField(GEVR_PAUSE_PLAYER,i,&f);i++)if(!strcmp(f.label,"NEXT ROUND READY"))gevrPauseStep(f.id,1);
         }
         if(model.lobby && ui.focusResume){ImGui::SetItemDefaultFocus();ImGui::SetKeyboardFocusHere(-1);ui.focusResume=false;}
         /* the lobby's countdown can be cancelled; there is no lobby to return to from it */
         if(!model.lobby || model.countdown>0 || model.startRequested) {
             ImGui::SetCursorPos(ImVec2(model.lobby?436:600,886));ImGui::BeginDisabled(!model.canReturn);
-            if(ImGui::Button(model.countdown>0 || model.startRequested?"Cancel start":"Return to lobby",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
+            if(ImGui::Button(model.countdown>0 || model.startRequested?"Cancel start###gevrreturn":"Return to lobby###gevrreturn",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
         }
     } else if(model.horde && model.host) {
         /* the setup break's START WAVE (the first wave waits for the host) */

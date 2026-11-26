@@ -297,6 +297,15 @@ static void gevrInjectEnd(void)
 	gevrInjectTurn = 0.0f;
 	gevrFrameTimingInput(0, 0, 0, 0);
 }
+/* The input being applied, for a headset's windows (vr_launcher.cpp
+ * gevrFeedPauseInput: the pause window and the match lobby's), which read the
+ * controllers rather than pad 0; 0 when no gevr_input.txt is being applied. */
+int gevrInjectedPad(unsigned *buttons, int *x, int *y)
+{
+	if (gevrInjectFrames <= 0 && !gevrInjectUntilUs) return 0;
+	*buttons = gevrInjectButtons; *x = gevrInjectX; *y = gevrInjectY;
+	return 1;
+}
 static void gevrPollInjectedInput(void)
 {
 	static u32 sTick;

@@ -4534,7 +4534,10 @@ extern "C" void gevrLauncherRun(void)
 
 #if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)
 // The same ownership rules and ray coordinates as the boot launcher, with
-// no launch/ROM-picker test hooks in a running match.
+// no launch/ROM-picker test hooks in a running match. The test hook's pad
+// (libultra.c gevr_input.txt) drives it too: A selects, B backs, the stick
+// moves the focus, so a headset's window can be worked without hands.
+extern "C" int gevrInjectedPad(unsigned *buttons, int *x, int *y);
 extern "C" void gevrFeedPauseInput(int opening) {
     static bool waitRelease=false,waitBack=false,waitSelect=false;
     const bool trigger=get_button_state(1,"trigger") || get_button_state(0,"trigger");
@@ -4551,8 +4554,10 @@ extern "C" void gevrFeedPauseInput(int opening) {
     ImGuiIO&io=ImGui::GetIO();XrVector2f l={0,0},r={0,0};
     get_2d_input(0,"thumbstick",&l);get_2d_input(1,"thumbstick",&r);
     XrVector2f stick=l.x*l.x+l.y*l.y>r.x*r.x+r.y*r.y?l:r;
-    const bool back=backHeld && !waitBack;
-    const bool select=selectHeld && !waitSelect;
+    unsigned injected=0;int injX=0,injY=0;
+    if(gevrInjectedPad(&injected,&injX,&injY) && (injX || injY))stick={injX/80.f,injY/80.f};
+    const bool back=(backHeld && !waitBack) || (injected&0x4000);
+    const bool select=(selectHeld && !waitSelect) || (injected&0x8000);
     const bool nav=fabsf(stick.x)>.5f || fabsf(stick.y)>.5f || back || select;
     if(grabbing){stick={0,0};}
     const bool pointing=feedPointer(io,nav,waitRelease || grabbing);
