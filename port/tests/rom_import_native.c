@@ -36,6 +36,19 @@ int main(int argc, char **argv)
 	char summary[1024];
 	int gotGe = -1, filed;
 	if (argc < 2) return 2;
+	if (!strcmp(argv[1], "take")) {
+		/* take <dataDir> <file>...: a picker's pick; one line per file, then the count handed to the sort */
+		int i;
+		gevrRomImportTakeBegin(argv[2]);
+		for (i = 3; i < argc; i++) {
+			struct gevrRomImportTake t;
+			const char *slash = strrchr(argv[i], '/');
+			gevrRomImportTake(fopen(argv[i], "rb"), slash ? slash + 1 : argv[i], argv[2], &t);
+			printf("file%d %d %d %d %s\n", i - 3, t.xbla, t.ce, t.staged, t.cePath[0] ? t.cePath : "-");
+		}
+		printf("moved %d\n", gevrRomImportTakeEnd(argv[2]));
+		return 0;
+	}
 	printf("pending %d\n", gevrRomImportPending(argv[1]));
 	filed = gevrRomImportRun(argv[1], summary, (int)sizeof(summary), &gotGe);
 	printf("filed %d\ngotGe %d\nsummary %s\n", filed, gotGe, summary);

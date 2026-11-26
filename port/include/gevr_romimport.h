@@ -8,28 +8,25 @@
  *   GoldenEye X            -> picked-gex.z64, adopted by the Mods page
  *   Goldfinger 64, TND 64,
  *   Mirror Mode, Mario     -> their campaign files (gevr_romlayout.h), at once
- *   the XBLA copy (Bean)   -> not copied: the pickers pass it to the Mods page
+ *   GoldenEye XBLA (Bean),
+ *   the Community Edition  -> not copied: the pickers pass them to the Mods
+ *                             page (ModManager.importOwn / applyCeWhenReady)
  *
- * The picks are dataDir/picked-import/ (several files) and dataDir/picked.z64
- * (one file; it is sorted only when it is a .zip or another campaign's ROM, so
- * a bad GoldenEye dump still gets the launcher's own message). Nothing here
+ * Each picked file, or each ROM in a picked zip (a zip of everything, a zip
+ * in it), is taken into dataDir/picked-import/ by gevrRomImportTake, which
+ * also says whether the file holds the release or the CE updater. The
+ * launcher then sorts picked-import/ (gevrRomImportRun), and dataDir/picked.z64
+ * when a picker put a zip, the release or another campaign's ROM there (a bad
+ * GoldenEye dump alone keeps the launcher's own message). Nothing here
  * switches the campaign: a batch would leave the last one chosen.
  */
+#include <stdio.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define GEVR_ROM_IMPORT_DIR "picked-import"
-
-/*
- * 1 when a pick is the player's GoldenEye XBLA copy rather than ROMs: a .7z,
- * an Xbox 360 package (LIVE, CON, PIRS) or a zip larger than any zip of ROMs
- * (GEVR_ROM_IMPORT_ZIP_MAX). The pickers hand it to the Mods page's Bean
- * import (ModManager.importOwn, pc_mods.cpp), which reads it where it is.
- * head is its first bytes (6 are enough), size its length.
- */
-#define GEVR_ROM_IMPORT_ZIP_MAX (256u << 20)
-int gevrRomImportIsXblaCopy(const unsigned char *head, unsigned long n, unsigned long long size);
 
 /* 1 when there is something to sort. Cheap: reads one header at most. */
 int gevrRomImportPending(const char *dataDir);
@@ -41,6 +38,26 @@ int gevrRomImportPending(const char *dataDir);
  * launcher's check. Blocking: up to a few seconds for a large zip.
  */
 int gevrRomImportRun(const char *dataDir, char *summary, int summaryLen, int *gotGe);
+
+/*
+ * The pickers' side, for one pick: Begin, Take for each file chosen (src is
+ * read, seeking, and closed), End to hand what was taken to the sort at once.
+ * out says what the file held besides ROMs: xbla, the release (unpacked, its
+ * package, or an archive of them; the file goes to the Bean import as it is);
+ * ce, the CE updater's files.diff in the file itself (the file goes to the CE
+ * apply as it is); cePath, the updater as a zip inside the file, written out
+ * there. staged counts the files taken for the sort, names it cannot use
+ * included (the sort reports them). End returns that count for the pick.
+ */
+struct gevrRomImportTake {
+	int xbla;
+	int ce;
+	char cePath[1024];
+	int staged;
+};
+void gevrRomImportTakeBegin(const char *dataDir);
+int gevrRomImportTake(FILE *src, const char *label, const char *dataDir, struct gevrRomImportTake *out);
+int gevrRomImportTakeEnd(const char *dataDir);
 
 #ifdef __cplusplus
 }

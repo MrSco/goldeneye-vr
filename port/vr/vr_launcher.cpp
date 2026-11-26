@@ -65,6 +65,7 @@ std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
 void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp: a Klepton pick's hand-off
 void pcModsApplyCe(const std::string &path);
+bool pcModsApplyCeWhenReady(const std::string &path);
 #endif
 #else
 /* The PC game (docs/pc-platforms.md): desktop GL, and port/pc for what
@@ -480,14 +481,18 @@ static bool gevrKleptonPick(const char *method)
                     : !strcmp(method, "openMarioPicker") ? "picked-mario.z64" : nullptr;
     const char *files = SDL_AndroidGetExternalStoragePath();
     std::string dest, title, extensions;
-    if (rom) {
+    if (!strcmp(method, "openRomPicker") && files) {
+        // anything: ROMs, zips, the XBLA copy, the CE updater (gevrKleptonPickPoll takes it)
+        dest = std::string(files) + "/.import-pick";
+        title = "Choose ROMs, a .zip of them, your GoldenEye XBLA copy or the CE updater";
+    } else if (rom) {
         dest = dataDir() + "/" + rom;
         title = !strcmp(method, "openGexPicker") ? "Choose your GoldenEye X ROM"
               : !strcmp(method, "openGoldfingerPicker") ? "Choose your Goldfinger 64 ROM"
               : !strcmp(method, "openTndPicker") ? "Choose your Tomorrow Never Dies 64 ROM"
               : !strcmp(method, "openMirrorPicker") ? "Choose your Mirror ROM"
               : !strcmp(method, "openMarioPicker") ? "Choose your Mario Characters ROM" : "Choose your GoldenEye 007 ROM";
-        extensions = !strcmp(method, "openRomPicker") ? "z64,v64,n64,zip" : "z64,v64,n64";   // a zip: gevr_romimport.c
+        extensions = "z64,v64,n64";
     } else if (!strcmp(method, "openXblaPicker") && files) {
         dest = std::string(files) + "/.import-xbla";
         title = "Choose your copy of GoldenEye XBLA (its .7z, .zip or Xbox 360 package)";
@@ -519,22 +524,23 @@ static void gevrKleptonPickPoll()
         if (s_klMethod == "openXblaPicker") pcModsImportOwn("ge007-bean", s_klDest);
         else if (s_klMethod == "openCePicker") pcModsApplyCe(s_klDest);
         else if (s_klMethod == "openRomPicker") {
-            // the XBLA copy through the Play page's picker: to the Bean import,
-            // from where its own picker stages it (gevr_romimport.h)
-            unsigned char head[6] = {0};
-            struct stat st;
-            FILE *f = fopen(s_klDest.c_str(), "rb");
-            const size_t n = f ? fread(head, 1, sizeof(head), f) : 0;
-            if (f) fclose(f);
-            const char *files = SDL_AndroidGetExternalStoragePath();
-            if (files && stat(s_klDest.c_str(), &st) == 0
-                    && gevrRomImportIsXblaCopy(head, (unsigned long)n, (unsigned long long)st.st_size)) {
-                const std::string staged = std::string(files) + "/.import-xbla";
-                remove(staged.c_str());
-                if (rename(s_klDest.c_str(), staged.c_str()) == 0) {
-                    pcModsImportOwn("ge007-bean", staged);   // the Play page shows how far it is
-                    s_klResult = "Importing Bean from your GoldenEye XBLA copy.";
-                }
+            // the Play page's pick, taken as MainActivity.takeMainPick takes it
+            // (gevr_romimport.h): ROMs to the sort, the XBLA copy and the CE
+            // updater read from the staged copy where it is
+            const std::string data = dataDir();
+            struct gevrRomImportTake t;
+            gevrRomImportTakeBegin(data.c_str());
+            gevrRomImportTake(fopen(s_klDest.c_str(), "rb"), "the file chosen", data.c_str(), &t);
+            const int staged = gevrRomImportTakeEnd(data.c_str());
+            if (t.xbla) pcModsImportOwn("ge007-bean", s_klDest);   // the Play page shows how far it is
+            const std::string ce = t.cePath[0] ? std::string(t.cePath) : t.ce ? s_klDest : std::string();
+            const bool ceOk = ce.empty() || pcModsApplyCeWhenReady(ce);
+            if (!t.xbla && !t.ce) remove(s_klDest.c_str());   // else the next pick replaces it
+            if (staged == 0) {   // nothing for the ROM check: the message ends the pick
+                s_klResult = !ceOk ? "The Community Edition patches Bean: choose your GoldenEye XBLA copy too."
+                    : t.xbla ? "Importing Bean from your GoldenEye XBLA copy."
+                    : !ce.empty() ? "Applying the Community Edition."
+                    : "Nothing this knows in that: choose ROMs, a .zip of them or your GoldenEye XBLA copy.";
             }
         }
     } else {
@@ -3525,30 +3531,37 @@ static void gevrLauncherLoadout(char *buf, size_t size)
 }
 
 /*
- * The Bean import, for the Play page: the XBLA copy can be picked there with
- * the ROMs (MainActivity.takeMainPick, pc_launcher.cpp pcTakeXblaCopy), and
- * its progress would otherwise show only on the Mods page. Empty when none
- * ran; after one, how it ended, until the launcher closes.
+ * The Bean import and the Community Edition's apply, for the Play page: the
+ * XBLA copy and the updater can be picked there with the ROMs
+ * (MainActivity.takeMainPick, pc_launcher.cpp pcTakeMainPick), and their
+ * progress would otherwise show only on the Mods page. Empty when none ran;
+ * after one, how it ended, until the launcher closes.
  */
 static std::string gevrBeanImportLine(Uint32 now)
 {
     static Uint32 last = 0;
-    static bool running = false;
+    static std::string running;   // "importing" or "patching" while one runs
     static std::string line;
     if (last != 0 && now - last < 1000) return line;
     last = now ? now : 1;
     for (const std::string &row : gevrSplit(gevrJavaString("modsStatus"), '\n')) {
         const std::vector<std::string> f = gevrSplit(row, '\t');
         if (f.size() < 9 || f[0] != "ge007-bean") continue;
+        const int pct = atoi(f[7].c_str());
         if (f[6] == "importing") {
-            const int pct = atoi(f[7].c_str());
             line = pct >= 0 ? "Importing Bean from your GoldenEye XBLA copy: " + std::to_string(pct) + "%"
                             : std::string("Importing Bean from your GoldenEye XBLA copy...");
-            running = true;
-        } else if (running) {
-            running = false;
-            line = f[6] == "installed" ? "Bean imported: choose it under Mods."
-                 : f[8].empty() ? "The Bean import stopped: see Mods." : "Bean: " + f[8];
+            running = f[6];
+        } else if (f[6] == "patching") {
+            line = pct >= 0 ? "Applying the Community Edition to Bean: " + std::to_string(pct) + "%"
+                            : std::string("Applying the Community Edition to Bean...");
+            running = f[6];
+        } else if (!running.empty()) {
+            const bool ce = running == "patching";
+            running.clear();
+            line = f[6] == "installed" ? (ce ? "Community Edition applied." : "Bean imported: choose it under Mods.")
+                 : f[8].empty() ? (ce ? "The Community Edition stopped: see Mods." : "The Bean import stopped: see Mods.")
+                 : "Bean: " + f[8];
         }
         break;
     }
@@ -3652,6 +3665,10 @@ extern "C" void gevrLauncherRun(void)
     struct ImportResult { std::string summary; int filed = 0; int gotGe = 0; };
     std::future<ImportResult> importJob;
     bool importSummaryShown = false;
+    // The last pick's outcome, shown under the ROM section when it is folded
+    // (a good ROM folds it after a pick): what the sort added, or what a pick
+    // of only Bean or the CE updater led to. A new pick clears it.
+    std::string pickOutcome;
     auto scan = [&]() {
         importSummaryShown = false;
         if (importJob.valid()) {
@@ -3662,6 +3679,7 @@ extern "C" void gevrLauncherRun(void)
                 message = r.summary;
                 romError = r.filed == 0;
                 importSummaryShown = true;
+                pickOutcome = r.summary;
             }
             if (!r.gotGe) {
                 launcherSession.romSelectionFinished();
@@ -3676,6 +3694,10 @@ extern "C" void gevrLauncherRun(void)
             const std::string r = gevrTakePickResult();
             if (!r.empty()) {
                 message = importSummaryShown ? message + " " + r : r;
+                // the Bean line below says how an import or apply goes
+                if (r.compare(0, 14, "Importing Bean") != 0 && r.compare(0, 22, "Applying the Community") != 0) {
+                    pickOutcome = importSummaryShown ? pickOutcome + " " + r : r;
+                }
                 romError = (importSummaryShown && romError) || r.compare(0, 9, "Could not") == 0;
                 launcherSession.romSelectionFinished();
                 pickerPending = false;
@@ -3936,7 +3958,8 @@ extern "C" void gevrLauncherRun(void)
         const bool romReady = !active.empty() && activeInfo.good;
         const std::string romLabel = romError ? "ROM: selection error###rom" :
             active.empty() ? "ROM: choose a file###rom" : "ROM: " + activeInfo.status + "###rom";
-        if (gevrLauncherRomHeader(launcherSession, romReady, romError, romLabel.c_str())) {
+        const bool romOpen = gevrLauncherRomHeader(launcherSession, romReady, romError, romLabel.c_str());
+        if (romOpen) {
             gevrLauncherBeginRomDetails();
             if (active.empty()) {
                 ImGui::TextColored(bad, "No ROM yet.");
@@ -3966,10 +3989,12 @@ extern "C" void gevrLauncherRun(void)
                                    "Android/data/com.gevr.port/files/data (any name).");
 #endif
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-                ImGui::TextWrapped("Several ROMs at once, or one .zip of them, works too: GoldenEye X and the "
-                                   "other campaigns go where they belong.");
+                ImGui::TextWrapped("Several files at once, or one .zip of everything, works too: the other "
+                                   "campaigns' ROMs, GoldenEye X, your GoldenEye XBLA copy (Bean) and the "
+                                   "Community Edition updater each go where they belong.");
                 ImGui::PopStyleColor();
                 if (ImGui::Button("Choose ROM file...")) {
+                    pickOutcome.clear();
                     pickerPending = gevrOpenRomPicker();
                     romError = !pickerPending;
                     if (romError) launcherSession.romSelectionFinished();
@@ -3985,6 +4010,7 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::TextColored(activeInfo.good ? good : bad, "ROM: %s", activeInfo.status.c_str());
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Change...")) {
+                    pickOutcome.clear();
                     pickerPending = gevrOpenRomPicker();
                     romError = !pickerPending;
                     if (romError) launcherSession.romSelectionFinished();
@@ -4019,6 +4045,7 @@ extern "C" void gevrLauncherRun(void)
         }
         {
             // shown with the ROM section shut too: a Bean import takes minutes
+            if (!romOpen && !pickOutcome.empty()) ImGui::TextWrapped("%s", pickOutcome.c_str());
             const std::string bean = gevrBeanImportLine(now);
             if (!bean.empty()) ImGui::TextWrapped("%s", bean.c_str());
         }

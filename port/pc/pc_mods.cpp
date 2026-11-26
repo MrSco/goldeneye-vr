@@ -236,6 +236,27 @@ public:
     }
 
     /*
+     * The Play page's picker (ModManager.applyCeWhenReady): the updater applied
+     * now if Bean is in, or once the import picked with it is done. False when
+     * there is no Bean to apply it to.
+     */
+    bool applyCeWhenReady(const std::string &path)
+    {
+        {
+            std::lock_guard<std::mutex> lock(lock_);
+            Pack *p = find("ge007-bean");
+            if (!p) return false;
+            if (busyId_ == p->id && busyState_ == "importing") {
+                pendingCe_ = path;
+                return true;
+            }
+            if (!installed(*p)) return false;
+        }
+        applyCe(path);
+        return true;
+    }
+
+    /*
      * The Community Edition updater the player picked (MainActivity.openCePicker):
      * applied to the imported Bean copy, into its ce/ folder (port/src/gevr_bean_ce.c).
      */
@@ -256,7 +277,10 @@ public:
                 if (!f) throw HttpError{0, "could not open that file"};
                 char msg[256] = "";
                 // the native side reads and closes it
-                if (gevrBeanCeApply(f, beanDir.c_str(), msg, sizeof(msg)) < 0) throw HttpError{0, msg[0] ? msg : "failed"};
+                const int applied = gevrBeanCeApply(f, beanDir.c_str(), msg, sizeof(msg));
+                // the updater the Play page's picker unpacked from a zip of everything (gevr_romimport.c)
+                if (path.size() >= 13 && path.compare(path.size() - 13, 13, "picked-ce.zip") == 0) remove(path.c_str());
+                if (applied < 0) throw HttpError{0, msg[0] ? msg : "failed"};
                 sysLogPrintf(0, "mods: applied the Community Edition to %s", id.c_str());
             });
         });
@@ -327,17 +351,25 @@ private:
 
     void run(const std::string &id, const std::function<void()> &job)
     {
+        bool ok = false;
         try {
             job();
+            ok = true;
         } catch (const HttpError &e) {
             failed(id, e.message);
         } catch (...) {
             failed(id, "failed");
         }
-        std::lock_guard<std::mutex> lock(lock_);
-        progress_ = -1;
-        busyState_ = "none";
-        busyId_.clear();
+        std::string ce;
+        {
+            std::lock_guard<std::mutex> lock(lock_);
+            progress_ = -1;
+            busyState_ = "none";
+            busyId_.clear();
+            ce.swap(pendingCe_);
+        }
+        // the Community Edition picked with the copy it patches (applyCeWhenReady)
+        if (!ce.empty() && ok && id == "ge007-bean") applyCe(ce);
     }
 
     void failed(const std::string &id, const std::string &why)
@@ -564,6 +596,7 @@ private:
     std::atomic<int> progress_{-1};
     std::atomic<bool> cancelled_{false};
     std::string errorId_, errorMessage_;
+    std::string pendingCe_;              // applyCeWhenReady: the updater waiting for the import
     bool checked_ = false;               // the latest releases were looked up this run
     SerialWorker worker_;                // last: its thread starts once the state above exists
 };
@@ -582,3 +615,4 @@ std::string pcModsStatus(void) { return mods().status(); }
 void pcModsCommand(const char *cmd) { mods().command(cmd ? cmd : ""); }
 void pcModsImportOwn(const char *id, const std::string &path) { mods().importOwn(id ? id : "", path); }
 void pcModsApplyCe(const std::string &path) { mods().applyCe(path); }
+bool pcModsApplyCeWhenReady(const std::string &path) { return mods().applyCeWhenReady(path); }

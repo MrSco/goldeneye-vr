@@ -8,6 +8,7 @@ GoldenEye is left for the launcher's own message, and that nothing is left
 behind to sort again.
 """
 from pathlib import Path
+import io
 import shutil
 import struct
 import subprocess
@@ -102,7 +103,7 @@ def main():
         r = run(exe, d)
         assert r["pending"] == "1" and r["filed"] == "3" and r["gotGe"] == "1", r
         assert "Mirror Mode (Wreck)" in r["summary"] and "Mario Characters" in r["summary"], r
-        assert "3-notes.txt" in r["summary"] and "pal" not in r["summary"], r
+        assert "Not recognised: notes.txt." in r["summary"] and "pal" not in r["summary"], r
         assert (d / "mirror.z64").read_bytes() == MIRROR
         assert (d / "mario.z64").read_bytes() == MARIO
         assert (d / "picked.z64").read_bytes() == GE, "a good GoldenEye beats a PAL one in the same pick"
@@ -148,7 +149,7 @@ def main():
         assert r["filed"] == "1", r
         assert r["summary"].startswith("Added GoldenEye 007 (US). "), r
         assert r["summary"].endswith(" is GoldenEye XBLA: import it under Mods, XBLA / Bean."), r
-        assert "1-GoldenEye XBLA.7z" in r["summary"] and "2-30BA9271" in r["summary"], r
+        assert " GoldenEye XBLA.7z, 30BA9271 is GoldenEye XBLA" in r["summary"], r
         assert "Not recognised" not in r["summary"], r
 
         d = fresh(base, "xbla-alone")
@@ -156,6 +157,56 @@ def main():
         r = run(exe, d)
         assert r["pending"] == "1" and r["filed"] == "0", r
         assert r["summary"] == "The file chosen is GoldenEye XBLA: import it under Mods, XBLA / Bean.", r
+        # the pickers' take: a zip of everything, read in place
+        d = fresh(base, "take")
+        src = fresh(base, "take-src")
+        roms_zip = io.BytesIO()
+        with zipfile.ZipFile(roms_zip, "w") as z:
+            z.writestr("Mirror.z64", MIRROR, zipfile.ZIP_DEFLATED)
+            z.writestr("Mario.z64", MARIO, zipfile.ZIP_DEFLATED)
+        ce_zip = io.BytesIO()
+        with zipfile.ZipFile(ce_zip, "w") as z:
+            z.writestr("Bean/CEUpdate/files.diff", b"hdiff" * 100, zipfile.ZIP_DEFLATED)
+            z.writestr("Bean/CEUpdate/hpatchz.exe", b"MZ" * 100, zipfile.ZIP_DEFLATED)
+        # the release's own zip inside: larger than any zip of ROMs, stored as it comes
+        release_zip = io.BytesIO()
+        with zipfile.ZipFile(release_zip, "w") as z:
+            z.writestr("30BA9271F0A3A12F", b"LIVE" + bytes(200 * MB), zipfile.ZIP_STORED)
+        with zipfile.ZipFile(src / "everything.zip", "w") as z:
+            z.writestr("GoldenEye 007 (USA).z64", GE, zipfile.ZIP_DEFLATED)
+            z.writestr("hacks/roms.zip", roms_zip.getvalue(), zipfile.ZIP_STORED)
+            z.writestr("CommunityEditionUpdaterV6.zip", ce_zip.getvalue(), zipfile.ZIP_STORED)
+            z.writestr("GoldenEye_007_XBLA_Retail.zip", release_zip.getvalue(), zipfile.ZIP_STORED)
+            z.writestr("notes.txt", b"my roms", zipfile.ZIP_DEFLATED)
+        del release_zip
+        # the updater as it comes, and the unpacked release with a ROM beside it
+        (src / "CommunityEditionUpdaterV6.zip").write_bytes(ce_zip.getvalue())
+        with zipfile.ZipFile(src / "unpacked.zip", "w") as z:
+            z.writestr("GoldenEye XBLA/default.xex", b"XEX2" + bytes(1000), zipfile.ZIP_DEFLATED)
+            z.writestr("GoldenEye XBLA/files/new/char/boilerbond/default.bin", b"bond", zipfile.ZIP_DEFLATED)
+            z.writestr("gex.z64", GEX, zipfile.ZIP_DEFLATED)
+        (src / "readme.txt").write_bytes(b"hello")
+        out = subprocess.run([str(exe), "take", str(d), str(src / "everything.zip"),
+                              str(src / "CommunityEditionUpdaterV6.zip"), str(src / "unpacked.zip"),
+                              str(src / "readme.txt")], check=True, capture_output=True, text=True).stdout
+        t = dict(line.split(" ", 1) for line in out.strip().splitlines())
+        ce_path = (d / "picked-ce.zip")
+        # xbla ce staged cePath
+        assert t["file0"].startswith("1 0 3 ") and t["file0"].endswith("picked-ce.zip"), t
+        assert ce_path.read_bytes() == ce_zip.getvalue(), "the updater inside the zip, written out whole"
+        assert t["file1"] == "0 1 0 -", t
+        assert t["file2"] == "1 0 1 -", t
+        assert t["file3"] == "0 0 1 -", t
+        assert t["moved"] == "5", t
+        assert not (d / "picked-import.part").exists() or not list((d / "picked-import.part").iterdir())
+        staged = sorted(p.name for p in (d / "picked-import").iterdir())
+        assert staged == ["0-GoldenEye 007 (USA).z64", "1-Mirror.z64", "2-Mario.z64", "3-gex.z64", "4-readme.txt"], staged
+        r = run(exe, d)
+        assert r["filed"] == "4" and r["gotGe"] == "1", r
+        assert r["summary"] == ("Added GoldenEye 007 (US), Mirror Mode (Wreck), Mario Characters, GoldenEye X. "
+                                "Not recognised: readme.txt."), r
+        assert (d / "picked.z64").read_bytes() == GE and (d / "picked-gex.z64").read_bytes() == GEX
+        assert (d / "mirror.z64").read_bytes() == MIRROR and (d / "mario.z64").read_bytes() == MARIO
         print("rom import: OK")
     finally:
         shutil.rmtree(base, ignore_errors=True)

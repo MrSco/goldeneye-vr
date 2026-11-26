@@ -387,56 +387,70 @@ public class MainActivity extends SDLActivity {
         }
     }
 
-    // A pick may be a .zip of every ROM (gevr_romimport.c reads up to 256 MB).
+    // What a picker copies whole (the hack pickers; a document that cannot seek).
     private static final long PICK_MAX = 256L << 20;
 
-    /**
-     * The player's GoldenEye XBLA copy rather than ROMs, from its first bytes:
-     * gevr_romimport.c's gevrRomImportIsXblaCopy (a .7z, an Xbox 360 package,
-     * or a zip larger than any zip of ROMs).
-     */
-    private boolean isXblaCopy(Uri uri) {
-        try {
-            android.os.ParcelFileDescriptor fd = getContentResolver().openFileDescriptor(uri, "r");
-            if (fd == null) return false;
-            final long size = fd.getStatSize();
-            byte[] h = new byte[6];
-            int n = 0;
-            try (java.io.InputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)) {
-                for (int r; n < h.length && (r = in.read(h, n, h.length - n)) > 0; ) n += r;
-            }
-            if (n >= 6 && h[0] == '7' && h[1] == 'z' && h[2] == (byte) 0xbc && h[3] == (byte) 0xaf
-                    && h[4] == 0x27 && h[5] == 0x1c) return true;
-            if (n >= 4) {
-                String magic = new String(h, 0, 4, "ISO-8859-1");
-                if (magic.equals("LIVE") || magic.equals("CON ") || magic.equals("PIRS")) return true;
-                if (magic.equals("PK\u0003\u0004") && size > PICK_MAX) return true;
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Could not look at a picked file", e);
-        }
-        return false;
-    }
+    private static native void nativeRomImportTakeBegin(String dataDir);
+    private static native String nativeRomImportTake(int fd, String label, String dataDir);
+    private static native int nativeRomImportTakeEnd(String dataDir);
 
     /**
-     * The Play page's picker: ROMs (one, several, or a .zip of them) are copied
-     * in for the launcher to sort; the XBLA copy is not copied but handed to the
-     * Mods page's Bean import, as its own picker does (openXblaPicker). Off the
-     * UI thread: it opens each file.
+     * The Play page's picker (port/src/gevr_romimport.c gevrRomImportTake):
+     * each file chosen is read where it is. ROMs, loose or in a zip (a zip of
+     * everything, a zip in it), are taken into data/picked-import/ for the
+     * launcher to sort; the GoldenEye XBLA copy goes to the Mods page's Bean
+     * import and the Community Edition updater to its apply, after that import
+     * when both were chosen. Off the UI thread: it reads every file.
      */
     private void takeMainPick(java.util.List<Uri> uris) {
-        final java.util.List<Uri> roms = new java.util.ArrayList<>();
-        Uri xbla = null;
-        for (Uri u : uris) {
-            if (xbla == null && isXblaCopy(u)) xbla = u;
-            else roms.add(u);
+        final File dir = new File(getExternalFilesDir(null), "data");
+        final String data = dir.getAbsolutePath();
+        dir.mkdirs();
+        nativeRomImportTakeBegin(data);
+        Uri xbla = null, ce = null;
+        for (int i = 0; i < uris.size(); i++) {
+            final Uri u = uris.get(i);
+            final String label = pickName(u, i);
+            String r = null;
+            try {
+                android.os.ParcelFileDescriptor fd = getContentResolver().openFileDescriptor(u, "r");
+                if (fd != null && fd.getStatSize() >= 0) r = nativeRomImportTake(fd.detachFd(), label, data);
+                else if (fd != null) fd.close();
+            } catch (Exception e) {
+                Log.w(TAG, "Could not read a picked file", e);
+            }
+            if (r == null || r.isEmpty()) {
+                // a stream only: copied whole for the sort to read (ROMs and zips of them)
+                File to = new File(new File(dir, "picked-import.part"), label);
+                try {
+                    copyUri(u, to);
+                } catch (Exception e) {
+                    Log.e(TAG, "ROM copy failed", e);
+                    to.delete();
+                }
+                continue;
+            }
+            final String[] f = r.split("\t", -1);
+            if (f.length < 4) continue;
+            if ("1".equals(f[0]) && xbla == null) xbla = u;
+            if (ce == null && !f[2].isEmpty()) ce = Uri.fromFile(new File(f[2]));
+            else if (ce == null && "1".equals(f[1])) ce = u;
         }
-        // its progress is on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine)
+        final int staged = nativeRomImportTakeEnd(data);
+        // their progress is on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine)
         if (xbla != null && mods != null) mods.importOwn("ge007-bean", xbla);
-        if (roms.size() == 1) copyPickedRom(roms.get(0));
-        else if (roms.size() > 1) copyPickedRoms(roms);
-        else if (xbla != null) pickResult = "Importing Bean from your GoldenEye XBLA copy.";   // no ROM to wait for
-        Log.i(TAG, "Main pick: " + roms.size() + " ROM file(s)" + (xbla != null ? " and the XBLA copy" : ""));
+        String note = null;
+        if (ce != null && (mods == null || !mods.applyCeWhenReady(ce))) {
+            note = "The Community Edition patches Bean: choose your GoldenEye XBLA copy too.";
+        }
+        if (staged == 0) {   // nothing for the ROM check: the message ends the pick
+            pickResult = note != null ? note
+                : xbla != null ? "Importing Bean from your GoldenEye XBLA copy."
+                : ce != null ? "Applying the Community Edition."
+                : "Nothing this knows in that: choose ROMs, a .zip of them or your GoldenEye XBLA copy.";
+        }
+        Log.i(TAG, "Main pick: " + uris.size() + " file(s), " + staged + " for the sort"
+                + (xbla != null ? ", the XBLA copy" : "") + (ce != null ? ", the Community Edition" : ""));
     }
 
     private long copyUri(Uri uri, File to) throws java.io.IOException {
@@ -468,42 +482,6 @@ public class MainActivity extends SDLActivity {
         if (safe.endsWith(".part")) safe += "_";
         if (safe.length() > 80) safe = safe.substring(safe.length() - 80);
         return index + "-" + (safe.isEmpty() ? "file" : safe);
-    }
-
-    /**
-     * Several files: copied into data/picked-import.part/ and moved to
-     * data/picked-import/ once all are in, so the launcher's sort
-     * (gevr_romimport.c) takes the whole pick at once. A file that cannot be
-     * copied is left out.
-     */
-    private void copyPickedRoms(java.util.List<Uri> uris) {
-        File dir = new File(getExternalFilesDir(null), "data");
-        File staging = new File(dir, "picked-import.part");
-        File done = new File(dir, "picked-import");
-        staging.mkdirs();
-        int copied = 0;
-        for (int i = 0; i < uris.size(); i++) {
-            File to = new File(staging, pickName(uris.get(i), i));
-            try {
-                copyUri(uris.get(i), to);
-                copied++;
-            } catch (Exception e) {
-                Log.e(TAG, "ROM copy failed", e);
-                to.delete();
-            }
-        }
-        done.mkdirs();
-        File[] files = staging.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                File into = new File(done, f.getName());
-                into.delete();
-                if (!f.renameTo(into)) f.delete();
-            }
-        }
-        staging.delete();
-        Log.i(TAG, "ROMs copied from picker (" + copied + " of " + uris.size() + ")");
-        if (copied == 0) pickResult = "Could not copy those files.";
     }
 
     // Copies through a .part file so the launcher never sees half a ROM; it

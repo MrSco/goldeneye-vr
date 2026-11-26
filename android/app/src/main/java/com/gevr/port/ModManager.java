@@ -298,8 +298,10 @@ final class ModManager {
     }
 
     private void run(Pack p, Job job) {
+        boolean ok = false;
         try {
             job.run();
+            ok = true;
         } catch (Exception e) {
             if (cancelled) {
                 Log.i(TAG, p.id + " cancelled");
@@ -313,6 +315,13 @@ final class ModManager {
             busyState = NONE;
             busyId = null;
         }
+        // the Community Edition picked with the copy it patches (applyCeWhenReady)
+        Uri ce;
+        synchronized (this) {
+            ce = pendingCe;
+            pendingCe = null;
+        }
+        if (ce != null && ok && "ge007-bean".equals(p.id)) applyCe(ce);
     }
 
     // ---- the player's own copy ------------------------------------------------------
@@ -335,6 +344,26 @@ final class ModManager {
 
     private static native String nativeBeanCeApply(int fd, String beanDir);
 
+    /** The updater picked beside the copy it patches, waiting for that import to finish. */
+    private Uri pendingCe;
+
+    /**
+     * The Play page's picker (MainActivity.takeMainPick): the updater applied
+     * now if Bean is in, or once the import running (picked with it) is done.
+     * False when there is no Bean to apply it to.
+     */
+    synchronized boolean applyCeWhenReady(Uri uri) {
+        final Pack p = find("ge007-bean");
+        if (p == null) return false;
+        if (IMPORTING.equals(busyState) && p.id.equals(busyId)) {
+            pendingCe = uri;
+            return true;
+        }
+        if (!installed(p)) return false;
+        applyCe(uri);
+        return true;
+    }
+
     /**
      * The Community Edition updater the player picked (MainActivity.openCePicker):
      * applied to the imported Bean copy, into its ce/ folder (port/src/gevr_bean_ce.c).
@@ -353,6 +382,10 @@ final class ModManager {
                 if (fd == null) throw new IOException("could not open that file");
                 // the native side reads and closes it (fdopen)
                 failure = nativeBeanCeApply(fd.detachFd(), new File(root(), p.id).getAbsolutePath());
+            }
+            // the updater the Play page's picker unpacked from a zip of everything (gevr_romimport.c)
+            if ("file".equals(uri.getScheme()) && uri.getPath() != null && uri.getPath().endsWith("/picked-ce.zip")) {
+                new File(uri.getPath()).delete();
             }
             if (!failure.isEmpty()) throw new IOException(failure);
             Log.i(TAG, "applied the Community Edition to " + p.id);

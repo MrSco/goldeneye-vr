@@ -235,25 +235,11 @@ static PickResult pcChooseFiles(const char *title, const char *patterns, std::ve
 }
 #endif
 
-#ifndef _WIN32
-static std::string pcSame(const std::string &s) { return s; }
-#endif
-
-// Several ROMs chosen at once: each copied into data/picked-import/ under its
-// own name, where the launcher sorts them (gevr_romimport.c).
-static std::string pcImportName(const std::string &path)
-{
-    const size_t slash = path.find_last_of("/\\");
-    std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
-    if (name.empty() || name[0] == '.') name = "file" + name;
-    if (name.size() >= 5 && name.compare(name.size() - 5, 5, ".part") == 0) name += "_";
-    return name;
-}
-
 void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp
 void pcModsApplyCe(const std::string &path);
+bool pcModsApplyCeWhenReady(const std::string &path);
 
-// The pick was only the XBLA copy: what the launcher says (MainActivity.pickResult).
+// What the launcher says when a pick left nothing for its ROM check (MainActivity.pickResult).
 static std::string s_pickNote;
 
 std::string pcTakePickResult(void)
@@ -263,48 +249,54 @@ std::string pcTakePickResult(void)
     return out;
 }
 
-/*
- * The Play page's picker takes the XBLA copy too: the first one among the
- * files chosen goes to the Mods page's Bean import, read where it is, as its
- * own picker does (openXblaPicker); gevrRomImportIsXblaCopy tells it apart.
- */
+static FILE *pcOpenRead(const std::string &utf8)
+{
 #ifdef _WIN32
-static bool pcIsXblaCopy(const std::wstring &path)
-{
-    FILE *f = _wfopen(path.c_str(), L"rb");
-    if (!f) return false;
-    unsigned char head[6];
-    const size_t n = fread(head, 1, sizeof(head), f);
-    _fseeki64(f, 0, SEEK_END);
-    const long long size = _ftelli64(f);
-    fclose(f);
-    return gevrRomImportIsXblaCopy(head, (unsigned long)n, size < 0 ? 0 : (unsigned long long)size);
-}
+    wchar_t w[MAX_PATH * 4];
+    if (!MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, w, MAX_PATH * 4)) return nullptr;
+    return _wfopen(w, L"rb");
 #else
-static bool pcIsXblaCopy(const std::string &path)
-{
-    FILE *f = fopen(path.c_str(), "rb");
-    if (!f) return false;
-    unsigned char head[6];
-    const size_t n = fread(head, 1, sizeof(head), f);
-    fseeko(f, 0, SEEK_END);
-    const long long size = (long long)ftello(f);
-    fclose(f);
-    return gevrRomImportIsXblaCopy(head, (unsigned long)n, size < 0 ? 0 : (unsigned long long)size);
-}
+    return fopen(utf8.c_str(), "rb");
 #endif
+}
 
-template <typename Path>
-static void pcTakeXblaCopy(std::vector<Path> &files, std::string (*narrow)(const Path &))
+/*
+ * The Play page's picker, as MainActivity.takeMainPick: each file chosen is
+ * read where it is (gevrRomImportTake). ROMs, loose or in a zip (a zip of
+ * everything, a zip in it), go to data/picked-import/ for the launcher's sort;
+ * the GoldenEye XBLA copy to the Mods page's Bean import, and the Community
+ * Edition updater to its apply, after that import when both were chosen.
+ */
+static void pcTakeMainPick(const std::vector<std::string> &files)
 {
-    for (size_t i = 0; i < files.size(); i++) {
-        if (!pcIsXblaCopy(files[i])) continue;
-        sysLogPrintf(0, "launcher: the main picker was given the XBLA copy; importing Bean");
-        pcModsImportOwn("ge007-bean", narrow(files[i]));   // the Play page shows how far it is
-        if (files.size() == 1) s_pickNote = "Importing Bean from your GoldenEye XBLA copy.";
-        files.erase(files.begin() + (long)i);
-        return;
+    const std::string data = fsFullPath("$B");
+    std::string xbla, ce;
+    gevrRomImportTakeBegin(data.c_str());
+    for (const std::string &file : files) {
+        struct gevrRomImportTake t;
+        FILE *f = pcOpenRead(file);
+        if (!f) {
+            sysLogPrintf(1, "launcher: could not open a picked file");
+            continue;
+        }
+        gevrRomImportTake(f, file.c_str(), data.c_str(), &t);
+        if (t.xbla && xbla.empty()) xbla = file;
+        if (ce.empty() && t.cePath[0]) ce = t.cePath;
+        else if (ce.empty() && t.ce) ce = file;
     }
+    const int staged = gevrRomImportTakeEnd(data.c_str());
+    // their progress is on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine)
+    if (!xbla.empty()) pcModsImportOwn("ge007-bean", xbla);
+    std::string note;
+    if (!ce.empty() && !pcModsApplyCeWhenReady(ce)) note = "The Community Edition patches Bean: choose your GoldenEye XBLA copy too.";
+    if (staged == 0) {   // nothing for the ROM check: the message ends the pick
+        s_pickNote = !note.empty() ? note
+            : !xbla.empty() ? "Importing Bean from your GoldenEye XBLA copy."
+            : !ce.empty() ? "Applying the Community Edition."
+            : "Nothing this knows in that: choose ROMs, a .zip of them or your GoldenEye XBLA copy.";
+    }
+    sysLogPrintf(0, "launcher: main pick: %d file(s), %d for the sort%s%s", (int)files.size(), staged,
+                 xbla.empty() ? "" : ", the XBLA copy", ce.empty() ? "" : ", the Community Edition");
 }
 
 /*
@@ -359,30 +351,16 @@ bool pcOpenPicker(const char *method)
 #ifdef _WIN32
     std::wstring file;
     if (!strcmp(dest, "picked.z64")) {
-        // the main picker: one ROM, several, or a .zip of them
+        // the main picker: ROMs, zips of them, the XBLA copy, the CE updater
         std::vector<std::wstring> files;
-        if (pcChooseFiles(L"ROMs, a .zip of them, or the XBLA copy\0*.z64;*.v64;*.n64;*.zip;*.7z\0All files (the Xbox 360 package has no extension)\0*.*\0",
-                          L"Choose the ROM (or several, or a .zip of them)", &files) != PICK_CHOSEN) {
+        if (pcChooseFiles(L"ROMs, zips, the XBLA copy, the CE updater\0*.z64;*.v64;*.n64;*.zip;*.7z\0All files (the Xbox 360 package has no extension)\0*.*\0",
+                          L"Choose ROMs, a .zip of them, your GoldenEye XBLA copy or the CE updater", &files) != PICK_CHOSEN) {
             return false;
         }
-        pcTakeXblaCopy<std::wstring>(files, pcNarrow);
-        if (files.empty()) return true;   // only the XBLA copy: s_pickNote ends the pick
-        if (files.size() > 1) {
-            const std::string dir = std::string(fsFullPath(GEVR_ROM_IMPORT_DIR));
-            wchar_t wdir[MAX_PATH * 2];
-            MultiByteToWideChar(CP_UTF8, 0, dir.c_str(), -1, wdir, MAX_PATH * 2);
-            CreateDirectoryW(wdir, nullptr);
-            int copied = 0;
-            for (const std::wstring &f : files) {
-                const std::string to = dir + "/" + pcImportName(pcNarrow(f));
-                wchar_t wto[MAX_PATH * 2];
-                MultiByteToWideChar(CP_UTF8, 0, to.c_str(), -1, wto, MAX_PATH * 2);
-                copied += CopyFileW(f.c_str(), wto, FALSE) != 0;
-            }
-            sysLogPrintf(copied ? 0 : 1, "launcher: picked %d files, %d copied for sorting", (int)files.size(), copied);
-            return copied > 0;
-        }
-        file = files[0];
+        std::vector<std::string> narrow;
+        for (const std::wstring &f : files) narrow.push_back(pcNarrow(f));
+        pcTakeMainPick(narrow);
+        return true;
     } else if (pcChooseFile(L"N64 ROMs (*.z64;*.v64;*.n64)\0*.z64;*.v64;*.n64\0All files\0*.*\0", L"Choose the ROM", &file) != PICK_CHOSEN) {
         return false;
     }
@@ -396,27 +374,13 @@ bool pcOpenPicker(const char *method)
 #else
     std::string file;
     if (!strcmp(dest, "picked.z64")) {
-        // the main picker: one ROM, several, or a .zip of them
+        // the main picker: ROMs, zips of them, the XBLA copy, the CE updater
         std::vector<std::string> files;
-        if (pcChooseFiles("Choose the ROM (or several, or a .zip of them)", "", &files) != PICK_CHOSEN) {
+        if (pcChooseFiles("Choose ROMs, a .zip of them, your GoldenEye XBLA copy or the CE updater", "", &files) != PICK_CHOSEN) {
             return false;
         }
-        pcTakeXblaCopy<std::string>(files, pcSame);
-        if (files.empty()) return true;   // only the XBLA copy: s_pickNote ends the pick
-        if (files.size() > 1) {
-            const std::filesystem::path dir = fsFullPath(GEVR_ROM_IMPORT_DIR);
-            std::error_code ec;
-            std::filesystem::create_directories(dir, ec);
-            int copied = 0;
-            for (const std::string &f : files) {
-                ec.clear();
-                std::filesystem::copy_file(f, dir / pcImportName(f), std::filesystem::copy_options::overwrite_existing, ec);
-                copied += !ec;
-            }
-            sysLogPrintf(copied ? 0 : 1, "launcher: picked %d files, %d copied for sorting", (int)files.size(), copied);
-            return copied > 0;
-        }
-        file = files[0];
+        pcTakeMainPick(files);
+        return true;
     } else if (pcChooseFile("Choose the ROM", "*.z64 *.v64 *.n64", &file) != PICK_CHOSEN) {
         return false;
     }
