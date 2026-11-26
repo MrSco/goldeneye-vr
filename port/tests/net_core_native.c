@@ -1088,6 +1088,70 @@ EXPORT int test_core_content_mod(void) {
     fixture_mod_on = 0;
     return 0;
 }
+/* A mod made for some play modes (docs/mod-system.md, Play modes): the host
+ * turns away a joiner whose HELLO class it doesn't run with, naming the mod
+ * first, and the joiner reads which mode it needs. */
+EXPORT int test_core_mod_play_modes(void) {
+    u8 sent[256];
+    size_t sentSize;
+    const char *why;
+    fixture(0);
+    fixture_mod_on = 0;
+    memset(&fixture_mod, 0, sizeof(fixture_mod));
+    strcpy(fixture_mod.m.id, "tactical");strcpy(fixture_mod.m.title, "Tactical");strcpy(fixture_mod.m.version, "1.0.0");
+    fixture_mod.m.kind = GEVR_MOD_CAMPAIGN;fixture_mod.m.coop = 1;
+    /* no mod, or one without "playModes" (both, and 0 reads as both): everyone joins */
+    for (int c = 0; c <= NET_INPUT_TOUCH; c++) CHECK(netModPlayRefusal((uint8_t)c) == 0);
+    fixture_mod_on = 1;
+    for (int c = 0; c <= NET_INPUT_TOUCH; c++) CHECK(netModPlayRefusal((uint8_t)c) == 0);
+    fixture_mod.m.playModes = GEVR_MOD_PLAY_ALL;
+    for (int c = 0; c <= NET_INPUT_TOUCH; c++) CHECK(netModPlayRefusal((uint8_t)c) == 0);
+    /* VR only: keyboard and mouse, a pad (a headset's flat screen too) and touch are turned away */
+    fixture_mod.m.playModes = GEVR_MOD_PLAY_VR;
+    CHECK(netModPlayRefusal(NET_INPUT_VR) == 0 && netModPlayRefusal(NET_INPUT_UNKNOWN) == 0);
+    CHECK(netModPlayRefusal(NET_INPUT_MOUSE) == (NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    CHECK(netModPlayRefusal(NET_INPUT_PAD) == (NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    CHECK(netModPlayRefusal(NET_INPUT_TOUCH) == (NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    CHECK(netModPlayRefusal(7) == 0);   /* a class this build doesn't know: let in, as "VR players only" does */
+    /* flat only */
+    fixture_mod.m.playModes = GEVR_MOD_PLAY_FLAT;
+    CHECK(netModPlayRefusal(NET_INPUT_VR) == (NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_FLAT));
+    CHECK(netModPlayRefusal(NET_INPUT_PAD) == 0 && netModPlayRefusal(NET_INPUT_MOUSE) == 0 && netModPlayRefusal(NET_INPUT_UNKNOWN) == 0);
+    /* the reason is none of the others' */
+    CHECK((NET_DISCONNECT_MOD_PLAY & 0xFFFFFF00u) != NET_DISCONNECT_CAMPAIGN && (NET_DISCONNECT_MOD_PLAY & 0xFFFFFF00u) != NET_DISCONNECT_CONTENT);
+    CHECK((NET_DISCONNECT_VR_ONLY & 0xFFFFFF00u) != NET_DISCONNECT_MOD_PLAY && (NET_DISCONNECT_HAND_RELOAD & 0xFFFFFF00u) != NET_DISCONNECT_MOD_PLAY);
+    /* the joiner: the host named the mod first (NET_MSG_MOD_REQUIRED) */
+    fixture_mod.m.playModes = GEVR_MOD_PLAY_VR;
+    sent_size = 0;netSendModRequired(&hit_peers[1]);
+    sentSize = sent_size;memcpy(sent, sent_data, sentSize);
+    modRefusal((const char *)sent, sentSize);
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    why = netTakeJoinRefusal();
+    /* this fixture builds flat (no headset): it says where to play it */
+    CHECK(why && !strcmp(why, "Cannot join: this party's mod Tactical is for VR only. Join from a headset."));
+    CHECK(s_state == NET_STATE_OFFLINE && !s_server_peer && !s_refusal_mod_known);
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    modRefusal((const char *)sent, sentSize);
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_FLAT));
+    why = netTakeJoinRefusal();
+    CHECK(why && !strcmp(why, "Cannot join: this party's mod Tactical is for flat screen only. Set Play mode to Flat screen to join."));
+    /* no word from the host: its own copy of the mod names it (the content check matched it) */
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    strcpy(fixture_mod.m.title, "Same Mod");
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "this party's mod Same Mod is for VR only."));
+    fixture_mod_on = 0;
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    why = netTakeJoinRefusal();
+    CHECK(why && !strcmp(why, "Cannot join: this party's mod is for VR only. Join from a headset."));
+    /* a reason with no mode bits isn't this one */
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(!netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY));
+    s_server_peer = NULL;
+    return 0;
+}
 /* Who plays flat: the host's count for the lobby list and the LAN beacon,
  * kept from each guest's HELLO and NET_MSG_INPUT_CLASS. */
 static void inputClass(int slot,int value,size_t size) {

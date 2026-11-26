@@ -223,6 +223,15 @@ enum {
 #define NET_PLATFORM_MAX NET_PLATFORM_FRAME
 #define NET_DISCONNECT_VR_ONLY 0x47455652u   /* 'GEVR' */
 /*
+ * A mod made for some play modes (docs/mod-system.md, Play modes; manifest
+ * "playModes"): a host whose mod campaign doesn't run in the joiner's (its
+ * HELLO's input class: NET_INPUT_VR plays in VR, the others flat) turns it
+ * away with this | the mod's GEVR_MOD_PLAY_* bits, after NET_MSG_MOD_REQUIRED
+ * names the mod. An unknown class is let in, as for "VR players only".
+ * Additive on protocol 30, which has no release before it.
+ */
+#define NET_DISCONNECT_MOD_PLAY 0x47455000u   /* 'GEP' | GEVR_MOD_PLAY_* */
+/*
  * How each player reloads (the roster's Reload, the host's "Hand reload only", the Join
  * list's filter): by hand in VR (Hand reload on), or with the button. After the platform,
  * HELLO carries the joiner's u8: additive, without a protocol bump; an older joiner sends

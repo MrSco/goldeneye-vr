@@ -1858,6 +1858,31 @@ static void netModRefusalText(char *out, size_t n) {
     s_refusal_mod_known = false;
 }
 
+/* A joiner's play mode against the host's mod campaign (docs/mod-system.md,
+ * Play modes): the refusal, or 0. Its class says how it plays (NET_INPUT_VR
+ * in VR, the others flat); an unknown one (a headless client) is let in. */
+static uint32_t netModPlayRefusal(uint8_t input) {
+    const gevrModInfo *mod = gevrModPlay();
+    const unsigned mode = input == NET_INPUT_VR ? GEVR_MOD_PLAY_VR : netInputIsFlat(input) ? GEVR_MOD_PLAY_FLAT : 0;
+    if (!mod || !gevrModPlayModeRefusal(mod->m.playModes, mode)) return 0;
+    return NET_DISCONNECT_MOD_PLAY | (mod->m.playModes & GEVR_MOD_PLAY_ALL);
+}
+
+/* Why the party's mod turned this joiner away for its play mode */
+static void netModPlayRefusalText(char *out, size_t n, unsigned modes) {
+    const gevrModInfo *mine = gevrModPlay();
+    const char *title = s_refusal_mod_known && s_refusal_mod_title[0] ? s_refusal_mod_title
+                      : mine ? mine->m.title : "";
+    const bool vr = (modes & GEVR_MOD_PLAY_VR) != 0;
+    /* this build can switch to it (a headset), or the mod is for another device */
+    const bool here = (modes & gevrModBuildPlayModes()) != 0;
+    snprintf(out, n, "Cannot join: this party's mod%s%s is for %s only. %s", title[0] ? " " : "", title,
+             vr ? "VR" : "flat screen",
+             here ? (vr ? "Set Play mode to Stereo VR to join." : "Set Play mode to Flat screen to join.")
+                  : (vr ? "Join from a headset." : "Join from a flat screen."));
+    s_refusal_mod_known = false;
+}
+
 static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
     if (!peer || netIsHost() || peer != s_server_peer) return false;
     if (reason == NET_DISCONNECT_VR_ONLY) {
@@ -1873,6 +1898,8 @@ static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
                  netCampaignName((int)(reason & 0xFFu)));
     } else if (reason == (NET_DISCONNECT_CONTENT | NET_CONTENT_MOD)) {
         netModRefusalText(s_join_refusal, sizeof(s_join_refusal));
+    } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_MOD_PLAY && (reason & GEVR_MOD_PLAY_ALL)) {
+        netModPlayRefusalText(s_join_refusal, sizeof(s_join_refusal), reason & GEVR_MOD_PLAY_ALL);
     } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_CONTENT) {
         snprintf(s_join_refusal, sizeof(s_join_refusal),
                  "Cannot join: this game's %s is not the same as yours.", netContentPartName(reason & 0xFFu));
@@ -4919,6 +4946,14 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     enet_peer_disconnect(peer, NET_DISCONNECT_VR_ONLY);
                     break;
                 }
+                /* the host's mod made for some play modes: which mod goes first, as for a missing mod */
+                const uint32_t modPlay = netModPlayRefusal(input);
+                if (modPlay) {
+                    NET_ERR("Turning %s away: the mod %s doesn't run with %s", clean, gevrModPlay()->m.id, netInputClassName(input));
+                    netSendModRequired(peer);
+                    enet_peer_disconnect_later(peer, modPlay);
+                    break;
+                }
                 /* how it reloads: an older build sends nothing, and is let in */
                 const uint8_t reload = described && netbufReadLeft(&buf) >= 1 ? netbufReadU8(&buf) : NET_RELOAD_UNKNOWN;
                 joiner_reload = reload <= NET_RELOAD_HAND ? reload : NET_RELOAD_UNKNOWN;
@@ -4960,6 +4995,15 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     seat_input[1 + e] = gi <= NET_INPUT_TOUCH ? gi : NET_INPUT_PAD;
                     if (VrMpVrOnly && seat_input[1 + e] != NET_INPUT_UNKNOWN && seat_input[1 + e] != NET_INPUT_VR) {
                         enet_peer_disconnect(peer, NET_DISCONNECT_VR_ONLY);
+                        bad = true;
+                        break;
+                    }
+                    const uint32_t guestModPlay = netModPlayRefusal(seat_input[1 + e]);
+                    if (guestModPlay) {
+                        NET_ERR("Turning %s away: the mod %s doesn't run with its guest's %s", clean, gevrModPlay()->m.id,
+                                netInputClassName(seat_input[1 + e]));
+                        netSendModRequired(peer);
+                        enet_peer_disconnect_later(peer, guestModPlay);
                         bad = true;
                         break;
                     }
