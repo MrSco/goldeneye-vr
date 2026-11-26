@@ -28,10 +28,14 @@ Apple hardware, Steam Frame, PC VR, the START save check by hand.
 party (#356 Egypt's Golden Gun floor counted one player; #357 Aztec): room,
 near-pad, held-item and height tests pass for anyone, far-from-pad for
 everyone, and a client's console press reaches the host's scripts
-(`NET_COOP_EVENT_ACTIVATE`, protocol unchanged). Audit of all 20 missions:
-`tools/audit_coop_player_tests.py`; notes in
-[docs/issue-94-coop.md](docs/issue-94-coop.md). Not yet played on two
-headsets. Asked the #356 reporter what confused them in the default controls.
+(`NET_COOP_EVENT_ACTIVATE`, protocol unchanged). A gadget used on an object
+(floppy, DAT, decoder, defuser, data thief) searched a barrel pass's props,
+not the view, so it failed host or client: it now searches after the view.
+Audit of all 20 missions: `tools/audit_coop_player_tests.py`; notes in
+[docs/issue-94-coop.md](docs/issue-94-coop.md). Played with two hidden PC
+copies against the pre-fix build (Egypt case, Aztec drive, floppy, DAT,
+exhaust bay, launch); not on headsets. The PC level hook reads
+gevr_level.txt. Asked the #356 reporter what confused them in the controls.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting,
 bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
 Push).

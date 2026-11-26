@@ -29,7 +29,9 @@ chrprop = (ROOT / "src/game/chrprop.c").read_text(encoding="utf-8")
 assert chrprop.count("tickop = propobjInteract(prop);\n#ifdef GEVR") == 2 and chrprop.count("gevrCoopReportActivate(prop->obj);") == 2
 assert "set_cur_player(gevrPrev)" in tick
 assert "gevrCoopGrantItem(wep->weaponnum)" in propobj
-assert "gevrCoopReportGadgetUse(temp_v0_8->obj)" in gunfire
+# the use queues in the gun tick and reports from the frame's view (#357)
+assert "gevrGadgetUseQueue();" in gunfire
+assert "gevrCoopReportGadgetUse(prop->obj);" in block(chrprop, "void gevrGadgetUseFlush(void)")
 casualties = block(gunfire, "s32 get_civilian_casualties(void)")
 assert "gevrCoopActive()" in casualties and "g_playerPlayerData[i].killed_civilians" in casualties
 collision = block(bondview, "void bondviewCalcUpdatePlayerCollision(")

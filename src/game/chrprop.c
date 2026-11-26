@@ -2970,6 +2970,53 @@ PropRecord *propFindForInteract(void)
 }
 
 
+#ifdef GEVR
+/*
+ * A gadget used on an object (gunfire.c: door decoder, bomb defuser, data
+ * thief, explosive floppy, DAT tape). The use starts in the move tick, but
+ * the on-screen props there are the last barrel pass's (lv.c), traced along
+ * the gun, not what the player looks at, so the floppy found nothing in front
+ * of Aztec's drive (#357). The search waits for the frame's own view, where
+ * the B press makes it (lv.c, after chraiUpdateOnscreenPropCount).
+ */
+static s32 s_gevrGadgetUseAt[4];   /* g_GlobalTimer + 1 of a use waiting, 0 none */
+
+void gevrGadgetUseQueue(void)
+{
+    s32 p = get_cur_playernum();
+
+    if (p >= 0 && p < 4)
+    {
+        s_gevrGadgetUseAt[p] = g_GlobalTimer + 1;
+    }
+}
+
+void gevrGadgetUseFlush(void)
+{
+    extern void gevrCoopReportGadgetUse(ObjectRecord *obj);
+    s32 p = get_cur_playernum();
+    s32 at;
+    PropRecord *prop;
+
+    if (p < 0 || p >= 4 || s_gevrGadgetUseAt[p] == 0)
+    {
+        return;
+    }
+    at = s_gevrGadgetUseAt[p] - 1;
+    s_gevrGadgetUseAt[p] = 0;
+    if (g_GlobalTimer - at > 10)
+    {
+        return;   /* a use from before a pause or a stage change */
+    }
+    prop = propFindForInteract();
+    if (prop != NULL && prop->obj != NULL)
+    {
+        prop->obj->state |= PROPSTATE_ACTIVATED;
+        gevrCoopReportGadgetUse(prop->obj);   /* co-op: the host's script is what opens the door */
+    }
+}
+#endif
+
 bool bond_interact_object(void)
 {
 #ifdef GEVR

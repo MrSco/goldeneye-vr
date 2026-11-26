@@ -217,6 +217,28 @@ reports the object's tag (`NET_COOP_EVENT_ACTIVATE`); the host sets the
 flag, and the list that takes it treats the presser as Bond. An older host
 ignores the new event; protocol 29 is unchanged.
 
+Using a gadget on an object (door decoder, bomb defuser, data thief,
+explosive floppy, DAT tape) did not depend on co-op at all: the use starts in
+the move tick, where the on-screen props were the last barrel pass's (lv.c,
+traced along the gun), not the player's view. The floppy found nothing in
+front of Aztec's drive, host or client, while the B press at the same spot
+found it. In a headset the barrel follows the hand, so a use worked or not
+depending on where the hand pointed. The use now queues
+(`gevrGadgetUseQueue`) and the search runs after the frame's own view, where
+the B press runs (`gevrGadgetUseFlush`, chrprop.c).
+
+Checked with two hidden PC copies (host + client over 127.0.0.1, the level
+hook, warps), each against the build before the fix:
+- Egypt: the client alone on the last tile of the floor pattern opens the
+  Golden Gun case (the host's script closes the room behind them and opens
+  door 1); before, nothing. A wrong tile under the client springs the trap.
+- Aztec: the client's press of the disk drive shows "This disk drive is
+  connected..."; before, nothing. The floppy, by the host or the client,
+  uploads Q's guidance data and completes objective A; before, nothing for
+  either. The client's DAT tape on the launch console starts the countdown,
+  their press of the exhaust bay switch opens it, and the shuttle launches
+  ("Launch shuttle: Completed").
+
 Using the door decoder, data thief, bomb defuser, explosive floppy or DAT
 tape sets `PROPSTATE_ACTIVATED` on that headset only. A client reports the
 object's tag (`NET_COOP_EVENT_GADGET`); the host sets the bit, and
