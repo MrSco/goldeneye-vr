@@ -230,7 +230,7 @@ enum {
  * names the mod. An unknown class is let in, as for "VR players only".
  * Additive on protocol 30, which has no release before it.
  */
-#define NET_DISCONNECT_MOD_PLAY 0x47455000u   /* 'GEP' | GEVR_MOD_PLAY_* */
+#define NET_DISCONNECT_MOD_PLAY 0x47455300u   /* 'GES' | GEVR_MOD_PLAY_* ('GEP' is main's NET_DISCONNECT_VERSION) */
 /*
  * How each player reloads (the roster's Reload, the host's "Hand reload only", the Join
  * list's filter): by hand in VR (Hand reload on), or with the button. After the platform,
