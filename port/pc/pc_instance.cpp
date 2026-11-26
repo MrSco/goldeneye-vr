@@ -34,6 +34,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <cerrno>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/file.h>
@@ -122,6 +123,10 @@ bool pcInstanceTryLock(const char *path, int *holderPid, std::string *holderExe)
         s_instanceLock = fd;
         return true;
     }
+    if (errno != EWOULDBLOCK) {   // no lock to be had (a filesystem without flock): run as before
+        close(fd);
+        return true;
+    }
     std::string text;
     char buf[512];
     const ssize_t got = pread(fd, buf, sizeof(buf), 0);
@@ -193,8 +198,9 @@ std::string lowerCase(std::string s)
 /* main.c, before anything is read or written: this folder's game, or none. */
 extern "C" void pcSingleInstance(void)
 {
-    const char *restartOf = getenv(kInstanceRestartEnv);
-    const bool restarting = restartOf && *restartOf;
+    const char *restartEnv = getenv(kInstanceRestartEnv);
+    const std::string restartOf = restartEnv ? restartEnv : "";   // a copy: unsetenv frees getenv's string
+    const bool restarting = !restartOf.empty();
     if (restarting) {
         // this run's own restarts set it again; a later second start must not inherit the wait
 #ifdef _WIN32
@@ -213,15 +219,25 @@ extern "C" void pcSingleInstance(void)
         if (waited >= waitMs) break;
         SDL_Delay(100);
     }
+    if (restarting) {
+        // the old run cleared its marker and is only ending: a hung exit (an
+        // OpenXR teardown) must not leave the player with no game, so start as
+        // restarts did before the lock
+        printf("pc: the run being restarted (pid %s) still holds the folder after %d s; starting anyway\n",
+               restartOf.c_str(), waitMs / 1000);
+        return;
+    }
 
     const std::string me = instanceExeName();
     const bool otherExe = !holderExe.empty() && lowerCase(holderExe) != lowerCase(me);
     printf("pc: %s is already running from this folder (pid %d); this start ends\n",
            holderExe.empty() ? "GoldenEye VR" : holderExe.c_str(), holder);
 
+    // a scripted run says nothing on the desktop and raises no window (the owner uses the PC meanwhile)
+    const bool quiet = sysArgCheck("--hidden") || sysArgCheck("--input-script");
     bool focused = false;
 #ifdef _WIN32
-    if (holder > 0) {
+    if (!quiet && holder > 0) {
         WindowSearch f = { (DWORD)holder, nullptr };
         EnumWindows(findWindowOf, (LPARAM)&f);
         if (f.found) {
@@ -230,8 +246,6 @@ extern "C" void pcSingleInstance(void)
         }
     }
 #endif
-    // a scripted run says nothing on the desktop (the owner uses the PC meanwhile)
-    const bool quiet = sysArgCheck("--hidden") || sysArgCheck("--input-script");
     if (!quiet && (otherExe || !focused)) {
         const bool vrOpen = lowerCase(holderExe).find("-vr") != std::string::npos;
         std::string text;
