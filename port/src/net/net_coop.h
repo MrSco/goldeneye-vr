@@ -88,6 +88,12 @@ int gevrCoopThrownMissionItem(int item);    /* a mine or other throw the mission
 int gevrCoopDeferRemoteMineSettle(struct WeaponObjRecord *wep); /* host: wait for the thrower (#130) */
 void gevrCoopReportMineSettled(struct WeaponObjRecord *wep, struct PropRecord *onto);
 int gevrCoopNearestPlayer(const struct coord3d *pos);   /* background scripts: nearest living player */
+int gevrCoopPartyTestBegin(const struct ChrRecord *self, int all);   /* chrai.c: a background list's Bond test asks the party */
+int gevrCoopPartyTestTry(int k);
+int gevrCoopPartyTestSettled(int passed);
+void gevrCoopPartyTestEnd(int passed);
+void gevrCoopReportActivate(struct ObjectRecord *obj);   /* chrprop.c: this player pressed a console or switch */
+void gevrCoopPressTaken(const struct ChrRecord *self, struct ObjectRecord *obj);   /* chrai.c: whoever pressed it is Bond */
 void gevrCoopAiText(int top, int textid);   /* the host: a mission script's message, for everyone */
 int gevrCoopObjectiveSnapshot(unsigned char *statuses, int max, int localslot);   /* objective_status.c */
 int gevrCoopHeldObjectiveTags(int *tags, int max, int localslot);

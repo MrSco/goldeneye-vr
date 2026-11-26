@@ -9980,16 +9980,18 @@ void chrlvAllChrTick(void)
 #ifdef GEVR
         /* co-op: a background list has no guard slot, so "Bond" was the host.
          * Run it as the nearest living player (Dr Doak's room, and the same
-         * pattern on every level). */
+         * pattern on every level). Most have no prop: their Bond tests ask
+         * the whole party (chrai.c GEVR_PARTY_TEST), which may leave the
+         * player who passed as current, so it is always put back. */
         {
             extern int gevrCoopActive(void);
             extern s32 gevrCoopNearestPlayer(const coord3d *pos);
-            s32 gevrPrev = 0;
+            s32 gevrCoop = gevrCoopActive();
+            s32 gevrPrev = get_cur_playernum();
             s32 gevrTarget = -1;
 
-            if (gevrCoopActive() && g_ActiveChrs[i].prop != NULL)
+            if (gevrCoop && g_ActiveChrs[i].prop != NULL)
             {
-                gevrPrev = get_cur_playernum();
                 gevrTarget = gevrCoopNearestPlayer(&g_ActiveChrs[i].prop->pos);
                 if (gevrTarget >= 0)
                 {
@@ -9997,7 +9999,7 @@ void chrlvAllChrTick(void)
                 }
             }
             chrlvActionTick(&g_ActiveChrs[i]);
-            if (gevrTarget >= 0)
+            if (gevrCoop && get_cur_playernum() != gevrPrev)
             {
                 set_cur_player(gevrPrev);
             }

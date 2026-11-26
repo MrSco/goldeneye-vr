@@ -183,9 +183,39 @@ and tells the party (`NET_COOP_EVENT_GRANT` up, `NET_MSG_COOP_GRANT` back
 down). A second grant does not add a second copy. A keyed door still checks
 the headset that uses it, so a teammate's key does not open it from here.
 
-Background lists have no guard slot, so "Bond" was the host. They now run
-as the nearest living player, the same choice a guard already makes. A
-client standing with Dr Doak is who the script sees.
+Background lists have no guard slot, so "Bond" was the host. A list with a
+prop runs as the nearest living player, the same choice a guard already
+makes. A client standing with Dr Doak is who the script sees.
+
+## The whole party in background lists (#356, #357)
+
+Most background lists have no prop, so their "Bond" was whoever happened to
+be the current player when the lists ran. Egypt's Golden Gun room counted
+one player's steps on the floor pattern; the others walked through without
+setting off the guns or opening the case. `tools/audit_coop_player_tests.py`
+lists every such test in the 20 missions: background lists hold 190 room
+tests, 243 held-item tests, 34 near-pad tests, 4 far-from-pad tests and 5
+height tests.
+
+Each of those tests now asks the party (chrai.c `GEVR_PARTY_TEST`,
+net_coop.c `gevrCoopPartyTest*`): the list's own player first, then every
+other player who can be targeted (not down, not a spectator, not still
+choosing a character). "In this room", "near this pad", "holding this" and
+"below this height" pass when anyone does, and that player is the list's
+Bond for the rest of its run, so the next step (a door, an item, a held
+gadget) acts on them. "Far from this pad" passes only when everyone is: the
+lists use it to wait until nobody can see a spawn or hear a sound.
+`chrlvAllChrTick` puts the current player back after every list. Guard
+lists keep their target. A held-item test just after a gadget use still
+asks the user's hands (#241).
+
+A client's press of a console or switch set `RUNTIMEBITFLAG_ACTIVATED` on
+its own headset only, and only the host runs the scripts that ask "was it
+activated?" (24 tests: Aztec's disk drive, launch mainframe and exhaust bay
+switch; Dam, Facility, Runway, Surfaces, Frigate, Caverns). The client now
+reports the object's tag (`NET_COOP_EVENT_ACTIVATE`); the host sets the
+flag, and the list that takes it treats the presser as Bond. An older host
+ignores the new event; protocol 29 is unchanged.
 
 Using the door decoder, data thief, bomb defuser, explosive floppy or DAT
 tape sets `PROPSTATE_ACTIVATED` on that headset only. A client reports the
@@ -240,8 +270,8 @@ the solo fuse on a thrown mine. Protocol 18 is unchanged.
 - Guard shots show muzzle flash and sound on clients, but no tracers or
   wall sparks; a guard's thrown grenade is not seen flying there.
 - Scripts that test "Bond" (rooms, items, cutscene control) test the
-  player the guard is targeting, or the nearest living player for a
-  background list. Keys and documents stay on the headset that picked
+  player the guard is targeting; a background list asks the whole party
+  (#356). Keys and documents stay on the headset that picked
   them up; a keyed door does not accept a teammate's copy.
 - A driven tank is seen moving, but its engine and tread sounds play only
   on the driver's headset.

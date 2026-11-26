@@ -24,6 +24,14 @@ scripts fixed on the way: mac_release.sh exports GEVR_ICLOUD=1, the Drive
 checks use Python zipfile (WSL has no unzip; Git Bash's unzip missed the exes).
 **Help wanted:** couch play with real pads, two headsets with the lobby,
 Apple hardware, Steam Frame, PC VR, the START save check by hand.
+**Unreleased (t3/address-new-issues):** co-op background lists ask the whole
+party (#356 Egypt's Golden Gun floor counted one player; #357 Aztec): room,
+near-pad, held-item and height tests pass for anyone, far-from-pad for
+everyone, and a client's console press reaches the host's scripts
+(`NET_COOP_EVENT_ACTIVATE`, protocol unchanged). Audit of all 20 missions:
+`tools/audit_coop_player_tests.py`; notes in
+[docs/issue-94-coop.md](docs/issue-94-coop.md). Not yet played on two
+headsets. Asked the #356 reporter what confused them in the default controls.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting,
 bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
 Push).

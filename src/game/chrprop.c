@@ -2692,6 +2692,12 @@ s32 gevrHandInteract(PropRecord *prop)
         case PROP_TYPE_OBJ:
         case PROP_TYPE_WEAPON:
             tickop = propobjInteract(prop);
+#ifdef GEVR
+            {
+                extern void gevrCoopReportActivate(ObjectRecord *obj);   /* co-op: the host runs the scripts (#357) */
+                gevrCoopReportActivate(prop->obj);
+            }
+#endif
             break;
         case PROP_TYPE_DOOR:
             tickop = propdoorInteract(prop);
@@ -2982,6 +2988,12 @@ bool bond_interact_object(void)
             case PROP_TYPE_OBJ:
             case PROP_TYPE_WEAPON:
                 tickop = propobjInteract(prop);
+#ifdef GEVR
+                {
+                    extern void gevrCoopReportActivate(ObjectRecord *obj);   /* co-op: the host runs the scripts (#357) */
+                    gevrCoopReportActivate(prop->obj);
+                }
+#endif
                 break;
             case PROP_TYPE_DOOR:
                 tickop = propdoorInteract(prop);
