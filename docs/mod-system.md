@@ -1151,8 +1151,9 @@ The ordinary `mod.weapon.scope` API still controls the game's own scope.
   click to change mode. Hold the stick button and move it up or down to
   change zoom. A lens showing a magnified scene uses the shared scope view
   capture. If two stock scopes are already active, their views take priority.
-  Thermal modes currently colour the scene by brightness. Character and
-  environment heat rendering is pending.
+  Thermal is a first pass that colours the scene by brightness. A follow-up
+  will add character and environment heat. Night view still needs headset
+  validation.
 
 #### Optic profile byte layout
 

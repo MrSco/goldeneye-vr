@@ -380,8 +380,10 @@ static int adjustZoom(int id, float amount)
  * short click changes mode; held, the stick zooms. */
 int gevrModOpticInput(int enabled, int click, float y)
 {
-    static int active = -1, scrolled;
+    static int active = -1, scrolled, wasClick;
     static u32 started, lastAdjust;
+    const int pressed = click && !wasClick;
+    wasClick = click;
     const int valid = enabled && g_gevrStereo && (u32)os_scheduler.frameCount - s_focusFrame <= 1u
         && bindingFor(s_focus) != NULL && gevrModAttachGunFrame(s_focus, NULL, NULL)
         && (active < 0 || gevrModAttachGunFrame(active, NULL, NULL));
@@ -400,7 +402,7 @@ int gevrModOpticInput(int enabled, int click, float y)
         }
         return TRUE;
     }
-    if (!click || !canAdjust(s_focus)) return FALSE;
+    if (!pressed || !canAdjust(s_focus)) return FALSE;
     active = s_focus;
     started = lastAdjust = now;
     scrolled = FALSE;
