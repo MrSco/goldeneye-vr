@@ -94,12 +94,15 @@ def main():
         profile = optic_profile()
         (assets / "fixture.opt").write_bytes(profile)
         (assets / "bad.opt").write_bytes(profile[:-1])
-        (pack / "scripts/main.lua").write_text(r'''local time, phase, id, original = 0, 0, nil, nil
-mod.on("tick", function(dt)
-  time = time + dt
-  local item = mod.weapon.held("right")
-  if not item or item < 4 then return end
-  if time > 8 and phase == 0 then
+        (pack / "scripts/main.lua").write_text(r'''local phase, id, original = 0, nil, nil
+local sniper = mod.items.sniperrifle
+
+-- The input script drives both the optic changes and the captures.
+-- Alternate fire and reload to keep a held key from advancing two phases.
+-- Decline both actions so the gun stays raised and no round is fired.
+mod.on("weapon_fire_attempt", function(hand, item)
+  if hand ~= "right" or item < 4 or (original and item ~= original) then return false end
+  if phase == 0 then
     phase = 1
     original = item
     id = assert(mod.attach.add{model="body.bin", on="gun", hand="right"})
@@ -108,21 +111,32 @@ mod.on("tick", function(dt)
     assert(not pcall(mod.attach.optic, id, {profile="../fixture.opt"}))
     assert(not pcall(mod.attach.optic, id, {profile="fixture.opt", folded="bad/mesh.bin"}))
     print("optic-test scope", mod.attach.opticMode(id, 1, 3))
-  elseif time > 11 and phase == 1 then
-    phase = 2
-    print("optic-test zoom", mod.attach.opticMode(id, 1, 4))
-  elseif time > 14 and phase == 2 then
+    mod.weapon.setLoaded("right", 1)
+    mod.ammo.set(mod.ammo["9mm"], 5)
+  elseif phase == 2 then
     phase = 3
     print("optic-test folded", mod.attach.opticMode(id, 2))
-  elseif time > 16 and phase == 3 then
-    phase = 4
-    assert(mod.inventory.give(mod.items.sniperrifle))
-  elseif time > 17 and phase == 4 and item ~= original then
-    phase = 5
-    print("optic-test swapped", mod.attach.opticMode(id))
-    assert(mod.attach.remove(id))
-    print("optic-test removed", mod.attach.opticMode(id))
+    assert(mod.inventory.give(sniper))
+    mod.ammo.set(mod.ammo.rifle, 5)
   end
+  return false
+end)
+
+mod.on("reload_attempt", function(hand, item)
+  if phase == 1 and hand == "right" and item == original then
+    phase = 2
+    print("optic-test zoom", mod.attach.opticMode(id, 1, 4))
+  end
+  return false
+end)
+
+mod.on("weapon_drawn", function(hand, item)
+  if phase ~= 3 or hand ~= "right" or item ~= sniper then return end
+  phase = 4
+  assert(mod.weapon.held("right") == sniper)
+  print("optic-test swapped", mod.attach.opticMode(id))
+  assert(mod.attach.remove(id))
+  print("optic-test removed", mod.attach.opticMode(id))
 end)
 ''', encoding="ascii")
         (pack / "files.sha256").write_text("".join(
@@ -133,8 +147,9 @@ end)
         shutil.copyfile(rom, root / "ge.z64")
         (root / "input.txt").write_text(
             "1000 key Return 200\n2000 click 200\n3500 key Return 200\n"
-            "7400 shot before\n10000 shot live\n12800 shot zoom\n15500 shot folded\n16900 key Q 100\n"
-            "18900 shot removed\n19800 quit\n", encoding="ascii")
+            "7400 shot before\n8000 key Space 500\n10000 shot live\n"
+            "11000 key R 500\n12800 shot zoom\n14000 key Space 500\n15500 shot folded\n"
+            "16900 key Q 500\n18900 shot removed\n19800 quit\n", encoding="ascii")
         result = subprocess.run(
             [str(runner), "--no-launcher", "--boot-stage", "33", "--input-script", "input.txt", "--mod-optic-preview"],
             cwd=root, timeout=70, capture_output=True, text=True, errors="replace")
@@ -156,6 +171,14 @@ end)
         ):
             assert re.search(pattern, log), (pattern, "\n".join(
                 line for line in log.splitlines() if re.search(r"mods?:|optic-test|scope:|input script:", line)))
+        timeline = (
+            "wrote shots/before.bmp", "optic-test scope", "wrote shots/live.bmp",
+            "optic-test zoom", "wrote shots/zoom.bmp", "optic-test folded",
+            "wrote shots/folded.bmp", "optic-test swapped", "optic-test removed",
+            "wrote shots/removed.bmp",
+        )
+        positions = [log.index(marker) for marker in timeline]
+        assert positions == sorted(positions), positions
         assert "optic lens shader:" not in log and "optic lens program:" not in log
         shots = root / "shots"
         pixels = [reticle_pixels(shots / f"{name}.bmp") for name in ("before", "live", "zoom", "folded", "removed")]
