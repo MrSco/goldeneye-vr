@@ -355,6 +355,8 @@ bool baselineParse(const std::string &text, Baseline *out)
 
 /* ------------------------------------------------------------------ saves */
 
+bool saveWhole(const std::string &data) { return data.size() == 2048; }
+
 bool saveHasProgress(const std::string &data)
 {
     if (data.size() < 32 + 5 * 0x60) return true;
@@ -527,7 +529,7 @@ Outcome sync(const DeviceRecord &mineIn, const std::vector<DeviceRecord> &others
         auto l = local.saves.find(n);
         const bool haveLocal = l != local.saves.end();
         bool editedHere = false;
-        if (haveLocal) {
+        if (haveLocal && saveWhole(l->second)) {
             const std::string h = hashText(l->second);
             auto b = base.saveHash.find(n);
             auto m = mine.saves.find(n);
@@ -560,10 +562,10 @@ Outcome sync(const DeviceRecord &mineIn, const std::vector<DeviceRecord> &others
         if (apply) {
             std::vector<Candidate> cands;
             auto m = mine.saves.find(n);
-            if (m != mine.saves.end()) cands.push_back({ &m->second, &mine });
+            if (m != mine.saves.end() && saveWhole(m->second.data)) cands.push_back({ &m->second, &mine });
             for (const DeviceRecord *r : others) {
                 auto s = r->saves.find(n);
-                if (s != r->saves.end()) cands.push_back({ &s->second, r });
+                if (s != r->saves.end() && saveWhole(s->second.data)) cands.push_back({ &s->second, r });
             }
             if (!cands.empty()) {
                 Candidate best = cands[0];

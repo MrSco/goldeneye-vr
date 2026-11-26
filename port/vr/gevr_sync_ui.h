@@ -185,6 +185,7 @@ inline void gevrSyncPage(const ImVec4 &gold, const ImVec4 &bad)
     if (ImGui::BeginPopupModal("Unlink Google Drive?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("This device stops syncing.");
         ImGui::TextDisabled("Its settings and saves stay here; your other devices and Drive keep theirs.");
+        ImGui::TextDisabled("To take GoldenEye VR's access away everywhere: your Google Account, Security.");
         if (ImGui::Button("Cancel", ImVec2(220, 52))) ImGui::CloseCurrentPopup();
         ImGui::SameLine();
         if (ImGui::Button("Unlink", ImVec2(220, 52))) {

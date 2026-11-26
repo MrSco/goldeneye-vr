@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class FakeGoogle:
     def __init__(self):
+        self.truncate = False     # downloads cut short (a dropped connection)
         self.sessions = {}        # resumable upload id -> dict(meta, total, data)
         self.pieces = 0
         self.files = {}           # id -> dict(name, mimeType, parents, appProperties, data, trashed, created, modified)
@@ -215,7 +216,8 @@ def handler_for(g):
                                                        "size": str(len(f["data"]))} for fid, f in hits]})
                 m = re.fullmatch(r"/drive/v3/files/(\w+)", u.path)
                 if m and qs.get("alt") == ["media"] and m.group(1) in g.files:
-                    return self.reply(200, raw=g.files[m.group(1)]["data"])
+                    data = g.files[m.group(1)]["data"]
+                    return self.reply(200, raw=data[:len(data) // 2] if g.truncate else data)
             self.reply(404, {"error": {"message": "no " + u.path}})
     return H
 
@@ -343,8 +345,8 @@ with tempfile.TemporaryDirectory(prefix="gevr-sync-drive-") as temp:
     # unlinking: the file goes, Google is told
     rt = re.search(r"refresh=(\S+)", (a / ".gevr-sync" / "google.txt").read_text()).group(1)
     r = run("drive-unlink", a, "quest")
-    check(r["state"] == "1" and not (a / ".gevr-sync" / "google.txt").exists() and rt in g.revoked,
-          "unlinked: forgotten here and at Google")
+    check(r["state"] == "1" and not (a / ".gevr-sync" / "google.txt").exists() and rt not in g.revoked,
+          "unlinked: forgotten here only (Google isn't told: that would sign the other devices out)")
     r = run("launch", a, "quest")
     check(r["active"] == "0", "off again once unlinked")
 
@@ -406,18 +408,48 @@ with tempfile.TemporaryDirectory(prefix="gevr-sync-drive-") as temp:
     r = run("files", c, "tv")
     check((c / "ge.z64").read_bytes() == mine and r["files"].startswith("0 0 "), "a ROM already here stays")
 
+    # the Quest's layout: ROMs in files/data (its game folder); the PC's beside the save folder
+    qd = t / "quest2"
+    (qd / "data").mkdir(parents=True)
+    (qd / "data" / "goldeneye-vr.ini").write_text("[VR]\n")
+    (qd / ".gevr-sync").mkdir()
+    shutil.copy(a / ".gevr-sync" / "google.txt", qd / ".gevr-sync" / "google.txt")
+    qenv = dict(env, GEVR_SYNC_GAME_DIR=str(qd / "data"))
+
+    def qrun(*a_):
+        out = subprocess.run([str(exe), *map(str, a_)], env=qenv, check=True, capture_output=True, text=True, timeout=120).stdout
+        return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+
+    qrun("launch", qd, "quest")
+    r = qrun("files", qd, "quest")
+    check((qd / "data" / "ge.z64").read_bytes() == rom2 and not (qd / "ge.z64").exists(),
+          "a PC's ROM lands in the Quest's files/data")
+    r = qrun("files", qd, "quest")
+    check(r["files"].startswith("0 0 "), "and is in step there (no second copy): " + r["files"])
+
+    # a download cut short never goes in place
+    g.truncate = True
+    (qd / "data" / "ge.z64").unlink()
+    r = qrun("files", qd, "quest")
+    g.truncate = False
+    check(not (qd / "data" / "ge.z64").exists() and "incomplete" in r["files"], "a short download is refused: " + r["files"])
+    r = qrun("files", qd, "quest")
+    check((qd / "data" / "ge.z64").read_bytes() == rom2, "and the next pass gets it whole")
+
     # ---- step 4: the device's name in its record, a save set aside used again ----
     r = run("name", c, "tv", "Den")
     check(r["name"] == "Den", "the name kept")
     check(any(b"name\tDen" in f["data"] for f in g.files.values() if f["appProperties"].get("gevr") == "record"),
           "and carried in the record")
-    (c / "eeprom.bin").write_bytes(b"\0" * 512)
+    (c / "eeprom.bin").write_bytes(b"\0" * 2048)
+    (c / "eeprom.bin.before-sync-20261124-100000").write_bytes(b"\0" * 2048)   # blank: not offered
+    (c / "eeprom.bin.before-sync-20261124-110000").write_bytes(b"\0" * 10)     # cut short: not offered
     aside = "eeprom.bin.before-sync-20261125-201400"
-    kept = bytearray(512)
+    kept = bytearray(2048)
     kept[32 + 20] = 7
     (c / aside).write_bytes(bytes(kept))
     r = run("aside", c, "tv", aside)
-    check(r.get("aside") == aside and r.get("chosen") == aside, "listed and chosen")
+    check(r.get("aside") == aside and r.get("chosen") == aside, "listed (only the one worth using) and chosen")
     r = run("launch", c, "tv")
     check((c / "eeprom.bin").read_bytes() == bytes(kept) and not (c / aside).exists(), "used again at the next start")
     check("message" in r and "save you chose" in r["message"], "and said so")
@@ -433,8 +465,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-sync-drive-") as temp:
     for d in (x, y):
         d.mkdir()
         (d / "goldeneye-vr.ini").write_text("[VR]\n")
-    (x / "data").mkdir()
-    (x / "data" / "gf.z64").write_bytes(os.urandom(4096))
+    (x / "gf.z64").write_bytes(os.urandom(4096))
 
     def frun(*a_):
         out = subprocess.run([str(exe), *map(str, a_)], env=fenv, check=True, capture_output=True, text=True, timeout=120).stdout
@@ -444,7 +475,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-sync-drive-") as temp:
     frun("files", x, "pc")
     frun("launch", y, "quest")
     frun("files", y, "quest")
-    check((y / "data" / "gf.z64").read_bytes() == (x / "data" / "gf.z64").read_bytes(), "a ROM in data/ through a folder")
+    check((y / "gf.z64").read_bytes() == (x / "gf.z64").read_bytes(), "a ROM through a folder")
     check(len([n for n in os.listdir(store) if n.startswith("blob-")]) == 1, "one blob in the folder")
 
 server.shutdown()

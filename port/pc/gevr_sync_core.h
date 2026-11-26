@@ -124,6 +124,10 @@ Outcome sync(const DeviceRecord &mine, const std::vector<DeviceRecord> &others, 
  * (ios_icloud.mm's rule; another layout counts as progress) */
 bool saveHasProgress(const std::string &data);
 
+/* A whole EEPROM (2048 bytes, libultra.c's EEPROM_SIZE). A short or empty file
+ * (a write cut off) never syncs and never wins; a whole one replaces it. */
+bool saveWhole(const std::string &data);
+
 std::string hashText(const std::string &data);   // change detection only (FNV-1a 64, hex)
 std::string base64Encode(const std::string &in);
 bool base64Decode(const std::string &in, std::string *out);

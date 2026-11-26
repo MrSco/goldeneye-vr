@@ -459,6 +459,9 @@ void savePush(const std::string &name, const std::string &data, long long mtime)
  * 0x60-byte save slots (src/game/file2.c fileValidateSaves). A slot in use
  * (flag 0x80 clear) with a finished level (its times), an unlocked cheat or 007
  * mode is progress. Another layout (bytes there in use) reads as progress: no guard. */
+/* GoldenEye's EEPROM is 2048 bytes (libultra.c EEPROM_SIZE) */
+bool saveWhole(const std::string &data) { return data.size() == 2048; }
+
 bool saveHasProgress(const std::string &data)
 {
     if (data.size() < 32 + 5 * 0x60) return true;
@@ -514,10 +517,14 @@ void savesLaunchMerge()
     for (const std::string &n : names) {
         const std::string path = g_root + "/" + n;
         std::string local;
-        const bool haveLocal = readFile(path, &local);
+        // a save cut short (a crash mid-write) counts as none: it never goes up and
+        // a whole one replaces it (saveWhole, the cross-platform sync's rule)
+        const bool haveFile = readFile(path, &local);
+        const bool haveLocal = haveFile && saveWhole(local);
         const long long lt = haveLocal ? fileTime(path) : 0;
         NSDictionary *r = [kvs() dictionaryForKey:[kSavePrefix stringByAppendingString:ns(n)]];
         NSData *rd = [r[@"d"] isKindOfClass:[NSData class]] ? r[@"d"] : nil;
+        if (rd && rd.length != 2048) rd = nil;
         const long long rt = [r[@"t"] respondsToSelector:@selector(longLongValue)] ? [r[@"t"] longLongValue] : 0;
         const std::string remote = rd ? std::string((const char *)rd.bytes, rd.length) : std::string();
         if (haveLocal && rd && local == remote) continue;
@@ -532,7 +539,8 @@ void savesLaunchMerge()
             cloudLog("%s to iCloud (written %lld, iCloud's %lld)", n.c_str(), lt, rt);
             continue;
         }
-        if (haveLocal) saveBackup(n, local);
+        if (!rd) continue;   // neither side has a whole one
+        if (haveFile) saveBackup(n, local);
         if (writeFileAtomic(path, remote)) {
             struct timeval tv[2] = { { (time_t)rt, 0 }, { (time_t)rt, 0 } };
             utimes(path.c_str(), tv);
@@ -547,7 +555,7 @@ void saveSaved(const std::string &name)
 {
     const std::string path = g_root + "/" + name;
     std::string data;
-    if (!readFile(path, &data)) return;
+    if (!readFile(path, &data) || !saveWhole(data)) return;
     if (!saveHasProgress(data)) {
         NSDictionary *r = [kvs() dictionaryForKey:[kSavePrefix stringByAppendingString:ns(name)]];
         NSData *rd = [r[@"d"] isKindOfClass:[NSData class]] ? r[@"d"] : nil;

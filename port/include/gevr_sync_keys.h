@@ -37,6 +37,7 @@ inline KeyScope iniKeyScope(const std::string &k)
 {
     static const char *const device[] = {
         "ICloudSync", "ICloudPacks",   // each device chooses
+        "FriendsRestoreNoted",         // each device is its own friends player, with its own restore code
     };
     for (const char *d : device) {
         if (k == d) return KEY_DEVICE;
@@ -52,6 +53,10 @@ inline KeyScope iniKeyScope(const std::string &k)
         "MatchCharacterHeight", "WorldScale", "HudDistance", "StereoCrosshair", "PadDefaults",
         "LookUprightFolders", "MicMuted", "LiveSplit", "LiveSplitHost",
         "MasterVolume",   // a phone's speaker and a living room's TV want their own
+        // what the device's chip and screen can carry: a PC's eye resolution on a Quest
+        // would cost it its frame rate
+        "EyeResolution", "TextureAniso", "VolumetricExplosions",
+        "GyroAim", "GyroSpeed",   // a phone's or tablet's gyroscope
     };
     for (const char *d : kind) {
         if (k == d) return KEY_KIND;
@@ -73,6 +78,7 @@ inline KeyScope cfgKeyScope(const std::string &k)
     static const char *const kind[] = {
         "Video.", "Input.Use", "Input.FakeGamepads", "Input.FirstGamepadNum",
         "Input.Mouse", "Game.MemorySize", "Game.ExtraSleep",
+        "Game.TickRateDivisor", "Game.MaxExplosions",   // the device's speed
     };
     for (const char *p : kind) {
         if (keyHasPrefix(k, p)) return KEY_KIND;

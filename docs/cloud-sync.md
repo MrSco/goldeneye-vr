@@ -57,7 +57,10 @@ settings, saves and ROMs, with big packs opt-in. Decisions (user):
   browser) and everywhere else. The device syncs from its next start (the
   game has already read its files). The refresh token stays in the save
   folder's `.gevr-sync/google.txt`, never synced. Unlink (with a confirm)
-  forgets it and revokes it at Google. When Google refuses the token (the
+  forgets it on this device only: revoking it at Google would end the
+  player's whole grant and sign their other devices out too (review
+  2026-11-25); the Google Account's Security page removes the access
+  everywhere. When Google refuses the token (the
   player removed the access, or Testing's 7 days ran out), the device signs
   itself out and the launcher says "Google Drive signed this device out.
   Link it again" (`.gevr-sync/google-signed-out.txt` until it is).
@@ -107,7 +110,9 @@ device, one read per device at launch. `deviceId` is random per install
   saw.
   Settings that arrive while the game runs apply at the next launch, never
   mid-match.
-- **Saves: never merged** (the iCloud rule). The save the game wrote last
+- **Saves: never merged** (the iCloud rule). Only a whole EEPROM (2048
+  bytes) syncs: one cut short (a crash mid-write) never goes up, never wins,
+  and a whole one replaces it (iCloud too, since the 2026-11-25 review). The save the game wrote last
   wins; a save with no progress never replaces one with progress; the one
   replaced is kept on the device (`eeprom.bin.before-sync-<date>`, last five).
   The winner is the same on every device: progress first, then the newest,
@@ -120,14 +125,21 @@ device, one read per device at launch. `deviceId` is random per install
 - **Joining:** the iCloud rule. A newly linked device first reads what is
   there; the others' settings win, and it adds only keys nobody has set.
 - **ROMs and packs (step 3, gevr_sync_files.cpp):** ROMs (`*.z64/v64/n64`
-  in the save folder and `data/`) always; the packs in `texture-packs/` only
+  in the game's folder, `$B`, where the launcher looks: the Quest's
+  files/data, the PC's exe folder; known by name alone, so the layouts meet)
+  always; the packs in `texture-packs/` only
   with **Big packs too** (Play > Sync, this device's choice). Per path, the
   newest entry among the devices' indexes wins. iCloud's rules: **already
   here stays** (what a device has the first time it syncs keeps as it is),
   then a change here goes up and a change elsewhere comes down (both: the
   others' copy). A download whose target is there waits in
   `.gevr-sync/ready/` and goes in place at the next launch, before the game
-  reads it. A pack needs twice its size free. Nothing is deleted on a device
+  reads it. A download goes in place only whole: a ROM's SHA-256 is its id,
+  a pack's zip has the store's size and unpacks. A pack needs twice its
+  size free. This device's index goes up whenever the store's copy differs
+  from it (a write that failed, a trashed file). Two devices that uploaded
+  the same content at once leave two copies; the next list removes the
+  newer one. Nothing is deleted on a device
   when a file is removed (it comes back); a blob no index names any more is
   removed by the device that replaced it. Uploads are Drive's resumable
   upload in 4 MiB pieces (the session address is the reply's `Location`,
@@ -198,6 +210,11 @@ value back: each uploads only what differs from what it last synced.
 
 - `port/pc/gevr_sync_core.cpp`: the rules (records, stamps, scopes, the save
   winner, joining), no I/O.
+- Settings files: goldeneye-vr.ini is the working folder's (`$B`,
+  VR_INI_PATH), goldeneye.ini the save folder's (`$S`): the same folder on
+  PC and Apple, files/data and files on the Quest (review 2026-11-25: the
+  first version looked for both in `$S`, so the Quest never synced
+  goldeneye-vr.ini).
 - `port/pc/gevr_sync.cpp`: the files around it (`.gevr-sync/` in the save
   folder: `id.txt`, `state.txt` = the last sync, `mine.txt` = this device's
   record), the store interface (`gevr_sync_store.h`), the folder store, the

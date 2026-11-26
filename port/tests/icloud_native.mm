@@ -210,6 +210,8 @@ int main()
         check(!saveHasProgress(freeSlot), "a free slot's leftovers are not progress");
         check(saveHasProgress(std::string(2048, 'x')), "another layout gets no guard");
         check(saveHasProgress(std::string(100, 'x')), "a short file gets no guard");
+        check(saveWhole(blank) && !saveWhole(std::string()) && !saveWhole(std::string(100, 'x')),
+              "only a whole 2048-byte EEPROM syncs; one cut short never wins");
     }
     // backups: dated, the last five
     {

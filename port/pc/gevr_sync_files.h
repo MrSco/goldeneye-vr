@@ -15,7 +15,7 @@ namespace gsync {
 class Store;
 
 struct LocalFile {
-    std::string path;      // in the save folder: "ge.z64", "data/ge.z64", "texture-packs/hd"
+    std::string path;      // a ROM: its name in the ROM folder ("ge.z64"); a pack: "texture-packs/hd" in the save folder
     bool pack = false;
     long long bytes = 0;
     std::string stamp;     // changes when it does (size and time; a pack's count too)
@@ -42,10 +42,15 @@ std::string filesIndexName(const std::string &deviceId);   // "files-<id>.txt"
 bool filesIndexNameId(const std::string &name, std::string *id);
 std::string filesIndexText(const FilesIndex &ix);
 bool filesIndexParse(const std::string &text, FilesIndex *out);
-std::vector<LocalFile> localFiles(const std::string &root, bool packs);
+/* The ROMs sit where the launcher looks for them, the game's folder ($B: the
+ * Quest's files/data, the PC's exe folder); the packs in the save folder's
+ * texture-packs ($S). A ROM is known by its name alone, so the layouts meet. */
+std::vector<LocalFile> localFiles(const std::string &root, const std::string &romDir, bool packs);
+std::string localPathOf(const std::string &root, const std::string &romDir, const std::string &path, bool pack);
 
 struct FilesPassArgs {
     std::string root, deviceId;
+    std::string romDir;        // the ROMs' folder ($B)
     bool packs = false;
     long long now = 0;
     std::function<void(const std::string &line, float done)> progress;   // done < 0: unknown
@@ -65,7 +70,7 @@ struct FilesResult {
 FilesResult filesPass(Store *store, const FilesPassArgs &args);
 
 /* At launch, before the game reads them: downloads that waited, put in place. */
-int filesInstallReady(const std::string &root, std::vector<std::string> *installed);
+int filesInstallReady(const std::string &root, const std::string &romDir, std::vector<std::string> *installed);
 
 }   // namespace gsync
 

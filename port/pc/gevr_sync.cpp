@@ -366,7 +366,8 @@ void syncLog(const char *fmt, ...)
 std::mutex g_lock;            // everything below
 bool g_launched = false;
 bool g_active = false;        // a store is linked and the launch sync ran
-std::string g_root;           // the save folder
+std::string g_root;           // the save folder ($S): goldeneye.ini, the saves, texture-packs, .gevr-sync
+std::string g_gameDir;        // the game's folder ($B, the working folder): goldeneye-vr.ini, the ROMs
 std::string g_kind;
 std::shared_ptr<Store> g_store;   // shared: a push holds it while the player unlinks
 DeviceRecord g_mine;
@@ -448,10 +449,18 @@ std::unique_ptr<Store> linkedStore()
 #endif
 }
 
+/* goldeneye-vr.ini is the working folder's (VR_INI_PATH), goldeneye.ini the save
+ * folder's (CONFIG_PATH "$S/"): one place on the PC, two on the Quest (files/data
+ * and files) */
+std::string settingsPath(int f)
+{
+    return (f == FILE_INI ? g_gameDir : g_root) + "/" + kFileNames[f];
+}
+
 LocalState readLocal()
 {
     LocalState l;
-    for (int f = 0; f < FILE_COUNT; f++) l.have[f] = readFile(g_root + "/" + kFileNames[f], &l.text[f]);
+    for (int f = 0; f < FILE_COUNT; f++) l.have[f] = readFile(settingsPath(f), &l.text[f]);
     for (const std::string &n : listDir(g_root)) {
         if (!isSaveName(n)) continue;
         std::string data;
@@ -554,7 +563,7 @@ void launchSync()
     // the files first: a crash after them leaves the next launch to stamp them as this device's (harmless)
     for (int f = 0; f < FILE_COUNT; f++) {
         if (!o.fileChanged[f]) continue;
-        const std::string path = g_root + "/" + kFileNames[f];
+        const std::string path = settingsPath(f);
         if (!writeFileAtomic(path, o.text[f])) {
             syncLog("could not write %s: nothing changed", kFileNames[f]);
             return;
@@ -607,10 +616,28 @@ void launchSync()
 }
 
 /* After the game wrote a file: this device's changes into its record. */
-void pushNow()
+/* This device's record up, the newest one: uploads run one at a time and each
+ * takes the record as it is when its turn comes, so an older one never lands
+ * after a newer one. */
+std::mutex g_uploadLock;
+
+void uploadMine()
 {
+    std::lock_guard<std::mutex> one(g_uploadLock);
     std::shared_ptr<Store> store;
     DeviceRecord mine;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        if (!g_active) return;
+        store = g_store;
+        mine = g_mine;
+    }
+    // outside the lock: the network can take a while
+    if (store) upload(store.get(), mine);
+}
+
+void pushNow()
+{
     {
         std::lock_guard<std::mutex> hold(g_lock);
         g_pushQueued = false;
@@ -624,11 +651,8 @@ void pushNow()
         }
         g_mine = o.mine;
         keepState(g_base, g_mine);
-        mine = g_mine;
-        store = g_store;
     }
-    // outside the lock: the network can take a while; one push runs at a time
-    if (store) upload(store.get(), mine);
+    uploadMine();
 }
 
 }   // namespace
@@ -641,7 +665,10 @@ std::vector<std::string> savesAside()
     std::vector<std::string> out;
     for (const std::string &n : listDir(g_root)) {
         const size_t at = n.find(".before-sync-");
-        if (at != std::string::npos && isSaveName(n.substr(0, at))) out.push_back(n);
+        if (at == std::string::npos || !isSaveName(n.substr(0, at))) continue;
+        // only one worth using: a blank one loses to any progress the moment it is back
+        std::string data;
+        if (readFile(g_root + "/" + n, &data) && saveWhole(data) && saveHasProgress(data)) out.push_back(n);
     }
     std::sort(out.begin(), out.end(), [](const std::string &a, const std::string &b) {
         return a.substr(a.find(".before-sync-")) > b.substr(b.find(".before-sync-"));
@@ -662,7 +689,7 @@ void useSaveAside()
     if (at == std::string::npos || chosen.find('/') != std::string::npos || chosen.find('\\') != std::string::npos) return;
     const std::string save = chosen.substr(0, at);
     std::string data, current;
-    if (!isSaveName(save) || !readFile(g_root + "/" + chosen, &data)) return;
+    if (!isSaveName(save) || !readFile(g_root + "/" + chosen, &data) || !saveWhole(data)) return;
     if (readFile(g_root + "/" + save, &current) && current != data) backupSave(save, current);
     if (writeFileAtomic(g_root + "/" + save, data)) {
         removeFile(g_root + "/" + chosen);
@@ -686,13 +713,14 @@ bool packsOn()
 FilesResult filesRunOnce(std::unique_lock<std::mutex> &lock)
 {
     g_filesKick = false;
-    const std::string root = g_root, device = g_mine.id;
+    const std::string root = g_root, romDir = g_gameDir, device = g_mine.id;
     lock.unlock();
     std::unique_ptr<Store> store = linkedStore();   // its own: the push may use g_store meanwhile
     FilesResult res;
     if (store) {
         FilesPassArgs a;
         a.root = root;
+        a.romDir = romDir;
         a.deviceId = device;
         a.packs = packsOn();
         a.now = wallMs();
@@ -747,13 +775,15 @@ void filesWorker()
 
 /* the game's entry points, around the state above */
 
-void launchAt(const std::string &root, const std::string &kind)
+void launchAt(const std::string &root, const std::string &kind, const std::string &gameDir)
 {
     std::lock_guard<std::mutex> hold(g_lock);
     if (g_launched) return;
     g_launched = true;
     g_root = root;
     while (g_root.size() > 1 && (g_root.back() == '/' || g_root.back() == '\\')) g_root.pop_back();
+    g_gameDir = gameDir.empty() ? g_root : gameDir;
+    while (g_gameDir.size() > 1 && (g_gameDir.back() == '/' || g_gameDir.back() == '\\')) g_gameDir.pop_back();
     g_kind = kind;
     makeDir(g_root + "/.gevr-sync");
     useSaveAside();         // a save set aside that the player chose to use again
@@ -761,7 +791,7 @@ void launchAt(const std::string &root, const std::string &kind)
     {
         // downloads that waited for this launch (the game had the file open)
         std::vector<std::string> installed;
-        if (filesInstallReady(g_root, &installed)) {
+        if (filesInstallReady(g_root, g_gameDir, &installed)) {
             for (const std::string &p : installed) syncLog("%s put in place (it came while the game ran)", p.c_str());
             g_message = installed.size() == 1 ? "Sync: " + installed[0] + " came from your other devices."
                                               : "Sync: " + std::to_string(installed.size()) + " files came from your other devices.";
@@ -815,8 +845,6 @@ void fileSaved(const std::string &path)
     // a short wait gathers the several files one change writes
     std::thread([] {
         std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-        static std::mutex one;   // one push at a time
-        std::lock_guard<std::mutex> hold(one);
         pushNow();
     }).detach();
 }
@@ -912,23 +940,27 @@ int driveInfo(GevrSyncDriveInfo *out)
 }   // namespace gsync
 
 #ifndef GEVR_SYNC_TEST
+static std::string absoluteOf(const char *path)
+{
+    if (path && fsPathIsAbsolute(path)) return path;
+    char cwd[1024];
+#ifdef _WIN32
+    std::string r = _getcwd(cwd, sizeof(cwd)) ? cwd : ".";
+#else
+    std::string r = getcwd(cwd, sizeof(cwd)) ? cwd : ".";
+#endif
+    if (path && path[0] && strcmp(path, ".") != 0) r += std::string("/") + path;
+    return r;
+}
+
 extern "C" void gevrSyncLaunch(void)
 {
-    const char *root = fsFullPath("$S");
-    std::string r;
-    if (root && fsPathIsAbsolute(root)) {
-        r = root;
-    } else {
-        char cwd[1024];
-#ifdef _WIN32
-        r = _getcwd(cwd, sizeof(cwd)) ? cwd : ".";
-#else
-        r = getcwd(cwd, sizeof(cwd)) ? cwd : ".";
-#endif
-        if (root && root[0] && strcmp(root, ".") != 0) r += std::string("/") + root;
-    }
     const char *kind = getenv("GEVR_SYNC_KIND");   // a test's device kind
-    gsync::launchAt(r, kind && kind[0] ? kind : gsync::buildKind());
+    // the save folder ($S) and the game's ($B: the working folder, where
+    // goldeneye-vr.ini and the launcher's ROMs are); the Quest's are two
+    const std::string save = absoluteOf(fsFullPath("$S"));   // one at a time: fsFullPath has one buffer
+    const std::string game = absoluteOf(fsFullPath("$B"));
+    gsync::launchAt(save, kind && kind[0] ? kind : gsync::buildKind(), game);
 }
 
 extern "C" void gevrSyncFileSaved(const char *path)
@@ -1034,9 +1066,7 @@ extern "C" void gevrSyncSetDeviceName(const char *name)
         // the record carries it: the other devices' notes name this one by it
         gsync::g_mine.name = n.empty() ? gsync::kindLabel(gsync::g_kind) : n;
         gsync::keepState(gsync::g_base, gsync::g_mine);
-        std::shared_ptr<gsync::Store> store = gsync::g_store;
-        const gsync::DeviceRecord mine = gsync::g_mine;
-        std::thread([store, mine] { if (store) gsync::upload(store.get(), mine); }).detach();
+        std::thread(gsync::uploadMine).detach();
     }
 }
 

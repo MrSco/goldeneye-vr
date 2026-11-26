@@ -111,6 +111,12 @@ bool filesIndexParse(const std::string &text, FilesIndex *out)
     for (size_t i = 1; i < ls.size(); i++) {
         const std::vector<std::string> f = fields(ls[i]);
         if (f.size() != 6 || f[0] != "file" || !safePath(f[5]) || f[4].empty()) continue;
+        const bool pack = f[2] == "pack";
+        const size_t slash = f[5].find('/');
+        if (pack ? f[5].compare(0, 14, "texture-packs/") != 0 || f[5].find('/', 14) != std::string::npos
+                 : slash != std::string::npos) {
+            continue;   // a ROM is a name, a pack a folder of texture-packs: nothing else lands
+        }
         FileEntry e;
         e.t = strtoll(f[1].c_str(), nullptr, 10);
         e.pack = f[2] == "pack";
@@ -156,22 +162,24 @@ static void walk(const std::string &abs, const std::string &rel, std::vector<std
     }
 }
 
-std::vector<LocalFile> localFiles(const std::string &root, bool packs)
+std::string localPathOf(const std::string &root, const std::string &romDir, const std::string &path, bool pack)
+{
+    return pack ? root + "/" + path : romDir + "/" + path;
+}
+
+std::vector<LocalFile> localFiles(const std::string &root, const std::string &romDir, bool packs)
 {
     std::vector<LocalFile> out;
-    for (const char *sub : { "", "data" }) {
-        const std::string dir = *sub ? root + "/" + sub : root;
-        for (const std::string &n : listDir(dir)) {
-            const std::string abs = dir + "/" + n;
-            if (!romName(n) || !isFile(abs)) continue;
-            const long long size = fileSize(abs);
-            if (size <= 0) continue;
-            LocalFile f;
-            f.path = *sub ? std::string(sub) + "/" + n : n;
-            f.bytes = size;
-            f.stamp = std::to_string(size) + ":" + std::to_string(fileTimeMs(abs) / 1000);
-            out.push_back(f);
-        }
+    for (const std::string &n : listDir(romDir)) {
+        const std::string abs = romDir + "/" + n;
+        if (!romName(n) || !isFile(abs)) continue;
+        const long long size = fileSize(abs);
+        if (size <= 0) continue;
+        LocalFile f;
+        f.path = n;
+        f.bytes = size;
+        f.stamp = std::to_string(size) + ":" + std::to_string(fileTimeMs(abs) / 1000);
+        out.push_back(f);
     }
     if (!packs) return out;
     const std::string tp = root + "/texture-packs";
@@ -192,10 +200,11 @@ std::vector<LocalFile> localFiles(const std::string &root, bool packs)
 }
 
 /* What is in it: a ROM's SHA-256; a pack's over each file's path, size and SHA-256 */
-static std::string contentId(const std::string &root, const LocalFile &f, const std::string &scratch)
+static std::string contentId(const std::string &root, const std::string &romDir, const LocalFile &f,
+                             const std::string &scratch)
 {
     if (!f.pack) {
-        const std::string h = sha256File(root + "/" + f.path);
+        const std::string h = sha256File(romDir + "/" + f.path);
         return h.empty() ? h : "r" + h;
     }
     std::vector<std::pair<std::string, long long>> files;
@@ -272,9 +281,9 @@ static void writeSynced(const std::string &path, const std::map<std::string, Fil
     writeFileAtomic(path, o);
 }
 
-static std::string stampOf(const std::string &root, const std::string &path, bool pack)
+static std::string stampOf(const std::string &root, const std::string &romDir, const std::string &path, bool pack)
 {
-    for (const LocalFile &f : localFiles(root, pack)) {
+    for (const LocalFile &f : localFiles(root, romDir, pack)) {
         if (f.path == path) return f.stamp;
     }
     return std::string();
@@ -333,7 +342,7 @@ static bool installDir(const std::string &staged, const std::string &target)
 
 /* .gevr-sync/ready/<n>/: a download that waited ("item" = the file or the pack's
  * folder) and <n>.txt: its path, pack or not, its entry's t and blob */
-int filesInstallReady(const std::string &root, std::vector<std::string> *installed)
+int filesInstallReady(const std::string &root, const std::string &romDir, std::vector<std::string> *installed)
 {
     const std::string state = root + "/.gevr-sync", ready = state + "/ready";
     std::map<std::string, FileSynced> synced = readSynced(state + "/files-state.txt");
@@ -347,9 +356,10 @@ int filesInstallReady(const std::string &root, std::vector<std::string> *install
         const std::string item = ready + "/" + key + "/item";
         if (l.size() >= 4 && safePath(l[0])) {
             const bool pack = l[1] == "1";
-            const bool ok = pack ? installDir(item, root + "/" + l[0]) : installFile(item, root + "/" + l[0]);
+            const std::string target = localPathOf(root, romDir, l[0], pack);
+            const bool ok = pack ? installDir(item, target) : installFile(item, target);
             if (ok) {
-                synced[l[0]] = FileSynced{ stampOf(root, l[0], pack), strtoll(l[2].c_str(), nullptr, 10), l[3] };
+                synced[l[0]] = FileSynced{ stampOf(root, romDir, l[0], pack), strtoll(l[2].c_str(), nullptr, 10), l[3] };
                 if (installed) installed->push_back(l[0]);
                 n++;
             }
@@ -387,9 +397,15 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
         return res;
     }
     std::map<std::string, FilesIndex> indexes;   // device id -> its index
+    std::string storedMine;                      // this device's index as the store has it
+    bool haveStoredMine = false;
     for (const std::string &n : names) {
         std::string id, text;
-        if (!filesIndexNameId(n, &id) || id == a.deviceId) continue;
+        if (!filesIndexNameId(n, &id)) continue;
+        if (id == a.deviceId) {
+            haveStoredMine = store->read(n, &storedMine, &why);
+            continue;
+        }
         if (!store->read(n, &text, &why)) {
             res.error = why;   // a partial view could put an old copy over a newer one
             return res;
@@ -423,7 +439,7 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
 
     std::map<std::string, FileSynced> synced = readSynced(state + "/files-state.txt");
     std::map<std::string, LocalFile> local;
-    for (const LocalFile &f : localFiles(a.root, a.packs)) local[f.path] = f;
+    for (const LocalFile &f : localFiles(a.root, a.romDir, a.packs)) local[f.path] = f;
     std::set<std::string> pending;   // waiting in ready/ for the next launch
     for (const std::string &n : listDir(state + "/ready")) {
         std::string info;
@@ -461,7 +477,7 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
         }
         if (move == FileMove::Up) {
             say("Sync: checking " + baseName(p), -1);
-            const std::string id = contentId(a.root, *L, work);
+            const std::string id = contentId(a.root, a.romDir, *L, work);
             if (id.empty()) {
                 res.failed++;
                 res.error = "could not read " + p;
@@ -477,7 +493,7 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
                     res.error = why;
                     break;
                 }
-                std::string upPath = a.root + "/" + p;
+                std::string upPath = localPathOf(a.root, a.romDir, p, L->pack);
                 const std::string zip = work + "/" + id + ".zip";
                 if (L->pack) {
                     say("Sync: packing " + baseName(p), -1);
@@ -535,6 +551,24 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
             res.error = why;
             continue;
         }
+        // whole and the same: a ROM's SHA-256 is its id; a pack's zip has the store's size
+        // (and unpacking checks it); a short download never goes in place
+        {
+            bool whole;
+            if (!W->pack) {
+                whole = fileSize(got) == W->bytes && "r" + sha256File(got) == W->blob;
+            } else {
+                if (!haveBlobs) haveBlobs = store->listBlobs(&blobs, &why);
+                auto b = blobs.find(W->blob);
+                whole = !haveBlobs || b == blobs.end() || b->second <= 0 || fileSize(got) == b->second;
+            }
+            if (!whole) {
+                removeFile(got);
+                res.failed++;
+                res.error = baseName(p) + " came down incomplete";
+                continue;
+            }
+        }
         std::string item = got;
         const std::string key = W->blob.substr(0, 24);
         const std::string ready = state + "/ready/" + key;
@@ -559,7 +593,7 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
             removeFile(got);
             item = ready + "/item";
         }
-        const std::string target = a.root + "/" + p;
+        const std::string target = localPathOf(a.root, a.romDir, p, W->pack);
         const bool there = W->pack ? isDir(target) : isFile(target);
         if (!there) {
             const bool placed = W->pack ? installDir(item, target) : installFile(item, target);
@@ -570,7 +604,7 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
                 res.error = "could not put " + p + " in place";
                 continue;
             }
-            synced[p] = FileSynced{ stampOf(a.root, p, W->pack), W->t, W->blob };
+            synced[p] = FileSynced{ stampOf(a.root, a.romDir, p, W->pack), W->t, W->blob };
             res.arrived.push_back(p);
         } else {
             // the game may have it open: in place at the next launch
@@ -589,9 +623,11 @@ FilesResult filesPass(Store *store, const FilesPassArgs &a)
     }
 
     writeSynced(state + "/files-state.txt", synced);
-    if (filesIndexText(mine) != filesIndexText(mineBefore) || !std::count(names.begin(), names.end(), filesIndexName(a.deviceId))) {
-        writeFileAtomic(state + "/files-mine.txt", filesIndexText(mine));
-        if (!store->write(filesIndexName(a.deviceId), filesIndexText(mine), &why)) {
+    const std::string mineText = filesIndexText(mine);
+    if (mineText != filesIndexText(mineBefore)) writeFileAtomic(state + "/files-mine.txt", mineText);
+    // up whenever the store's copy differs: a change, a write that failed before, a trashed file
+    if (!haveStoredMine || storedMine != mineText) {
+        if (!store->write(filesIndexName(a.deviceId), mineText, &why)) {
             res.failed++;
             res.error = why;
             return res;

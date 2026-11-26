@@ -20,8 +20,11 @@ def build(temp):
     return exe
 
 
-def run(exe, action, folder, kind, store):
+def run(exe, action, folder, kind, store, game=None):
     env = dict(os.environ)
+    env.pop("GEVR_SYNC_GAME_DIR", None)
+    if game is not None:
+        env["GEVR_SYNC_GAME_DIR"] = str(game)
     env.pop("GEVR_SYNC_DIR", None)
     if store is not None:
         env["GEVR_SYNC_DIR"] = str(store)
@@ -36,11 +39,11 @@ def ini(folder):
 
 
 def blank():
-    return bytes(512)
+    return bytes(2048)
 
 
 def progress(level):
-    b = bytearray(512)
+    b = bytearray(2048)
     b[32 + 20] = level
     return bytes(b)
 
@@ -108,5 +111,20 @@ with tempfile.TemporaryDirectory(prefix="gevr-sync-") as temp:
     check(len(list(a.glob("eeprom.bin.before-sync-*"))) == 1, "this device's save is kept aside")
     r = run(exe, "launch", b, "tv", store)
     check("message" not in r and (b / "eeprom.bin").read_bytes() == progress(4), "the winner hears nothing")
+
+    # the Quest's layout: goldeneye-vr.ini (and the ROMs) in files/data, goldeneye.ini and saves in files
+    q = t / "questfiles"
+    (q / "data").mkdir(parents=True)
+    (q / "data" / "goldeneye-vr.ini").write_text("[VR]\nLookSpeed=1\n")
+    (q / "goldeneye.ini").write_text("[Game]\nCenterHUD=1\n")
+    run(exe, "launch", q, "quest", store, game=q / "data")
+    vr = dict(l.split("=", 1) for l in (q / "data" / "goldeneye-vr.ini").read_text().splitlines() if "=" in l)
+    check(vr["LookSpeed"] == "7" and not (q / "goldeneye-vr.ini").exists(),
+          "the Quest's goldeneye-vr.ini is read and written in files/data")
+    (b / "goldeneye.ini").write_text("[Game]\nCenterHUD=0\n")
+    run(exe, "launch", b, "tv", store)
+    run(exe, "launch", q, "quest", store, game=q / "data")
+    check("CenterHUD=0" in (q / "goldeneye.ini").read_text() and not (q / "data" / "goldeneye.ini").exists(),
+          "and goldeneye.ini in files")
 
 print("sync: ok")

@@ -179,15 +179,11 @@ std::string driveEmail(const std::string &stateDir)
     return l.email;
 }
 
+/* This device forgets its sign-in; Google isn't told. Revoking the token would
+ * end the player's whole grant to GoldenEye VR, signing their other devices out
+ * too. The Google Account's security page removes the access everywhere. */
 void driveUnlink(const std::string &stateDir)
 {
-    Link l;
-    if (readLink(stateDir, &l)) {
-        // Google forgets the grant too (best effort; the file goes either way)
-        const std::string body = form({ { "token", l.refresh } });
-        std::string why;
-        send("POST", oauthUrl() + "/revoke", &body, { "Content-Type: application/x-www-form-urlencoded" }, &why);
-    }
     removeFile(linkPath(stateDir));
     removeFile(signedOutPath(stateDir));
 }
@@ -199,10 +195,12 @@ namespace {
 class DriveStore : public Store {
 public:
     DriveStore(const std::string &stateDir, const Link &l) : stateDir_(stateDir), link_(l) {}
-    std::string label() const override { return "Google Drive" + (link_.email.empty() ? "" : " (" + link_.email + ")"); }
+    /* no account address: the label goes to gevr.log, which crash reports carry */
+    std::string label() const override { return "Google Drive"; }
 
     bool list(std::vector<std::string> *names, std::string *why) override
     {
+        std::lock_guard<std::recursive_mutex> hold(mu_);
         ids_.clear();
         names->clear();
         std::string page;
@@ -239,6 +237,7 @@ public:
 
     bool read(const std::string &name, std::string *data, std::string *why) override
     {
+        std::lock_guard<std::recursive_mutex> hold(mu_);
         auto it = ids_.find(name);
         if (it == ids_.end()) {
             *why = "no " + name;
@@ -252,6 +251,7 @@ public:
 
     bool write(const std::string &name, const std::string &data, std::string *why) override
     {
+        std::lock_guard<std::recursive_mutex> hold(mu_);
         if (!listed_) {
             std::vector<std::string> names;
             if (!list(&names, why)) return false;
@@ -276,8 +276,10 @@ public:
 
     bool listBlobs(std::map<std::string, long long> *blobs, std::string *why) override
     {
+        std::lock_guard<std::recursive_mutex> hold(mu_);
         blobFiles_.clear();
         blobs->clear();
+        std::vector<std::string> twins;   // a second copy of a blob (two devices uploaded it at once)
         std::string page;
         do {
             const std::string url = apiUrl() + "/drive/v3/files?spaces=drive&pageSize=1000&orderBy=createdTime"
@@ -294,13 +296,22 @@ public:
             for (int i = 0; jsonAt(files, i, &f); i++) {
                 if (!jsonGet(f, "appProperties", &props)) continue;
                 const std::string id = jsonGetStr(props, "blob"), fid = jsonGetStr(f, "id");
-                if (id.empty() || fid.empty() || blobFiles_.count(id)) continue;   // oldest first: a duplicate is left
+                if (id.empty() || fid.empty()) continue;
+                if (blobFiles_.count(id)) {   // oldest first: every device uses the oldest copy
+                    twins.push_back(fid);
+                    continue;
+                }
                 blobFiles_[id] = fid;
                 // Drive gives the size as a string
                 (*blobs)[id] = atoll(jsonGetStr(f, "size", "0").c_str());
             }
             page = jsonGetStr(o, "nextPageToken");
         } while (!page.empty());
+        for (const std::string &fid : twins) {   // best effort: a pack's second copy is worth freeing
+            HttpReply r;
+            std::string ignore;
+            api("DELETE", apiUrl() + "/drive/v3/files/" + fid, nullptr, {}, &r, &ignore);
+        }
         return true;
     }
 
@@ -308,6 +319,7 @@ public:
     bool putBlob(const std::string &id, const std::string &label, const std::string &localPath,
                  const Progress &progress, std::string *why) override
     {
+        std::lock_guard<std::recursive_mutex> hold(mu_);
         const long long total = fileSize(localPath);
         if (total < 0) {
             *why = "could not read " + localPath;
@@ -375,6 +387,7 @@ public:
     bool getBlob(const std::string &id, const std::string &localPath, const Progress &progress,
                  std::string *why) override
     {
+        std::lock_guard<std::recursive_mutex> hold(mu_);
         if (!blobFiles_.count(id)) {
             std::map<std::string, long long> all;
             if (!listBlobs(&all, why)) return false;
@@ -441,6 +454,7 @@ public:
 
     bool removeBlob(const std::string &id, std::string *why) override
     {
+        std::lock_guard<std::recursive_mutex> hold(mu_);
         auto it = blobFiles_.find(id);
         if (it == blobFiles_.end()) return true;   // not there: nothing to do
         HttpReply r;
@@ -564,6 +578,7 @@ private:
     long long accessUntil_ = 0;
     std::map<std::string, std::string> ids_;   // record name -> Drive file id
     std::map<std::string, std::string> blobFiles_;   // blob id -> Drive file id
+    std::recursive_mutex mu_;                        // one caller at a time (the push, a name change)
     bool listed_ = false;
     std::string folder_;
 };

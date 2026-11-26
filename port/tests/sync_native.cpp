@@ -20,7 +20,7 @@
 #include <thread>
 
 namespace gsync {
-void launchAt(const std::string &root, const std::string &kind);
+void launchAt(const std::string &root, const std::string &kind, const std::string &gameDir);
 void pushForTest();
 #ifdef GEVR_SYNC_DRIVE
 std::string filesPassForTest();
@@ -102,11 +102,11 @@ static void push(Dev &d, StoreMap &store, long long now)
     }
 }
 
-static std::string blankSave() { return std::string(512, '\0'); }
+static std::string blankSave() { return std::string(2048, '\0'); }
 
 static std::string progressSave(unsigned char level)
 {
-    std::string s(512, '\0');
+    std::string s(2048, '\0');
     s[32 + 20] = (char)level;   // slot 0: a finished level's time
     return s;
 }
@@ -295,6 +295,15 @@ static void testSaves()
     CHECK(c.local.saves["eeprom.bin"] == progressSave(4));
     CHECK(c.backups["eeprom.bin"] == 1 && c.messages.size() == 1);
 
+    // a save cut short (a crash mid-write): never uploaded, never wins, replaced by a whole one
+    writeSave(a, "eeprom.bin", std::string(), T + 86000);
+    Outcome cut = launch(a, store, T + 87000);
+    CHECK(a.local.saves["eeprom.bin"] == progressSave(4));
+    DeviceRecord ra;
+    CHECK(recordParse(store[recordName("aaaa")], &ra) && ra.saves["eeprom.bin"].data != std::string());
+    CHECK(!saveWhole(std::string(100, 'x')) && saveWhole(blankSave()));
+    (void)cut;
+
     // a second save file (another EEPROM) travels too
     writeSave(b, "eeprom-hack1.bin", progressSave(5), T + 90000);
     push(b, store, T + 90000);
@@ -351,6 +360,13 @@ static void testRecordText()
           !isSaveName("goldeneye.ini"));
 }
 
+/* GEVR_SYNC_GAME_DIR: the game's folder when it isn't the save folder (the Quest's layout) */
+static std::string gameDir()
+{
+    const char *g = getenv("GEVR_SYNC_GAME_DIR");
+    return g ? g : "";
+}
+
 int main(int argc, char **argv)
 {
     if (argc >= 2 && !strcmp(argv[1], "core")) {
@@ -364,7 +380,7 @@ int main(int argc, char **argv)
         return 0;
     }
     if (argc >= 4 && (!strcmp(argv[1], "launch") || !strcmp(argv[1], "push"))) {
-        gsync::launchAt(argv[2], argv[3]);
+        gsync::launchAt(argv[2], argv[3], gameDir());
         if (!strcmp(argv[1], "push")) gsync::pushForTest();
         char line[256], msg[512];
         gevrSyncStatus(line, sizeof(line));
@@ -377,7 +393,7 @@ int main(int argc, char **argv)
     // ROMs and packs: a launch, then one files pass (GEVR_SYNC_NO_FILES_WORKER keeps the
     // worker out); "packs" turns Big packs too on first
     if (argc >= 4 && (!strcmp(argv[1], "files") || !strcmp(argv[1], "files-packs"))) {
-        gsync::launchAt(argv[2], argv[3]);
+        gsync::launchAt(argv[2], argv[3], gameDir());
         if (!strcmp(argv[1], "files-packs")) gevrSyncSetPacks(1);
         printf("files=%s\n", gsync::filesPassForTest().c_str());
         char msg[512];
@@ -387,7 +403,7 @@ int main(int argc, char **argv)
     }
     // step 4: this device's name, and a save set aside used again
     if (argc >= 5 && !strcmp(argv[1], "name")) {
-        gsync::launchAt(argv[2], argv[3]);
+        gsync::launchAt(argv[2], argv[3], gameDir());
         gevrSyncSetDeviceName(argv[4]);
         std::this_thread::sleep_for(std::chrono::milliseconds(1500));   // its upload runs in the background
         char name[64];
@@ -396,7 +412,7 @@ int main(int argc, char **argv)
         return 0;
     }
     if (argc >= 4 && !strcmp(argv[1], "aside")) {
-        gsync::launchAt(argv[2], argv[3]);
+        gsync::launchAt(argv[2], argv[3], gameDir());
         char names[5][96];
         const int n = gevrSyncSavesAside(names, 5);
         for (int i = 0; i < n; i++) printf("aside=%s\n", names[i]);
@@ -407,7 +423,7 @@ int main(int argc, char **argv)
     }
     // Google Drive against test_sync.py's stand-in (GEVR_GOOGLE_*_URL)
     if (argc >= 4 && (!strcmp(argv[1], "drive-link") || !strcmp(argv[1], "drive-unlink"))) {
-        gsync::launchAt(argv[2], argv[3]);
+        gsync::launchAt(argv[2], argv[3], gameDir());
         GevrSyncDriveInfo d;
         if (!strcmp(argv[1], "drive-unlink")) {
             gevrSyncDriveUnlink();
