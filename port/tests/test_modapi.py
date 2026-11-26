@@ -1174,10 +1174,10 @@ def damage_placement():
           "damage_applied once the damage is done")
     kill = function(view, "void bondviewKillCurrentPlayer(")
     check(kill.index("g_CurrentPlayer->bonddead == FALSE") < kill.index("gevrModPlayerDied();"), "player_died once per death")
-    check(function(coop, "static void coopSetLocalDowned(").index("gevrModApiPlayerDowned(me, down);")
-          > function(coop, "static void coopSetLocalDowned(").index("s_downed[me] == down) return;")
+    check(function(coop, "static void coopSetLocalDownedFor(").index("gevrModApiPlayerDowned(me, down);")
+          > function(coop, "static void coopSetLocalDownedFor(").index("s_downed[me] == down) return;")
           and "gevrModApiPlayerDowned(slot, down);" in function(coop, "static void coopAnnounceDowned("),
-          "downed and revived: this headset's player when it changes, the others' as they're announced")
+          "downed and revived: a player on this machine when it changes, the others' as they're announced")
 
 
 def damage(exe, temp):
