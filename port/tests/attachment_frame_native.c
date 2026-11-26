@@ -43,7 +43,8 @@ static const char *handFile;
 void modelDrawGunHand(ModelRenderData *rd, Model *m, const char *file) { handDraws++; handFile = file; }
 void modelDrawGunFlash(ModelRenderData *rd, Model *m) { flashDraws++; }
 /* another player's (#335): its copy is player 2 */
-s32 getPlayerPointerIndex(PropRecord *prop) { return 2; }
+static s32 copySlot = 2;
+s32 getPlayerPointerIndex(PropRecord *prop) { return copySlot; }
 f32 D_80032310[2] = { 65536.0f, 65536.0f };
 void matrix_4x4_multiply(Mtxf *lhs, Mtxf *rhs, Mtxf *out)
 {
@@ -61,6 +62,46 @@ void instcalcmatrices(ModelRenderData *rd, Model *m) { abort(); }
 void modelUpdateRelationsQuick(Model *m, ModelNode *n) { abort(); }
 void subdraw(ModelRenderData *rd, Model *m) { abort(); }
 void bondviewTransformManyPosToViewMatrix(RenderPosView *p, s32 n) { abort(); }
+
+/* a hand's or the body's frame (gevr_avatar.c): the tracked pose's when that
+ * player has one (VR), else the body model's as drawn; each marks its own
+ * frame (m[3][1]: 100 tracked, 200 the model) and records what it was asked */
+static int trackedSlot = -1, trackedOn = 0x6, modelFrames = 1, trackedAsks, modelAsks, ownFit = 1;
+static ChrRecord *modelChr;
+static f32 askedAt[3], askedUnit;
+s32 gevrBodySlotAt(s32 slot, f32 out[3])
+{
+    out[0] = 30 + slot; out[1] = 12; out[2] = -4;   /* this player's own fit */
+    return ownFit;
+}
+f32 gevrGunSizeNow(s32 *setting, s32 *online) { return 2.0f; }
+static void markFrame(Mtxf *out, f32 tag, s32 on, s32 where, const f32 bodyAt[3], f32 unit)
+{
+    memset(out, 0, sizeof(*out));
+    for (int i = 0; i < 4; i++) out->m[i][i] = 1;
+    out->m[3][0] = (f32)(on * 10 + where);
+    out->m[3][1] = tag;
+    for (int k = 0; k < 3; k++) askedAt[k] = bodyAt != NULL ? bodyAt[k] : -1;
+    askedUnit = unit;
+}
+s32 gevrAvatarAttachFrame(s32 slot, s32 on, s32 where, const f32 bodyAt[3], f32 unit, Mtxf *out)
+{
+    trackedAsks++;
+    if (slot != trackedSlot || !(trackedOn >> on & 1)) return 0;
+    markFrame(out, 100, on, where, bodyAt, unit);
+    return 1;
+}
+s32 gevrAvatarModelAttachFrame(ChrRecord *chr, s32 on, s32 where, const f32 bodyAt[3], f32 unit, Mtxf *out)
+{
+    modelAsks++;
+    modelChr = chr;
+    if (!modelFrames) return 0;
+    markFrame(out, 200, on, where, bodyAt, unit);
+    return 1;
+}
+/* the flat third person (gevr_thirdperson.c): this player's own body in its own view */
+static int thirdPerson;
+s32 gevrTpDrawsOwnBody(s32 playernum) { return thirdPerson && playernum == 0; }
 
 int main(void)
 {
@@ -361,6 +402,113 @@ int main(void)
             assert(gevrModAttachDrawGuard(&guard, &rd, 0x80, list) == list + 1);
             g->id = 0;
         }
+
+        /* hand and body parts on a player's body: another player's at its
+         * tracked pose (VR, as before), else at the anchors on its body model
+         * as drawn (a flat player, a bot, a hand or head not tracked); this
+         * player's own on its own body in the flat third person. Once, in the
+         * solid pass, at the level's scale, never while the body fades. */
+        {
+            static PropRecord pprop;
+            static ChrRecord pchr;
+            static const float body[3] = { 65, 20, -10 };
+            GevrModAttach h = { .on = GEVR_MODATTACH_HAND, .where = GUNLEFT };
+            GevrModAttach b = { .on = GEVR_MODATTACH_BODY, .where = 3 };
+            s32 hid, bid;
+
+            pprop.type = PROP_TYPE_VIEWER;
+            pchr.prop = &pprop;
+            strcpy(h.model, "patch.bin");
+            strcpy(b.model, "patch.bin");
+            for (i = 0; i < 4; i++) h.offset[i][i] = b.offset[i][i] = 1;
+            h.offset[3][2] = 7;
+            b.offset[3][2] = 9;
+            online = 1;
+            copySlot = 2;
+            assert(gevrModGameAttachRemote(2, 21, &h, TRUE, body) && gevrModGameAttachRemote(2, 22, &b, TRUE, body));
+            rd.flags = 1;
+            /* a flat player: no tracked pose, so its body model's frames, both parts */
+            trackedSlot = -1;
+            trackedAsks = modelAsks = 0;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 2);
+            assert(trackedAsks == 2 && modelAsks == 2 && modelChr == &pchr);
+            /* the last, the body part: the owner's anchor centre, the gun size's unit, its offset, the level's scale */
+            assert(askedAt[0] == 65 && askedAt[1] == 20 && askedAt[2] == -10 && askedUnit == 0.085f * 2.0f);
+            assert(meshPose.m[3][0] == 23 * 0.5f && meshPose.m[3][1] == 200 * 0.5f && meshPose.m[3][2] == 9 * 0.5f);
+            assert(gevrModGameAttachRemote(2, 22, &b, FALSE, body));   /* hidden: the hand alone */
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 1);
+            assert(meshPose.m[3][0] == 11 * 0.5f && meshPose.m[3][1] == 200 * 0.5f && meshPose.m[3][2] == 7 * 0.5f);
+            assert(gevrModGameAttachRemote(2, 22, &b, TRUE, body));
+            /* the see-through pass, a fading body, an extra pass: none */
+            rd.flags = 2;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list);
+            rd.flags = 1;
+            modelAsks = 0;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0x80, list) == list && modelAsks == 0);
+            g_gevrExtraPass = 1;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list && modelAsks == 0);
+            g_gevrExtraPass = 0;
+            /* no joints to build one from: not drawn (never at the origin) */
+            modelFrames = 0;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list);
+            modelFrames = 1;
+            /* a VR player: its tracked pose, exactly as before; the model never asked */
+            trackedSlot = 2;
+            trackedAsks = modelAsks = 0;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 2 && trackedAsks == 2 && modelAsks == 0);
+            assert(meshPose.m[3][1] == 100 * 0.5f && askedAt[0] == 65);
+            /* its hand lost (the head still tracked): that hand from the body as drawn, the body part tracked */
+            trackedOn = 1 << GEVR_MODATTACH_BODY;
+            trackedAsks = modelAsks = 0;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 2 && trackedAsks == 2 && modelAsks == 1);
+            assert(meshPose.m[3][1] == 100 * 0.5f);   /* the body's, drawn last */
+            trackedOn = 0x6;
+            /* a bot (another slot, no pose): its own parts on its model, never slot 2's */
+            copySlot = 3;
+            assert(gevrModGameAttachRemote(3, 5, &h, TRUE, body));
+            trackedAsks = modelAsks = 0;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 1 && modelAsks == 1);
+            assert(meshPose.m[3][0] == 11 * 0.5f && meshPose.m[3][1] == 200 * 0.5f);
+            gevrModGameAttachRemoteGone(3, 0);
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list);
+            trackedSlot = -1;
+
+            /* this player's own, offline: none on its body in first person; in
+             * the flat third person both on the body as drawn, the body part at
+             * this player's own fit; never another player's there */
+            online = 0;
+            copySlot = 0;
+            hid = gevrModGameAttach(&h);
+            bid = gevrModGameAttach(&b);
+            assert(hid > 0 && bid > 0);
+            thirdPerson = 0;
+            trackedAsks = modelAsks = 0;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list && modelAsks == 0);
+            thirdPerson = 1;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 2);
+            assert(trackedAsks == 0 && modelAsks == 2 && modelChr == &pchr);
+            assert(askedAt[0] == 33 && askedAt[1] == 12 && askedAt[2] == -4 && askedUnit == 0.085f * 2.0f);
+            assert(meshPose.m[3][0] == 23 * 0.5f && meshPose.m[3][1] == 200 * 0.5f && meshPose.m[3][2] == 9 * 0.5f);
+            ownFit = 0;   /* no anchor centre: the hand alone */
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 1);
+            ownFit = 1;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0x80, list) == list);   /* fading */
+            g_gevrExtraPass = 1;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list);
+            g_gevrExtraPass = 0;
+            /* online, this headset's own copy in third person: still its own alone */
+            online = 1;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 2 && askedAt[0] == 33);
+            /* another player's body in this view isn't this player's own */
+            copySlot = 2;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list + 2 && askedAt[0] == 65);
+            /* a guard (not a player's body): none */
+            pprop.type = PROP_TYPE_CHR;
+            assert(gevrModAttachDrawPlayer(&pchr, &rd, 0xFF, list) == list);
+            pprop.type = PROP_TYPE_VIEWER;
+            thirdPerson = 0;
+            gevrModGameAttachReset();
+        }
         D_80032310[0] = 65536.0f;
         online = 0;
     }
@@ -391,6 +539,3 @@ u32 matrix_4x4_calc_depth_scale(f32 a, f32 b) { abort(); }
 void matrix_4x4_7F058C64(void) { abort(); }
 void matrix_4x4_7F058C88(void) { abort(); }
 u16 viGetPerspNorm(void) { abort(); }
-s32 gevrBodySlotAt(s32 slot, f32 out[3]) { abort(); }
-f32 gevrGunSizeNow(s32 *setting, s32 *online) { abort(); }
-s32 gevrAvatarAttachFrame(s32 slot, s32 on, s32 where, const f32 bodyAt[3], f32 unit, Mtxf *out) { abort(); }

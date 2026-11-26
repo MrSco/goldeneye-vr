@@ -26,7 +26,8 @@ def main():
           "player's kept apart, drawn once on its held gun at the level's scale, this player's own placed first; its "
           "optic's folded housing as told; its pack gun body in place of the item's model (hand lists, flash at its "
           "muzzle), for its gun alone, reset, gone with its player, within the shared files; a guard's pack mesh once, "
-          "at the level's scale")
+          "at the level's scale; hand and body parts at a VR player's tracked pose, else (a flat player, a bot, a lost "
+          "hand) on its body model as drawn, and this player's own on its body in the flat third person")
 
 
 if __name__ == "__main__":

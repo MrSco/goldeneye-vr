@@ -35,9 +35,12 @@
  * body's passes (chr.c chrRenderProp): on the gun, its first-person model in
  * the copy's hand (gevr_heldgun.c gevrHeldGunDraw) at its root or the node,
  * as drawn; on a hand or the body, the frames the player's tracked pose gives
- * (gevr_avatar.c gevrAvatarAttachFrame), at a gun model's units and the
- * match's gun size, as this player's own are. They share the tables: this
- * player's own always find a place (another's is set aside for one), and
+ * (gevr_avatar.c gevrAvatarAttachFrame), or without one (a flat player, a
+ * bot) the same anchors on its body model as drawn (gevrAvatarModelAttachFrame),
+ * at a gun model's units and the match's gun size, as this player's own are.
+ * This player's own hand and body parts go on its own body the same way where
+ * the flat third person draws it (gevr_thirdperson.c). They share the tables:
+ * this player's own always find a place (another's is set aside for one), and
  * another's loads a new file only while ATT_REMOTE_FILES_FREE stay free.
  * An optic's housing comes with it (mod.attach.optic: its folded housing and
  * whether the selected mode folds it), never its lens: that's the owner's.
@@ -1100,21 +1103,42 @@ Gfx *gevrModAttachDrawPlayerBody(Gfx *gdl, ModelRenderData *templ, ChrRecord *ch
     return rd.gdl;
 }
 
-/* chr.c chrRenderProp, after another player's body and what's stuck to it,
- * in each of its passes: what that player wears on a hand or the body, at
- * the frames its tracked pose gives (none for a hand or a head not tracked:
- * a flat player, a bot). Not while the body fades: its held gun is the
- * game's then, and these go with it. */
+/* this player's own body, drawn in its own view: the flat third person's
+ * (gevr_thirdperson.c), which first person never draws */
+static s32 attachOwnBody(ChrRecord *chr)
+{
+    extern s32 gevrTpDrawsOwnBody(s32 playernum);   /* gevr_thirdperson.c */
+    s32 slot;
+
+    if (g_gevrExtraPass || chr == NULL || chr->prop == NULL || chr->prop->type != PROP_TYPE_VIEWER || !attachLocal())
+    {
+        return FALSE;
+    }
+    slot = getPlayerPointerIndex(chr->prop);
+    return slot == get_cur_playernum() && gevrTpDrawsOwnBody(slot);
+}
+
+/* chr.c chrRenderProp, after a player's body and what's stuck to it, in
+ * each of its passes: what another player wears on a hand or the body, at
+ * the frames its tracked pose gives, and without one (a flat player, a bot,
+ * a hand or a head not tracked) at the same anchors on its body model as
+ * just drawn (gevr_avatar.c gevrAvatarModelAttachFrame); and this player's
+ * own on its own body where the flat third person draws it, the same way.
+ * Not while the body fades: its held gun is the game's then, and these go
+ * with it. */
 Gfx *gevrModAttachDrawPlayer(ChrRecord *chr, ModelRenderData *body, s32 fadealpha, Gfx *gdl)
 {
     extern s32 gevrAvatarAttachFrame(s32 slot, s32 on, s32 where, const f32 bodyAt[3], f32 unit, Mtxf *out);
+    extern s32 gevrAvatarModelAttachFrame(ChrRecord *chr, s32 on, s32 where, const f32 bodyAt[3], f32 unit, Mtxf *out);
+    extern s32 gevrBodySlotAt(s32 slot, f32 out[3]);       /* gevr_bodyslots.c */
     extern f32 gevrGunSizeNow(s32 *setting, s32 *online);   /* bondview2.c */
     const s32 slot = attachRemoteSlot(chr);
+    const s32 own = slot < 0 && fadealpha >= 0xFF && attachOwnBody(chr);
     ModelRenderData rd;
     s32 i, setting, online;
     f32 unit;
 
-    if (slot < 0 || fadealpha < 0xFF)
+    if ((slot < 0 && !own) || fadealpha < 0xFF)
     {
         return gdl;
     }
@@ -1127,10 +1151,27 @@ Gfx *gevrModAttachDrawPlayer(ChrRecord *chr, ModelRenderData *body, s32 fadealph
     for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
     {
         Attachment *a = &s_attach[i];
+        const f32 *at = a->body;
+        f32 mine[3] = { 0, 0, 0 };
         Mtxf frame;
 
-        if (a->id >= 0 || a->owner != slot || !a->shown || (a->on != GEVR_MODATTACH_HAND && a->on != GEVR_MODATTACH_BODY)
-            || !gevrAvatarAttachFrame(slot, a->on, a->where, a->body, unit, &frame))
+        if ((own ? a->id <= 0 : (a->id >= 0 || a->owner != slot)) || !a->shown
+            || (a->on != GEVR_MODATTACH_HAND && a->on != GEVR_MODATTACH_BODY))
+        {
+            continue;
+        }
+        if (own)
+        {
+            /* the anchor's centre from this player's fit, as its VR body slots take it */
+            if (a->on == GEVR_MODATTACH_BODY && !gevrBodySlotAt(a->where, mine))
+            {
+                continue;
+            }
+            at = mine;
+        }
+        /* another player's tracked pose first (VR, as before); else the body as drawn */
+        if (!(!own && gevrAvatarAttachFrame(slot, a->on, a->where, at, unit, &frame))
+            && !gevrAvatarModelAttachFrame(chr, a->on, a->where, at, unit, &frame))
         {
             continue;
         }

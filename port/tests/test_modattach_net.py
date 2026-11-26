@@ -105,8 +105,13 @@ def placement():
           and "attachDraw(gdl, templ, a, &node, NULL, TRUE)" in gun,
           "another player's on its gun: the held model's matrix as drawn, through the one attachment draw")
     body = function(game, "Gfx *gevrModAttachDrawPlayer(ChrRecord *chr")
-    check("gevrAvatarAttachFrame(slot, a->on, a->where, a->body, unit, &frame)" in body and "fadealpha < 0xFF" in body,
-          "another player's on a hand or the body: the frames its tracked pose gives")
+    check("fadealpha < 0xFF" in body and body.index("gevrAvatarAttachFrame(slot, a->on, a->where, at, unit, &frame)")
+          < body.index("gevrAvatarModelAttachFrame(chr, a->on, a->where, at, unit, &frame)"),
+          "another player's on a hand or the body: the frames its tracked pose gives, else its body model's as drawn")
+    own = function(game, "static s32 attachOwnBody(")
+    check("gevrTpDrawsOwnBody(slot)" in own and "g_gevrExtraPass" in own and "attachLocal()" in own
+          and "gevrBodySlotAt(a->where, mine)" in body,
+          "this player's own on its own body where the flat third person draws it, at its own fit")
     local = function(game, "Gfx *gevrModAttachDrawGun(")
     check("a->id > 0" in local and "a->id <= 0" in function(game, "Gfx *gevrModAttachDrawBody(Gfx *gdl)"),
           "this player's own draws leave another player's alone")
@@ -169,6 +174,10 @@ def placement():
     check("netGetAvatarPose(slot,&pose,weight)" in frame and "gevrBodyFrameBuild(&f,&torso,hp,fwd,head[1],head[0]);" in frame
           and "weight[where+1]<=0" in frame and "weight[0]<=0" in frame,
           "the tracked pose's grip or torso, none untracked")
+    model = function(avatar, "int gevrAvatarModelAttachFrame(")
+    check("m->obj->Switches[where==GUNRIGHT?3:5]" in model and "findRig(m,nodes)" in model
+          and "modelFindNodeMtx(m,hand,0)" in model and "camGetWorldToScreenMtxf()" in model,
+          "without tracking: the gun's hand node and the rig's torso joints as the body was drawn")
     slots = (ROOT / "src/game/gevr_bodyslots.c").read_bytes().decode()
     at = function(slots, "s32 gevrBodySlotAt(s32 slot, f32 out[3])")
     check("gevrBodySlotOffsets(slot, VrBodySlotFit[slot], VrPlayerHeight, off);" in at
