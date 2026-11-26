@@ -215,7 +215,8 @@ work in both where it can. A mod that doesn't name any runs in both.
   same for flat screen. A class the host doesn't know (an older or headless
   client) is let in, as "VR players only" does. A class changed after the
   join isn't checked again; the running mod keeps its own headset's mode
-  (above).
+  (above), and a joiner whose Play mode is switched in the launcher while it
+  waits in the party leaves it, with the launcher's reason.
 
 ## Saves and records
 

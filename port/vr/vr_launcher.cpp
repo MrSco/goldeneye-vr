@@ -3015,6 +3015,15 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
         onlineMessage = refusal;   // a different ROM from the host's (net_core.c NET_CONTENT_*)
         disconnect();
     }
+    // Play mode switched after joining a mod party: the start would leave the mod
+    // off (gevrModBoot) while the party plays it, so leave first and say why
+    if (netIsActive() && !netIsHost() && VrCampaignMod[0]) {
+        const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
+        if (m && !m->modeReason.empty()) {
+            onlineMessage = "Left the game. " + gevrLauncherModOfflineWhy();
+            disconnect();
+        }
+    }
     if (netIsActive() && !netIsHost() && netGetState() == NET_STATE_INGAME) {
         if (!romReady) {
             onlineMessage = "Cannot join match: no valid GoldenEye ROM loaded.";
