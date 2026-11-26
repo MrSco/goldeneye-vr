@@ -1006,6 +1006,41 @@ in-game screen). We maintain the adapters, not the mods.
     starts.
   - A mod stopped on one headset is stopped on all of them
     (`NET_MOD_OFF`; see Multiplayer).
+  - What a player wears (`mod.attach` on the gun, a hand or the body) goes
+    to the others as `NET_MOD_ATTACH` (#335; under Assets, part two, "On
+    the other players"). No call: the engine sends it.
+    - The message: `u16 n` and `n` bytes (2 to `NET_MOD_ATTACH_BYTES`,
+      1024) after the mod's id, laid out in `port/include/gevr_modattach_net.h`:
+      the sender's stage, a count (1 to 32), then records. `SET`: the
+      owner's id (1 to 0x7FFFFFFF), the anchor (gun 0, hand 1, body 2), its
+      hand or body anchor, the gun node (0 to 255; 0 off the gun), shown,
+      the frame (12 floats: the model's axes in the anchor's frame and its
+      origin, the API's limits), a body anchor's centre from the eye (3
+      floats, cm, below, to the right and ahead, within 250), the model's
+      file and its `like` (flat model file names as `mod.attach.add` takes
+      them). `REMOVE`: the id. `CLEAR`: all of the sender's of that mod.
+      `ASK`: a slot (the host's alone: send what you wear to that player).
+    - Anyone's, to everyone or to one, routed and rate-limited as
+      `NET_MOD_DATA` is (the host checks the sender by its peer and relays at
+      most 64 a second of each player's, everything `NET_MSG_MOD` together).
+      `net_core.c` checks the length; the receiver checks every record
+      (`gevrAttachNetDecode()`), and a message with anything outside the
+      limits, an unknown record, a name that isn't a flat model file's or
+      bytes left over or missing is dropped whole, logged once a mission.
+    - The owner sends on change, never each frame: a record when one is
+      attached, shown or hidden, placed or removed, and when a body
+      anchor's centre (the player's own fit) moves more than half a cm;
+      the same state again sends nothing. Packed, and at most 8 messages a
+      second (`GEVR_ATTNET_SENDS`): a state that changes faster reaches the
+      others as its latest. A mod stopped in a mission sends a `CLEAR`.
+    - Held as messages are, and applied at the next frame in play only if
+      its stage is this mission's and its mod runs here. A mission loading
+      drops the last one's, and the others' attachments go with it.
+    - Joining: at `peer_ready` the host sends that player what its own
+      player wears, and, if it has heard anyone else wearing something
+      this mission, asks them (`ASK`) to send theirs to that player alone.
+      With no one wearing anything nothing is sent. A player who leaves
+      (its connection gone) takes its attachments along.
 - **The UI.** A mod's page is a sub-tab under the in-game screen's
   Mods/Fun tab, beside the section's own rows (now under Options): the
   hold-Menu screen, the solo panel and the online match screen's Settings
@@ -1086,7 +1121,8 @@ in-game screen). We maintain the adapters, not the mods.
   weapons area above. Attachments: `src/game/gevr_modattach.c`.
   - `mod.attach.add{ model, like, on, hand, at, turn, scale }` draws the
     pack's `assets/models/<model>` on the local player's gun, a hand or the
-    body. `like` names the cartridge model file it's built over (a G gun
+    body (in co-op the others see it on that player too: "On the other
+    players" below). `like` names the cartridge model file it's built over (a G gun
     or P prop file, its header: `Gak47Z`, `PcartonZ`), as `assets/models`'
     replacements keep the cartridge's header. Loaded once a mission
     through `load_resource`, into a buffer of its own as
@@ -1150,10 +1186,44 @@ in-game screen). We maintain the adapters, not the mods.
     gun's animation, so a model built over one is drawn rigid at its root,
     as the body slots draw a gun: build parts over a prop file. Nothing on
     an attachment moves of itself.
-  - The gun, the hands and the body: the local player's view only;
-    another player sees none, and a guard's gun none. A guard's: on this
-    headset, so in co-op each headset's mod attaches the same (a guard's
-    id is the same on every headset).
+  - The gun, the hands and the body: a guard's gun none. A guard's: on
+    this headset, so in co-op each headset's mod attaches the same (a
+    guard's id is the same on every headset).
+  - **On the other players** (#335): in co-op, what a player wears on the
+    gun, a hand or the body is drawn on that player's copy on every other
+    headset, with its state: shown or hidden, its place (`place`, a
+    variant as a part shown and another hidden, a folded sight as its new
+    frame), its anchor and gun node. Only that: the other player sees the
+    part, never its owner's lens or scope view. The engine sends it (see
+    Network, `NET_MOD_ATTACH`); nothing for a mod to call, and nothing
+    sent while no one wears anything. Off unless a mod attaches: the base
+    game and co-op without mods draw and send exactly as before.
+    - On the gun: on the first-person model the copy holds
+      (`gevr_heldgun.c`, the detailed guns), at its root or the node, as
+      it's drawn there. That model isn't animated, so a node is where its
+      rest pose puts it. Not while the copy holds the game's own small
+      model (detailed guns off, the body fading at range). The gun is the
+      item's own model there: a pack body (`mod.weapon.model`) isn't sent,
+      so a part fitted to one sits on the item's model.
+    - On a hand or the body: at the frames that player's tracked pose
+      gives (`gevr_avatar.c` `gevrAvatarAttachFrame()`): a hand at its
+      tracked grip, a body anchor on the torso the body's yaw turns, at
+      its centre from the owner's own fit (or the default for its height),
+      at a gun model's units and the match's gun size, as the owner's
+      headset builds them. None for a hand or a head not tracked (a flat
+      player, a bot), as the owner's flat headset draws none.
+    - Drawn in the body's passes (`chr.c` `chrRenderProp()`), in each
+      view of the copy, through the same draw as the owner's (a pack mesh
+      through the C10 display list, once, in the solid pass).
+    - The limits are shared: 128 attached and 64 model files, every
+      player's together on a headset. This player's own always find a
+      place (another player's is set aside for one, logged), and another
+      player's loads a new file only while 16 stay free for this player's.
+      The measured loadout (35 attached, about 20 files a player; the same
+      mod's files on every headset, so a second rig shares them) fits two
+      players' rigs with room (70 of 128 attached, about 20 of 64 files),
+      and three (105); a fourth full rig is set aside part way, drawn as far
+      as the limit allows.
 
 ### Pickup swaps
 
