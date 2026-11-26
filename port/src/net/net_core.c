@@ -134,12 +134,20 @@ static void netPeerDetachSlot(ENetPeer *peer, int slot) {
         peer->data = (void *)(uintptr_t)(netPeerSlotMask(peer) & ~(1u << slot));
     s_client_peers[slot] = NULL;
 }
+/* A peer's primary: the slot its join gave its first seat, which owns the
+ * others (owner_slot). Not simply its lowest slot: seats taking bots' places
+ * can come out in any order, and a guest below its primary was then taken for
+ * the primary (kick, drop-out). The lowest slot only if none owns itself. */
+static bool netSlotOwnsItself(int slot);   /* below, past the lobby state */
 static int netPeerPrimarySlot(const ENetPeer *peer) {
     uint32_t mask = netPeerSlotMask(peer);
+    int first = -1;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-        if ((mask & (1u << i)) && s_client_peers[i] == peer) return i;
+        if (!(mask & (1u << i)) || s_client_peers[i] != peer) continue;
+        if (first < 0) first = i;
+        if (netSlotOwnsItself(i)) return i;
     }
-    return -1;
+    return first;
 }
 static bool netPeerSeenBefore(int idx, const ENetPeer *peer) {
     for (int j = 0; j < idx; j++) {
@@ -280,6 +288,10 @@ static uint64_t s_host_loaded_us = 0;   /* the host: its own load of this round,
 
 /* Current Lobby State */
 static NetMsgLobbyState s_lobby_state;
+/* a slot that owns itself: a joiner's primary (its guests' owner_slot is the primary's) */
+static bool netSlotOwnsItself(int slot) {
+    return slot >= 0 && slot < GEVR_MAX_PLAYERS && s_lobby_state.slots[slot].owner_slot == (uint8_t)slot;
+}
 /* Frozen at match load; pending lobby edits must never change a late join's map or kit. */
 typedef struct {
     NetMatchConfig config;
@@ -900,6 +912,7 @@ bool netHostStart(uint16_t port) {
  * an online party's local guest does. Leaving the party's menus ends it.
  */
 static bool s_couch_coop;
+static bool s_couch_starting;   /* netHostStartOn seats its guests before s_couch_coop is set */
 
 int netCouchCoopActive(void) { return s_couch_coop && netIsActive(); }
 
@@ -908,10 +921,14 @@ bool netCouchCoopStart(int seats) {
     if (seats < 1) seats = 1;
     if (seats > NET_COOP_MAX_PLAYERS) seats = NET_COOP_MAX_PLAYERS;
     netSetLocalDesiredCount(seats);   /* netHostStartOn seats the guests */
+    s_couch_starting = true;
     const bool hosted = netHostStartOn("127.0.0.1", 0);
+    s_couch_starting = false;
     netSetLocalDesiredCount(1);       /* an online host later seats its own */
     if (!hosted) return false;
     s_couch_coop = true;
+    if (s_local_count < seats)
+        NET_ERR("couch co-op: %d of %d seats taken", s_local_count, seats);
     NetMatchConfig c = netMatchConfigFromSettings();
     c.mode = NET_MODE_COOP;
     c.stage = NET_COOP_FRONT_STAGE;
@@ -1401,7 +1418,9 @@ int netLobbyMinPlayers(void) {
 /* The players who may be in the match: the loaded round's count in a match,
  * the host's current choice in the lobby (LAN beacon, internet lobby, roster). */
 int netGetMaxPlayers(void) {
-    const bool ingame = s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING;
+    /* the pre-match lobby is a round on the title stage, but its count is the
+     * host's current choice: the next match's, as its admission must be */
+    const bool ingame = (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) && !netInMatchLobby();
     return netConfigMaxPlayers(ingame ? &s_round.config : &s_lobby_state.config);
 }
 
@@ -2355,8 +2374,10 @@ static bool netCombatClocksReady(void) {
     return true;
 }
 static bool netAllLoaded(void) {
+    /* a bot has no machine of its own to load: one that took a leaver's place
+     * after the host's load was never marked, and held the lobby's START */
     for (int i = 0; i < s_max_players; i++)
-        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].loaded) return false;
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot && !s_lobby_state.slots[i].loaded) return false;
     return true;
 }
 
@@ -3056,8 +3077,8 @@ void netLobbySetConfig(const NetMatchConfig *config) {
         s_round.config.fun_flags = (s_round.config.fun_flags & ~NET_COOP_FAST_REINFORCEMENTS)
             | (config->fun_flags & NET_COOP_FAST_REINFORCEMENTS);
     s_lobby_state.config = *config;
-    if (s_state != NET_STATE_INGAME && s_state != NET_STATE_MIGRATING) {
-        s_max_players = cap;
+    if ((s_state != NET_STATE_INGAME && s_state != NET_STATE_MIGRATING) || netInMatchLobby()) {
+        s_max_players = cap;   /* the pre-match lobby too: its title stage holds no players */
         s_lobby_max_players = (uint8_t)cap;
     }
     netUpdateBots(false);
@@ -4398,7 +4419,8 @@ int netRequestAddLocalGuest(const char *name, uint8_t chr_id, uint8_t input_clas
     }
     if (netIsHost()) {
         extern int VrMpVrOnly;
-        if (VrMpVrOnly && netInputIsFlat(input_class)) {
+        /* "VR players only" is an online host's rule: a couch party is this screen's pads */
+        if (VrMpVrOnly && netInputIsFlat(input_class) && !s_couch_coop && !s_couch_starting) {
             snprintf(s_local_guest_notice, sizeof(s_local_guest_notice), "Cannot add guest: VR players only.");
             return -1;
         }
@@ -4721,12 +4743,17 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
              * (a crash, a quit without a goodbye) and its slot is theirs again.
              * Not while the earlier one is still heard from: that is another
              * device of the same player (netSameNameIsReconnect). */
-            for (int i = 0; i < s_max_players; i++) {
+            /* found now, dropped only once the joiner fits (the room check below
+             * counts the seats they free): a join refused for room must not cost a
+             * live party its place */
+            int stale_slot = -1, stale_freed = 0;
+            for (int i = 0; i < s_max_players && stale_slot < 0; i++) {
                 if (s_lobby_state.slots[i].connected && s_client_peers[i] && s_client_peers[i] != peer &&
                     strcasecmp(s_lobby_state.slots[i].name, clean) == 0 &&
                     netSameNameIsReconnect(s_client_peers[i]->lastReceiveTime, enet_time_get())) {
-                    NET_LOG("%s is back on a new connection; slot %d's earlier one dropped", clean, i);
-                    netHostDropSlot(i, s_client_peers[i]);
+                    stale_slot = i;
+                    for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
+                        if (s_client_peers[j] == s_client_peers[i] && s_lobby_state.slots[j].connected) stale_freed++;
                 }
             }
 
@@ -4743,8 +4770,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 }
                 int need_new = total_req - reclaimed;
                 int max_humans = netGetMaxPlayers();
-                int open_capacity = max_humans - netGetHumanPlayerCount();
-                int free_or_bot = 0;
+                int open_capacity = max_humans - netGetHumanPlayerCount() + stale_freed;
+                int free_or_bot = stale_freed;
                 for (int i = 0; i < s_max_players; i++) {
                     if (i != s_host_slot && (!s_lobby_state.slots[i].connected || s_lobby_state.slots[i].is_bot))
                         free_or_bot++;
@@ -4754,6 +4781,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     enet_peer_disconnect(peer, total_req > 1 ? NET_DISCONNECT_NO_ROOM : 0);
                     break;
                 }
+            }
+            if (stale_slot >= 0 && s_client_peers[stale_slot]) {
+                NET_LOG("%s is back on a new connection; slot %d's earlier one dropped", clean, stale_slot);
+                netHostDropSlot(stale_slot, s_client_peers[stale_slot]);
             }
 
             int assigned_slots[GEVR_MAX_LOCAL_PLAYERS];
@@ -6454,8 +6485,12 @@ void netPoll(void) {
                     netbufWriteU16(&buf, GEVR_NET_VERSION);
                     netbufWriteU8(&buf, NET_MSG_HELLO);
                     netbufWriteU8(&buf, 0xFF);
-                    netbufWriteStr(&buf, VrPlayerName);
                     const bool migrating = s_state == NET_STATE_MIGRATING && s_local_slot >= 0 && s_local_slot < GEVR_MAX_PLAYERS;
+                    /* to a new host, the name the old one kept this slot under: a
+                     * same-name joiner's was numbered ("Agent 2"), and the seat is
+                     * reclaimed by name; its guests already send theirs below */
+                    netbufWriteStr(&buf, migrating && s_lobby_state.slots[s_local_slot].name[0]
+                                             ? s_lobby_state.slots[s_local_slot].name : VrPlayerName);
                     if (migrating) {
                         /* to the new host: the same character, and the slot it kept for this player */
                         netbufWriteU8(&buf, s_lobby_state.slots[s_local_slot].chr_id);

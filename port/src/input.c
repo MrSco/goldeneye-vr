@@ -1482,6 +1482,8 @@ s32 inputPlayerSlot(s32 player)
 static s32 s_onlineSlotDev[MAX_PLAYER_COUNT];   /* a local seat's device, by match slot: JOIN_OWN, a pad's id, JOIN_NONE */
 static s32 s_onlinePending = JOIN_NONE;           /* a pad that asked to join, until the match answers */
 static u32 s_onlinePendingUntil;
+static s32 s_onlineLate = JOIN_NONE;                /* a pad whose drop-in timed out here: the host may yet seat it */
+static u32 s_onlineLateUntil;
 static s32 s_onlineSeats;                          /* the seats this set up (s_seated is then theirs) */
 static s32 s_onlineP1Dev = JOIN_NONE;              /* player 1's device while alone: JOIN_OWN or slot 0's pad */
 static u32 s_onlineOwnBase;                        /* s_ownPresses when the stage began */
@@ -1517,6 +1519,7 @@ static void inputOnlineReset(void)
     for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) s_onlineSlotDev[i] = JOIN_NONE;
     for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_onlinePadHeld[k] = 0;
     s_onlinePending = JOIN_NONE;
+    s_onlineLate = JOIN_NONE;
     s_onlineP1Dev = JOIN_NONE;
     s_onlineStage = -1;
 }
@@ -1534,13 +1537,21 @@ static void inputOnlineSeatsSync(void)
     for (s32 i = 0; i < MAX_PLAYER_COUNT; ++i) {
         if (!gevrNetSlotIsLocalHuman(i)) s_onlineSlotDev[i] = JOIN_NONE;
     }
-    if (s_onlinePending != JOIN_NONE) {
+    if (s_onlineLate != JOIN_NONE && SDL_TICKS_PASSED(SDL_GetTicks(), s_onlineLateUntil)) s_onlineLate = JOIN_NONE;
+    if (s_onlinePending != JOIN_NONE || s_onlineLate != JOIN_NONE) {
         for (s32 seat = 1; seat < count; ++seat) {
             const s32 slot = netSlotOfLocalSeat(seat);
             if (slot >= 0 && slot < MAX_PLAYER_COUNT && s_onlineSlotDev[slot] == JOIN_NONE) {
                 extern void gevrMpOptionsDropIn(s32 slot);
-                s_onlineSlotDev[slot] = s_onlinePending;   /* the match took it */
-                s_onlinePending = JOIN_NONE;
+                /* the match took it; or, past the wait below, a host's late yes: the
+                 * seat is still the pad's that asked */
+                if (s_onlinePending != JOIN_NONE) {
+                    s_onlineSlotDev[slot] = s_onlinePending;
+                    s_onlinePending = JOIN_NONE;
+                } else {
+                    s_onlineSlotDev[slot] = s_onlineLate;
+                    s_onlineLate = JOIN_NONE;
+                }
                 /* the newcomer chooses their character in their own view first (mpmenu.c): in a
                  * deathmatch's warmup from the Multiplayer Options folder, which it comes back to */
                 if (bossGetStageNum() != LEVELID_TITLE) gevrMpOptionsDropIn(slot);
@@ -1549,7 +1560,11 @@ static void inputOnlineSeatsSync(void)
         }
     }
     if (s_onlinePending != JOIN_NONE && SDL_TICKS_PASSED(SDL_GetTicks(), s_onlinePendingUntil)) {
-        s_onlinePending = JOIN_NONE;   /* refused (full, a team full): its notice says so */
+        /* refused (full, a team full: its notice says so), or the host is slow: kept a
+         * minute in case its yes still comes, so the seat gets its pad */
+        s_onlineLateUntil = SDL_GetTicks() + 60000;
+        s_onlineLate = s_onlinePending;
+        s_onlinePending = JOIN_NONE;
     }
     if (count >= 2 || s_onlinePending != JOIN_NONE) {
         for (s32 seat = 0; seat < count && n < INPUT_MAX_CONTROLLERS; ++seat) {
@@ -1628,6 +1643,7 @@ static void inputOnlineTickDropIn(void)
             }
             s_onlinePending = id;
             s_onlinePendingUntil = SDL_GetTicks() + 4000;
+            if (s_onlineLate == id) s_onlineLate = JOIN_NONE;   /* asked again: one pad, one seat */
             joined = 1;
             sysLogPrintf(LOG_NOTE, "input: '%s' asks to join as player %d", SDL_GameControllerName(pad), count + 1);
             if (netRequestAddLocalGuest(NULL, 0xFF, 2 /* NET_INPUT_PAD */, NULL) < 0) {

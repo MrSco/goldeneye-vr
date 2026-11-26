@@ -297,10 +297,14 @@ void gevrLobbyGameTick(void)
 	const long long now = serverNowNs();
 	const bool botsOnly = sysArgCheck("--bots-only");
 
-	/* a headless client (--connect) READYs in the pre-match lobby, as a player there would */
-	if (!netIsDedicated() && netInMatchLobby() && !netLocalReady()) {
-		extern void gevrNetSetReady(int ready);
-		gevrNetSetReady(1);
+	/* a headless client (--connect) READYs in the pre-match lobby, as a player there
+	 * would: every local seat (--local-players), as its first join does */
+	if (!netIsDedicated() && netInMatchLobby()) {
+		extern int netSlotReady(int slot);
+		for (int s = 0; s < netLocalSlotCount(); s++) {
+			const int sl = netSlotOfLocalSeat(s);
+			if (sl >= 0 && !netSlotReady(sl)) netLobbySetReadySlot(sl, true);
+		}
 	}
 
 	/*
@@ -329,6 +333,7 @@ void gevrLobbyGameTick(void)
 			lobbyReadyNs = now;
 		}
 	} else if (netIsDedicated() && netGetPhase() == NET_PHASE_WARMUP && netHostCanStartRound() && !netHostStartRequested()
+	    && netWarmupSecondsLeft() == 0   /* the lobby's Warmup rule runs its own practice clock */
 	    && (netGetHumanPlayerCount() > 0 || botsOnly)) {
 		if (warmupNs == 0) {
 			warmupNs = now;

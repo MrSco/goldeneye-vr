@@ -363,7 +363,10 @@ static void pushSamples(VoiceStream *s, const int16_t *pcm, unsigned n) {
 
 void netVoiceReceive(uint8_t slot, uint32_t sequence, const uint8_t *packet, uint16_t size) {
     if (slot >= GEVR_MAX_PLAYERS || !packet || !size || size > GEVR_VOIP_MAX_BYTES) return;
-    if (!netVoiceSameGroup(slot, netGetLocalSlot())) { netVoiceForgetSlot(slot); return; }
+    /* heard by any of this machine's seats (split screen: a spectating guest too) */
+    int heard = netVoiceSameGroup(slot, netGetLocalSlot());
+    for (int seat = 1; !heard && seat < netLocalSlotCount(); seat++) heard = netVoiceSameGroup(slot, netSlotOfLocalSeat(seat));
+    if (!heard) { netVoiceForgetSlot(slot); return; }
     VoiceStream *s = &streams[slot];
     if (s->seen && (int32_t)(sequence - s->last_sequence) <= 0) return;
     const uint32_t now = SDL_GetTicks();

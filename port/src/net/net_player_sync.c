@@ -132,8 +132,12 @@ static bool netCanFollow(int self_slot, int slot) {
 void netSpectatorFrame(void) {
     int cur = get_cur_playernum();
     int seat = netLocalSeatOfSlot(cur);
+    /* a dedicated server's own seat: no human, but it follows play as it did
+     * before split screen, and the world wakes around what it watches */
+    const bool server_seat = seat < 0 && netIsDedicated() && cur == netGetLocalSlot();
+    if (server_seat) seat = 0;
     if (seat < 0 || seat >= GEVR_MAX_LOCAL_PLAYERS) return;
-    if (!gevrSpectating() || !g_CurrentPlayer || !g_CurrentPlayer->prop) {
+    if (!(server_seat ? netSlotIsSpectator(cur) : gevrSpectating()) || !g_CurrentPlayer || !g_CurrentPlayer->prop) {
         if (s_spectator_entered[seat]) {
             s_follow_slot[seat] = -1;
             s_spectator_entered[seat] = false;
