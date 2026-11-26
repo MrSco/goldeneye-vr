@@ -400,12 +400,18 @@ bool pcOpenPicker(const char *method)
 
 void pcReportCleanExit(void);         // pc_reports.cpp
 extern "C" void gevrLogClose(void);   // port/src/system.c
+#ifndef GEVR_IOS
+void pcInstanceMarkRestart(void);     // pc_instance.cpp
+#endif
 
 /* The Quest restarts its activity into the launcher; the PC runs itself again. */
 void pcRestartSelf(void)
 {
     pcReportCleanExit();   // before the new run looks for this one's marker (MainActivity.restartToLauncher)
     gevrLogClose();        // and before it rotates gevr.log to gevr.prev.log
+#ifndef GEVR_IOS
+    pcInstanceMarkRestart();   // the new run waits for this one's folder lock (pc_instance.cpp)
+#endif
 #ifdef _WIN32
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;

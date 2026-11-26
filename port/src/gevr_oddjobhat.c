@@ -98,6 +98,10 @@ static const float s_knife[3] = { -0.003f, 0.933f, 0.360f };
 /* GoldenEye X's hand model: the right wrist's matrix, its palm along it (gun.c) */
 extern f32 D_800364CC;                               /* the level scale: view units a centimetre */
 
+/* the flat screen's dual hats: each hand this much further out (viewmodel
+ * units; the throwing knife's own place is 14 either side of the middle) */
+#define HAT_FLAT_SPREAD 10.0f
+
 #define GEX_WRIST  2
 #define GEX_PALM_Z 50.0f
 
@@ -150,9 +154,10 @@ static struct {
 	float gex[7];
 	float prop[5];
 	float height;      /* the crown's height, times (on top of the file's own fix) */
+	float spread;      /* the flat screen: each hand's move outwards while both hold a hat */
 	long stamp;
 	int frames;
-} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 133.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 1.0f, -1, 0 };
+} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 133.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 1.0f, HAT_FLAT_SPREAD, -1, 0 };
 
 static u32 rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static float rdf(const u8 *p) { float v; memcpy(&v, p, 4); return v; }
@@ -253,6 +258,21 @@ bad:
 int gevrHatAvailable(void)
 {
 	return s_hat.ok || hatFile() != NULL;
+}
+
+static void tuneCheck(void);
+
+float gevrHatDualSpread(void)
+{
+	/* only while the held knife really draws as the hat: the file loaded and
+	 * this ROM's knife one it was fitted to */
+	if (!VrOddjobHat || !s_hat.ok) return 0.0f;
+	for (int r = 0; r < HAT_MAX_REGS; r++)
+		if (s_models[r].kind == HAT_HELD && s_models[r].header) {
+			tuneCheck();
+			return s_tune.spread;
+		}
+	return 0.0f;
 }
 
 static int nodeOp(const ModelNode *n)
@@ -624,12 +644,13 @@ static void tuneCheck(void)
 		if (sscanf(line, "held %f %f %f %f %f %f %f", &h[0], &h[1], &h[2], &h[3], &h[4], &h[5], &h[6]) >= 1) continue;
 		if (sscanf(line, "gex %f %f %f %f %f %f %f", &x[0], &x[1], &x[2], &x[3], &x[4], &x[5], &x[6]) >= 1) continue;
 		if (sscanf(line, "height %f", &s_tune.height) == 1) continue;
+		if (sscanf(line, "flat %f", &s_tune.spread) == 1) continue;
 		sscanf(line, "prop %f %f %f %f %f", &p[0], &p[1], &p[2], &p[3], &p[4]);
 	}
 	if (f) fclose(f);
-	hatLog("oddjob hat: height %.2f held %.1f %.1f %.1f %.1f %.1f %.1f %.1f gex %.1f %.1f %.1f %.1f %.1f %.1f %.1f"
+	hatLog("oddjob hat: flat %.1f height %.2f held %.1f %.1f %.1f %.1f %.1f %.1f %.1f gex %.1f %.1f %.1f %.1f %.1f %.1f %.1f"
 	             " prop %.1f %.1f %.1f %.1f %.1f",
-	             s_tune.height, s_tune.held[0], s_tune.held[1], s_tune.held[2], s_tune.held[3], s_tune.held[4], s_tune.held[5], s_tune.held[6],
+	             s_tune.spread, s_tune.height, s_tune.held[0], s_tune.held[1], s_tune.held[2], s_tune.held[3], s_tune.held[4], s_tune.held[5], s_tune.held[6],
 	             s_tune.gex[0], s_tune.gex[1], s_tune.gex[2], s_tune.gex[3], s_tune.gex[4], s_tune.gex[5], s_tune.gex[6],
 	             s_tune.prop[0], s_tune.prop[1], s_tune.prop[2], s_tune.prop[3], s_tune.prop[4]);
 	for (int r = 0; r < HAT_MAX_REGS; r++)

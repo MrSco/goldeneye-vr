@@ -183,9 +183,73 @@ and tells the party (`NET_COOP_EVENT_GRANT` up, `NET_MSG_COOP_GRANT` back
 down). A second grant does not add a second copy. A keyed door still checks
 the headset that uses it, so a teammate's key does not open it from here.
 
-Background lists have no guard slot, so "Bond" was the host. They now run
-as the nearest living player, the same choice a guard already makes. A
-client standing with Dr Doak is who the script sees.
+Background lists have no guard slot, so "Bond" was the host. A list with a
+prop runs as the nearest living player, the same choice a guard already
+makes. A client standing with Dr Doak is who the script sees.
+
+## The whole party in background lists (#356, #357)
+
+Most background lists have no prop, so their "Bond" was whoever happened to
+be the current player when the lists ran. Egypt's Golden Gun room counted
+one player's steps on the floor pattern; the others walked through without
+setting off the guns or opening the case. `tools/audit_coop_player_tests.py`
+lists every such test in the 20 missions: background lists hold 190 room
+tests, 243 held-item tests, 34 near-pad tests, 4 far-from-pad tests and 5
+height tests.
+
+Each of those tests now asks the party (chrai.c `GEVR_PARTY_TEST`,
+net_coop.c `gevrCoopPartyTest*`): the list's own player first, then every
+other player who can be targeted (not down, not a spectator, not still
+choosing a character). "In this room", "near this pad", "holding this" and
+"below this height" pass when anyone does, and that player is the list's
+Bond for the rest of its run, so the next step (a door, an item, a held
+gadget) acts on them, and the run's later tests ask only them: Cradle's
+"in the shaft room" then "below this height" is one player, never one in the
+room and another fallen elsewhere (which killed the party), and Surface 1's
+exit needs the same player in the room and low. The next run asks everyone
+again. "Far from this pad" passes only when everyone is: the
+lists use it to wait until nobody can see a spawn or hear a sound.
+`chrlvAllChrTick` puts the current player back after every list. Guard
+lists keep their target. A held-item test just after a gadget use still
+asks the user's hands (#241).
+
+A client's press of a console or switch set `RUNTIMEBITFLAG_ACTIVATED` on
+its own headset only, and only the host runs the scripts that ask "was it
+activated?" (24 tests: Aztec's disk drive, launch mainframe and exhaust bay
+switch; Dam, Facility, Runway, Surfaces, Frigate, Caverns). The client now
+reports the object's tag (`NET_COOP_EVENT_ACTIVATE`); the host sets the
+flag, and the list that takes it treats the presser as Bond. An older host
+ignores the new event; protocol 29 is unchanged.
+
+Using a gadget on an object (door decoder, bomb defuser, data thief,
+explosive floppy, DAT tape) did not depend on co-op at all: the use starts in
+the move tick, where the on-screen props were the last barrel pass's (lv.c,
+traced along the gun), not the player's view. The floppy found nothing in
+front of Aztec's drive, host or client, while the B press at the same spot
+found it. In a headset the barrel follows the hand, so a use worked or not
+depending on where the hand pointed. The use now queues
+(`gevrGadgetUseQueue`) and the search runs after the frame's own view, where
+the B press runs (`gevrGadgetUseFlush`, chrprop.c).
+
+A wall switch linked to a door (setup "LinkProps": Dam's gate switches,
+Facility, Aztec) moved its door on the presser's headset only: a script or
+host door goes out from `doorActivate`, a used door from `propdoorInteract`,
+but a switch's door from neither. The player's own press now sends the
+linked door's state as a used door (chrprop.c `gevrInteractObjectOnline`);
+each receiver already runs the switch link itself, so a received door is
+never sent on.
+
+Checked with two hidden PC copies (host + client over 127.0.0.1, the level
+hook, warps), each against the build before the fix:
+- Egypt: the client alone on the last tile of the floor pattern opens the
+  Golden Gun case (the host's script closes the room behind them and opens
+  door 1); before, nothing. A wrong tile under the client springs the trap.
+- Aztec: the client's press of the disk drive shows "This disk drive is
+  connected..."; before, nothing. The floppy, by the host or the client,
+  uploads Q's guidance data and completes objective A; before, nothing for
+  either. The client's DAT tape on the launch console starts the countdown,
+  their press of the exhaust bay switch opens it, and the shuttle launches
+  ("Launch shuttle: Completed").
 
 Using the door decoder, data thief, bomb defuser, explosive floppy or DAT
 tape sets `PROPSTATE_ACTIVATED` on that headset only. A client reports the
@@ -240,8 +304,13 @@ the solo fuse on a thrown mine. Protocol 18 is unchanged.
 - Guard shots show muzzle flash and sound on clients, but no tracers or
   wall sparks; a guard's thrown grenade is not seen flying there.
 - Scripts that test "Bond" (rooms, items, cutscene control) test the
-  player the guard is targeting, or the nearest living player for a
-  background list. Keys and documents stay on the headset that picked
+  player the guard is targeting; a background list asks the whole party
+  (#356). When a client sets a list off, the list's commands on "Bond"
+  (lock the controls, equip or hide weapons, Dam's bungee push) land on the
+  host's copy of that client, not on the client: Dam's jump still ends the
+  mission, but the client is not pushed off. A list started by one player
+  in a loop (Cradle's shaft) may be ended by another standing where it
+  checks. Keys and documents stay on the headset that picked
   them up; a keyed door does not accept a teammate's copy.
 - A driven tank is seen moving, but its engine and tread sounds play only
   on the driver's headset.

@@ -52,8 +52,14 @@ void pcCrashRecord(const char *summary, const char *trace);   /* port/pc/pc_repo
 
 static void gevrOpenLog(void)
 {
-    remove("gevr.prev.log");
-    rename("gevr.log", "gevr.prev.log");
+    /* gevr.log aside first: while another run still has it open (Windows
+     * refuses the rename; the flat and VR exes share the folder), the older
+     * gevr.prev.log stays instead of being deleted for nothing (report f0743b24) */
+    remove("gevr.rot.log");
+    if (rename("gevr.log", "gevr.rot.log") == 0) {
+        remove("gevr.prev.log");
+        rename("gevr.rot.log", "gevr.prev.log");
+    }
     gevrLogFile = fopen("gevr.log", "ab");
 }
 

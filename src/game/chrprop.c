@@ -2678,6 +2678,8 @@ f32 gevrHandPropDistance(PropRecord *prop, const f32 p[3])
     }
 }
 
+static void gevrInteractObjectOnline(PropRecord *prop);   /* below */
+
 /* B's own use of one prop (bond_interact_object): the door or the object's rules. */
 s32 gevrHandInteract(PropRecord *prop)
 {
@@ -2692,6 +2694,9 @@ s32 gevrHandInteract(PropRecord *prop)
         case PROP_TYPE_OBJ:
         case PROP_TYPE_WEAPON:
             tickop = propobjInteract(prop);
+#ifdef GEVR
+            gevrInteractObjectOnline(prop);   /* online: the host's scripts, a switch's door */
+#endif
             break;
         case PROP_TYPE_DOOR:
             tickop = propdoorInteract(prop);
@@ -2964,6 +2969,87 @@ PropRecord *propFindForInteract(void)
 }
 
 
+#ifdef GEVR
+/*
+ * This headset's player pressed an object (B, or the hand): the online rest
+ * of it. A tagged one goes to the co-op host, whose scripts ask whether it
+ * was activated (net_coop.c, #357). A switch's door (Dam, Facility, Aztec:
+ * propobjInteract -> sub_GAME_7F03E6A0) moves on the others too, as a door
+ * the player uses does (propdoorInteract). Only from the player's own press:
+ * a received door runs the switch link on each headset (gevrNetDoorApply),
+ * and a co-op host's doors already go out from doorActivate.
+ */
+static void gevrInteractObjectOnline(PropRecord *prop)
+{
+    extern void gevrCoopReportActivate(ObjectRecord *obj);
+    extern bool netIsActive(void);
+    extern bool netIsHost(void);
+    extern int netCoopActive(void);
+    extern void netSendDoorState(ObjectRecord *door, s32 state);
+    extern int gevrNetSlotIsLocalHuman(int slot);
+    struct LinkRecord *link;
+
+    gevrCoopReportActivate(prop->obj);
+    if (!netIsActive() || (netCoopActive() && netIsHost()) || !gevrNetSlotIsLocalHuman(get_cur_playernum()) || prop->type != PROP_TYPE_OBJ ||
+        !(prop->obj->runtime_bitflags & RUNTIMEBITFLAG_00000001))
+    {
+        return;
+    }
+    for (link = g_LevelLoadPropSwitch; link != NULL; link = link->next)
+    {
+        if (link->first == prop && link->second != NULL && link->second->door != NULL)
+        {
+            netSendDoorState(link->second->obj, link->second->door->openstate);
+        }
+    }
+}
+
+/*
+ * A gadget used on an object (gunfire.c: door decoder, bomb defuser, data
+ * thief, explosive floppy, DAT tape). The use starts in the move tick, but
+ * the on-screen props there are the last barrel pass's (lv.c), traced along
+ * the gun, not what the player looks at, so the floppy found nothing in front
+ * of Aztec's drive (#357). The search waits for the frame's own view, where
+ * the B press makes it (lv.c, after chraiUpdateOnscreenPropCount).
+ */
+static s32 s_gevrGadgetUseAt[4];   /* g_GlobalTimer + 1 of a use waiting, 0 none */
+
+void gevrGadgetUseQueue(void)
+{
+    s32 p = get_cur_playernum();
+
+    if (p >= 0 && p < 4)
+    {
+        s_gevrGadgetUseAt[p] = g_GlobalTimer + 1;
+    }
+}
+
+void gevrGadgetUseFlush(void)
+{
+    extern void gevrCoopReportGadgetUse(ObjectRecord *obj);
+    s32 p = get_cur_playernum();
+    s32 at;
+    PropRecord *prop;
+
+    if (p < 0 || p >= 4 || s_gevrGadgetUseAt[p] == 0)
+    {
+        return;
+    }
+    at = s_gevrGadgetUseAt[p] - 1;
+    s_gevrGadgetUseAt[p] = 0;
+    if (g_GlobalTimer < at || g_GlobalTimer - at > 10)
+    {
+        return;   /* a use from before a pause or a stage change (the clock starts again) */
+    }
+    prop = propFindForInteract();
+    if (prop != NULL && prop->obj != NULL)
+    {
+        prop->obj->state |= PROPSTATE_ACTIVATED;
+        gevrCoopReportGadgetUse(prop->obj);   /* co-op: the host's script is what opens the door */
+    }
+}
+#endif
+
 bool bond_interact_object(void)
 {
 #ifdef GEVR
@@ -2982,6 +3068,9 @@ bool bond_interact_object(void)
             case PROP_TYPE_OBJ:
             case PROP_TYPE_WEAPON:
                 tickop = propobjInteract(prop);
+#ifdef GEVR
+                gevrInteractObjectOnline(prop);   /* online: the host's scripts, a switch's door */
+#endif
                 break;
             case PROP_TYPE_DOOR:
                 tickop = propdoorInteract(prop);

@@ -24,9 +24,29 @@ scripts fixed on the way: mac_release.sh exports GEVR_ICLOUD=1, the Drive
 checks use Python zipfile (WSL has no unzip; Git Bash's unzip missed the exes).
 **Help wanted:** couch play with real pads, two headsets with the lobby,
 Apple hardware, Steam Frame, PC VR, the START save check by hand.
+**Unreleased (t3/address-new-issues):** co-op background lists ask the whole
+party (#356 Egypt's Golden Gun floor counted one player; #357 Aztec): room,
+near-pad, held-item and height tests pass for anyone, far-from-pad for
+everyone, and a client's console press reaches the host's scripts
+(`NET_COOP_EVENT_ACTIVATE`, protocol unchanged). A gadget used on an object
+(floppy, DAT, decoder, defuser, data thief) searched a barrel pass's props,
+not the view, so it failed host or client: it now searches after the view.
+A switch's door (Dam gates, Facility, Aztec) pressed online moved for the
+presser only: the press now sends it.
+Audit of all 20 missions: `tools/audit_coop_player_tests.py`; notes in
+[docs/issue-94-coop.md](docs/issue-94-coop.md). Played with two hidden PC
+copies against the pre-fix build (Egypt case, Aztec drive, floppy, DAT,
+exhaust bay, launch); not on headsets. The PC level hook reads
+gevr_level.txt. Asked the #356 reporter what confused them in the controls.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting,
 bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
 Push).
+**Unreleased (t3/separate-dual-hat-models):** dual throwing knives with
+Oddjob's hat on a flat screen: each hand eases 10 units out so the brims no
+longer overlap (`flat` in gevr_oddjobhat.txt, docs/oddjob-hat.md); PC-tested
+with the N64, Bean and GE-X hands at 16:9 and 4:3 (4:3 brims under the ammo
+counters: user OK), not yet on the Quest's 2D screen. GE-X's held hat sits mostly
+below the flat screen's bottom edge (one knife or two): user OK, left as is.
 **Unreleased (t3/bulk-rom-import):** e-ee's request: the main Choose ROM file... takes
 several files or one zip of everything. gevr_romimport.c reads each in place (seeking,
 zips in zips one level): ROMs sorted by header (GE -> ge.z64, GE-X -> Mods page, hacks

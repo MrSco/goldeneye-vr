@@ -108,6 +108,7 @@ held <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
 gex  <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
 prop <brim radius> <dx> <dy> <dz> <pitch>
 height <times>
+flat <spread>
 ```
 
 Defaults: held 133 (about 3.3 of Bond's hand widths), gex 133 (the knife
@@ -116,6 +117,17 @@ so about 11 cm, which matched the cartridge hat in the headset; GE-X's own
 0.085 cm units, 176, drew it a third bigger. Model units also fit GE-X's
 weapon panel, drawn at about 1 view unit a unit), prop 200, height 1 (on
 top of the file's own fix, above).
+
+`flat` is for the flat screen only (PC, phone, the headset's 2D screen). With
+throwing knives in both hands, each hand moves this far out from the middle
+(viewmodel units; the knife's own place is 14 either side), easing over
+about a quarter second as the second knife comes up. Nothing moves unless
+the held knife really draws as the hat (pack loaded, the ROM's knife one it
+was fitted to). The two brims
+overlap at 0, touch at 8 and stay clear at the default 10. From 14 they run
+under the ammo counters at 16:9; at 4:3 they reach the counters already at
+10, which stay readable on top. VR hands follow the controllers and never
+move.
 
 Held and gex rotations turn about the fist: yaw about the knife's axis (180 moves the
 hat to the other side of the hand), pitch across the hand, roll about the

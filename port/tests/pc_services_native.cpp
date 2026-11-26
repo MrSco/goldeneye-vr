@@ -15,6 +15,8 @@
 #include <string>
 #ifndef _WIN32
 #include <unistd.h>   // symlink
+#include <signal.h>   // kill, for the still-open run's child
+#include <sys/wait.h>
 #endif
 
 #include "gevr_bean_import.h"
@@ -52,6 +54,8 @@ extern "C" int gevrBeanCeApply(FILE *zip, const char *, char *msg, size_t msgLen
 #include "../pc/pc_reports.cpp"
 #include "../pc/pc_friends.cpp"
 #include "../pc/pc_updater.cpp"
+#define PC_INSTANCE_NO_UI   // the folder lock without its SDL message
+#include "../pc/pc_instance.cpp"
 
 static int failures, checks;
 #define CHECK(cond) do { checks++; if (!(cond)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
@@ -216,6 +220,85 @@ static void testMods()
     s_importOk = false;
 }
 
+/* A child process for the still-open marker (report f0743b24): this test's own
+ * exe idling (a run from the game's folder), or one from another folder. */
+struct Child {
+    int pid = 0;
+#ifdef _WIN32
+    HANDLE h = nullptr;
+#endif
+};
+
+static Child startChild(bool fromHere, bool exitAtOnce = false, const char *mode = "--idle")
+{
+    Child c;
+#ifdef _WIN32
+    wchar_t self[MAX_PATH * 4];
+    GetModuleFileNameW(nullptr, self, MAX_PATH * 4);
+    wchar_t wmode[32];
+    MultiByteToWideChar(CP_UTF8, 0, exitAtOnce ? "--exit" : mode, -1, wmode, 32);
+    std::wstring cmd = fromHere ? L"\"" + std::wstring(self) + L"\" " + wmode
+                                : std::wstring(L"cmd.exe /c ping -n 5 127.0.0.1");
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    memset(&pi, 0, sizeof(pi));
+    if (CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        c.pid = (int)pi.dwProcessId;
+        c.h = pi.hProcess;
+    }
+    if (exitAtOnce && c.h) {
+        WaitForSingleObject(c.h, 10000);
+        CloseHandle(c.h);
+        c.h = nullptr;
+    }
+#else
+    const std::string self = exePath();
+    const pid_t pid = fork();
+    if (pid == 0) {
+        if (exitAtOnce) _exit(0);
+        if (fromHere) execl(self.c_str(), self.c_str(), mode, (char *)nullptr);
+        else execl("/bin/sleep", "sleep", "5", (char *)nullptr);
+        _exit(1);
+    }
+    c.pid = (int)pid;
+    if (exitAtOnce && pid > 0) waitpid(pid, nullptr, 0);
+    else usleep(200000);   // past exec, so /proc/N/exe names the new image
+#endif
+    return c;
+}
+
+static void stopChild(Child &c)
+{
+#ifdef _WIN32
+    if (c.h) {
+        TerminateProcess(c.h, 0);
+        WaitForSingleObject(c.h, 10000);
+        CloseHandle(c.h);
+        c.h = nullptr;
+    }
+#else
+    if (c.pid > 0) {
+        kill(c.pid, SIGKILL);
+        waitpid(c.pid, nullptr, 0);
+    }
+#endif
+    c.pid = 0;
+}
+
+/* A marker as a run of pid left it, now (LogReporter.foreground(true)). */
+static void writeMarker(int pid)
+{
+    long long elapsed = 0;
+    const long long boot = bootTimeMs(&elapsed);
+    prefSetInt("debug_reports.foreground_run", std::max(wallMs(), fileTimeMs(exePath()) + 1000));
+    prefSetInt("debug_reports.foreground_boot", boot);
+    prefSetInt("debug_reports.foreground_elapsed", elapsed);
+    prefSetInt("debug_reports.run_pid", pid);
+}
+
 static void testReports()
 {
     // CrashExitPolicyTest's qualifies / unexpectedExit
@@ -309,6 +392,84 @@ static void testReports()
     }
     removeFile("gevr_crash.txt");
     removeFile("gevr_prefs.txt");
+
+    // the other exe still open (report f0743b24): its marker is no crash, and
+    // its clean exit leaves the marker of the run that took it over
+    CHECK(gameRunAlive(myPid()));
+    CHECK(!gameRunAlive(0));
+    {
+        Child open = startChild(true);
+        CHECK(open.pid > 0 && gameRunAlive(open.pid));
+        writeMarker(open.pid);
+        LogReporter r;
+        CHECK(r.status() == "idle");
+        CHECK(prefGetInt("debug_reports.run_pid", 0) == myPid());
+        prefSetInt("debug_reports.run_pid", open.pid);   // the other run's clean exit, after this one took the marker...
+        r.foreground(false);                              // ...stands in as a run not holding it
+        CHECK(prefGetInt("debug_reports.foreground_run", 0) != 0);
+        stopChild(open);
+        CHECK(!gameRunAlive(open.pid));
+        r.cleanExit(true);
+    }
+    {
+        // a live process from another folder is a reused pid, not the game: still a crash
+        Child other = startChild(false);
+        CHECK(other.pid > 0 && !gameRunAlive(other.pid));
+        writeMarker(other.pid);
+        LogReporter r;
+        CHECK(r.status() == "offer");
+        r.cleanExit(true);
+        stopChild(other);
+    }
+    {
+        // a run that is gone left its marker: the crash is offered as before
+        Child gone = startChild(true, true);
+        CHECK(gone.pid > 0 && !gameRunAlive(gone.pid));
+        writeMarker(gone.pid);
+        LogReporter r;
+        CHECK(r.status() == "offer");
+        r.cleanExit(true);
+    }
+    removeFile("gevr_prefs.txt");
+}
+
+/* One game per folder (pc_instance.cpp): a run holding gevr_run.lock refuses
+ * the next, names itself to it, and frees it however it ends. */
+static void testInstanceLock()
+{
+    const char *lock = "test_run.lock";
+    removeFile(lock);
+    int pid = -1;
+    std::string exe = "x";
+    CHECK(pcInstanceTryLock(lock, &pid, &exe));
+    CHECK(pid == 0 && exe.empty());
+    CHECK(pcInstanceTryLock(lock, &pid, &exe));   // held already: still ours
+    pcInstanceUnlock();
+
+    Child holder = startChild(true, false, "--hold-lock");
+    for (int i = 0; i < 50; i++) {   // until the child has it: its pid in the file
+        std::string text;
+        if (FILE *f = fopen(lock, "rb")) {
+            char buf[64];
+            const size_t n = fread(buf, 1, sizeof(buf), f);
+            text.assign(buf, n);
+            fclose(f);
+        }
+        if (holder.pid > 0 && atoi(text.c_str()) == holder.pid) break;
+#ifdef _WIN32
+        Sleep(100);
+#else
+        usleep(100000);
+#endif
+    }
+    const bool refused = !pcInstanceTryLock(lock, &pid, &exe);
+    CHECK(refused);
+    CHECK(pid == holder.pid);
+    CHECK(exe == instanceExeName());
+    stopChild(holder);   // killed, as a crash or Task Manager ends it: no stale lock
+    CHECK(pcInstanceTryLock(lock, &pid, &exe));
+    pcInstanceUnlock();
+    removeFile(lock);
 }
 
 static void testFriends()
@@ -417,12 +578,32 @@ static void testUpdater()
     }
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    // the child runs of testReports' still-open marker
+    if (argc > 1 && !strcmp(argv[1], "--exit")) return 0;
+    if (argc > 1 && !strcmp(argv[1], "--hold-lock")) {
+        if (!pcInstanceTryLock("test_run.lock", nullptr, nullptr)) return 2;
+#ifdef _WIN32
+        Sleep(8000);
+#else
+        sleep(8);
+#endif
+        return 0;
+    }
+    if (argc > 1 && !strcmp(argv[1], "--idle")) {
+#ifdef _WIN32
+        Sleep(8000);
+#else
+        sleep(8);
+#endif
+        return 0;
+    }
     testSha256();
     testArchive();
     testMods();
     testReports();
+    testInstanceLock();
     testFriends();
     testUpdater();
     printf(failures ? "pc_services: %d of %d failed\n" : "pc_services: all %d passed\n", failures ? failures : checks, checks);

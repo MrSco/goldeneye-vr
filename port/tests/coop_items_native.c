@@ -120,6 +120,27 @@ s32 g_BondCanEnterTank;
 
 /* INSERT_GADGET */
 
+/* #356/#357: a background list (one of g_ActiveChrs) and a guard */
+#define COOP_LOG(...) ((void)0)
+static ChrRecord bg_chrs[2];
+ChrRecord *g_ActiveChrs = bg_chrs;
+s32 g_ActiveChrsCount = 2;
+static ChrRecord a_guard;
+static ChrRecord *ChrEntityp;
+static int host_guards;
+s32 gevrCoopHostGuards(void) { return host_guards; }
+static s32 player_room[4];
+static f32 player_dist[4];
+bool check_if_actor_is_at_preset(ChrRecord *self, s32 padnum) { (void)self; return player_room[cur_player] == padnum; }
+f32 chrGetDistanceFromBondToPad(ChrRecord *self, s32 padnum) { (void)self; (void)padnum; return player_dist[cur_player]; }
+s32 gevrPresetRoom(ChrRecord *self, s32 padnum) { (void)self; return padnum; }
+static s32 room_passed = -1;
+void gevrCoopBondRoomPassed(AIRecord *list, int room) { (void)list; room_passed = room; }
+
+/* INSERT_PARTY */
+
+/* INSERT_PRESS */
+
 /* INSERT_MINE */
 
 /* INSERT_TANK */
@@ -173,6 +194,7 @@ static void host_event(int slot, struct netbuf *b)
     switch (kind) {
         /* INSERT_GRANT_CASE */
         /* INSERT_GADGET_CASE */
+        /* INSERT_ACTIVATE_CASE */
         default:
             break;
     }
@@ -186,6 +208,184 @@ static void run_equipped_check(void)
             assert(0);
             break;
     }
+}
+
+static struct netbuf open_last(void);
+static struct netbuf written(u8 *raw, u32 cap);
+static void rewind_written(struct netbuf *b);
+
+/* one instruction in a run already under way (chrai.c ai() runs on) */
+static void run_case_same_run(u8 cmd)
+{
+    switch (cmd) {
+        /* INSERT_IN_ROOM_CASE */
+        /* INSERT_FAR_CASE */
+        /* INSERT_ACTIVATED_CASE */
+        default:
+            assert(0);
+            break;
+    }
+}
+
+/* one instruction as the first of a list's run */
+static void run_case(u8 cmd)
+{
+    gevrCoopPartyRunStart();
+    run_case_same_run(cmd);
+}
+
+/* #356: Egypt's floor list asks "is Bond in the room / near this tile?"
+ * #357: Aztec's consoles, pressed on a teammate's headset. */
+static void test_party_and_presses(void)
+{
+    u8 raw[32];
+    struct netbuf packet;
+    static u8 room[] = { AI_IFBondInRoomWithPad, 0x00, 0x05, 9 };
+    static u8 far[] = { AI_IFBondDistanceToPadGreaterThanDecimeter, 0x00, 0x0a, 0x00, 0x05, 9 };
+    static u8 pressed[] = { AI_IFObjectWasActivated, 7, 9 };
+    static u8 held_list[] = { AI_IFBondHasItemEquipped, ITEM_DATTAPE, 9 };
+    ObjectRecord *obj = tagged;
+
+    assert(obj && obj->prop);
+    static StandTile tiles[4];
+    for (int i = 0; i < 4; i++) occupied[i] = i < 3;
+    for (int i = 0; i < 3; i++) { assert(g_playerPointers[i] && g_playerPointers[i]->prop); g_playerPointers[i]->prop->stan = &tiles[i]; }
+    memset(downed, 0, sizeof(downed));
+    memset(held, 0, sizeof(held));
+    host_guards = 1;
+    is_host = 1;
+    puppets = 0;
+    local_slot = 0;
+    cur_player = 0;
+    goto_offset = 50;
+
+    /* the room: only player 2 is in it; a background list passes as player 2 */
+    player_room[0] = 1; player_room[1] = 1; player_room[2] = 5;
+    ChrEntityp = &bg_chrs[1];
+    AiListp = (AIRecord *)room; Offset = 0; goto_calls = 0;
+    run_case(room[0]);
+    assert(goto_calls == 1 && Offset == 50 && cur_player == 2 && room_passed == 5);
+    /* a guard's list keeps its target (player 0, not in the room) */
+    cur_player = 0; ChrEntityp = &a_guard; Offset = 0;
+    run_case(room[0]);
+    assert(goto_calls == 1 && cur_player == 0);
+    /* nobody in it: no pass, and the list's player is put back */
+    player_room[2] = 1; ChrEntityp = &bg_chrs[0]; Offset = 0;
+    run_case(room[0]);
+    assert(goto_calls == 1 && cur_player == 0 && Offset == (s32)sizeof(AiIFBondInRoomWithPadRecord));
+    /* a downed player does not count */
+    player_room[1] = 5; downed[1] = 1; Offset = 0;
+    run_case(room[0]);
+    assert(goto_calls == 1 && cur_player == 0);
+    downed[1] = 0;
+    /* a player not yet standing on a tile (joining) is skipped, not read */
+    {
+        StandTile *keep = g_playerPointers[1]->prop->stan;
+        g_playerPointers[1]->prop->stan = NULL; Offset = 0;
+        run_case(room[0]);
+        assert(goto_calls == 1 && cur_player == 0);
+        g_playerPointers[1]->prop->stan = keep;
+    }
+    /* outside a co-op host's run: the current player only */
+    host_guards = 0; Offset = 0;
+    run_case(room[0]);
+    assert(goto_calls == 1 && cur_player == 0);
+    host_guards = 1;
+    player_room[1] = 1;
+
+    /* a run's Bond, once settled, is the only one its later tests ask (Cradle:
+     * "in the shaft room" then "below this height" is one player) */
+    player_room[2] = 5; ChrEntityp = &bg_chrs[0]; cur_player = 0; Offset = 0;
+    run_case(room[0]);
+    assert(goto_calls == 2 && cur_player == 2);
+    player_room[2] = 1; player_room[1] = 5; Offset = 0;
+    run_case_same_run(room[0]);
+    assert(goto_calls == 2 && cur_player == 2);   /* player 1 in the room does not answer for 2 */
+    cur_player = 0; Offset = 0;
+    run_case(room[0]);
+    assert(goto_calls == 3 && cur_player == 1);   /* the next run asks everyone again */
+    player_room[1] = 1; cur_player = 0; goto_calls = 1;
+
+    /* far from the pad (100 units): only once everyone is */
+    AiListp = (AIRecord *)far;
+    player_dist[0] = 500; player_dist[1] = 500; player_dist[2] = 50; Offset = 0;
+    run_case(far[0]);
+    assert(goto_calls == 1 && cur_player == 0);
+    player_dist[2] = 900; Offset = 0;
+    run_case(far[0]);
+    assert(goto_calls == 2 && Offset == 50 && cur_player == 0);
+
+    /* holding the DAT: anyone, with no gadget use to answer for */
+    AiListp = (AIRecord *)held_list; g_GlobalTimer = 500;
+    held[1][GUNLEFT] = ITEM_DATTAPE; Offset = 0;
+    run_equipped_check();
+    assert(goto_calls == 3 && cur_player == 1);
+    cur_player = 0; held[1][GUNLEFT] = 0;
+
+    /* a teammate's press: the client reports the tag, the host sets the
+     * flag, and the list that takes it treats the presser as Bond */
+    is_host = 0; puppets = 1; local_slot = 2; cur_player = 2; broadcasts = 0;
+    gevrCoopReportActivate(obj);
+    assert(broadcasts == 1);
+    packet = open_last();
+    assert(netbufReadU8(&packet) == NET_MSG_COOP_EVENT);
+    assert(netbufReadU8(&packet) == 2);
+    assert(netbufReadU8(&packet) == NET_COOP_EVENT_ACTIVATE);
+    assert(netbufReadS32(&packet) == 7);
+    /* a copy's press here, or a press outside co-op, sends nothing */
+    cur_player = 1; gevrCoopReportActivate(obj); cur_player = 2;
+    coop_active = 0; gevrCoopReportActivate(obj); coop_active = 1;
+    assert(broadcasts == 1);
+
+    is_host = 1; puppets = 0; local_slot = 0; cur_player = 0;
+    obj->runtime_bitflags = 0;
+    packet = written(raw, sizeof(raw));
+    netbufWriteU8(&packet, NET_COOP_EVENT_ACTIVATE);
+    netbufWriteS32(&packet, 7);
+    rewind_written(&packet);
+    host_event(2, &packet);
+    assert(obj->runtime_bitflags & RUNTIMEBITFLAG_ACTIVATED);
+    AiListp = (AIRecord *)pressed; ChrEntityp = &bg_chrs[0]; Offset = 0;
+    run_case(pressed[0]);
+    assert(goto_calls == 4 && cur_player == 2 && !(obj->runtime_bitflags & RUNTIMEBITFLAG_ACTIVATED));
+    /* the host's own press: remembered as the host's */
+    cur_player = 0;
+    gevrCoopReportActivate(obj);
+    obj->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
+    cur_player = 1; Offset = 0;
+    run_case(pressed[0]);
+    assert(goto_calls == 5 && cur_player == 0);
+    /* a presser downed, or off any tile, by the time the list takes it: the
+     * press counts, the list keeps its own Bond (its room tests read the tile) */
+    coopApplyActivate(2, 7);
+    downed[2] = 1; cur_player = 0; Offset = 0;
+    run_case(pressed[0]);
+    assert(goto_calls == 6 && cur_player == 0);
+    downed[2] = 0;
+    {
+        StandTile *keep = g_playerPointers[2]->prop->stan;
+        coopApplyActivate(2, 7);
+        g_playerPointers[2]->prop->stan = NULL; cur_player = 0; Offset = 0;
+        run_case(pressed[0]);
+        assert(goto_calls == 7 && cur_player == 0);
+        g_playerPointers[2]->prop->stan = keep;
+    }
+    /* a guard list's press leaves its target alone; a stage load forgets */
+    coopApplyActivate(2, 7);
+    ChrEntityp = &a_guard; cur_player = 1; Offset = 0;
+    run_case(pressed[0]);
+    assert(goto_calls == 8 && cur_player == 1);
+    coopApplyActivate(2, 7);
+    coopPressReset();
+    ChrEntityp = &bg_chrs[0]; Offset = 0;
+    run_case(pressed[0]);
+    assert(goto_calls == 9 && cur_player == 1);
+
+    ChrEntityp = NULL;
+    host_guards = 0;
+    cur_player = 0;
+    local_slot = 0;
+    memset(held, 0, sizeof(held));
 }
 
 static void run_gadget_check(void)
@@ -721,6 +921,7 @@ int main(void)
         memset(held, 0, sizeof(held));
         cur_player = 0;
     }
+    test_party_and_presses();
 
     /* Player A is this headset. Player B's tick must not take the deck. */
     memset(&tank, 0, sizeof(tank));
