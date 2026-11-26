@@ -23,7 +23,9 @@ def main():
             raise RuntimeError(build.stderr)
         subprocess.run([str(exe)], check=True)
     print("PASS: attachment poses, mirroring, next-tick lookup, and stale or undrawn frame rejection; another "
-          "player's kept apart, drawn once on its held gun at the level's scale, this player's own placed first")
+          "player's kept apart, drawn once on its held gun at the level's scale, this player's own placed first; its "
+          "optic's folded housing as told; its pack gun body in place of the item's model (hand lists, flash at its "
+          "muzzle), for its gun alone, reset, gone with its player, within the shared files")
 
 
 if __name__ == "__main__":

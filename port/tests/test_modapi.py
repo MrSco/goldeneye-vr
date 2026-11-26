@@ -2017,6 +2017,94 @@ mod.on("mission_start", function() mod.attach.add({ model = "pack-part.bin", on 
           "a dedicated server: asks, draws nothing: " + str(attach_sent(out)))
 
 
+def attach_network_optics_bodies(exe, temp):
+    """#335: an optic's housing state (bound, mode, folded, its folded housing) rides its attachment to the others,
+    and each hand's pack gun body (mod.weapon.model) is told as it's set, reset, swapped and stopped; theirs are drawn
+    here, a gun body only for a gun this cartridge has"""
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+local id
+mod.on("mission_start", function()
+  id = mod.attach.add({ model = "pack-part.bin", on = "gun", hand = "right" })
+  print("optic", mod.attach.optic(id, { profile = "hhs1.opt", folded = "pack-part-folded.bin" }))
+  mod.weapon.model("right", "wppk", "pack-body.bin", { frame = { {2, 0, 0}, {0, 2, 0}, {0, 0, 2}, {0, 4, 100} }, muzzle = { 0, 3, 350 } })
+end)
+local n = 0
+mod.on("tick", function()
+  n = n + 1
+  if n == 1 then mod.attach.opticMode(id, 2) end
+  if n == 2 then mod.attach.opticMode(id, 2) end
+  if n == 3 then mod.attach.optic(id, false); mod.weapon.model("right", "wppk", nil) end
+  if n == 4 then mod.weapon.model("right", "wppk", "pack-body.bin") end
+  if n == 8 then error("stop") end
+end)
+"""
+    out = run(exe, temp, "attachoptic", lua, "online", 1, 0, 0, 2, *play, *(["frame"] * 5), "hold", 0, 8, 30,
+              "frame", "hold", 0, 4, 7, *(["frame"] * 4))
+    part = ("set", 1, 0, 0, 0, 1, (0, 0, 0), (0, 0, 0), "pack-part.bin", "")
+    body = ("body", 0, 4, 3, (0, 4, 100), (0, 3, 350), "pack-body.bin")
+    sent = attach_sent(out)
+    # each frame tells what changed before its tick: the attachment with its optic and the hand's pack body
+    # together at the first
+    check(logs(out)[:1] == ["optic true"] and sent == [
+        (255, "tactical", 9, [body, part + (("optic", 1, 0, 0, "pack-part-folded.bin"),)]),
+        (255, "tactical", 9, [part + (("optic", 1, 1, 1, "pack-part-folded.bin"),)]),
+        (255, "tactical", 9, [("body", 0, 0, 0, (0, 0, 0), (0, 0, 0), ""), part]),
+        (255, "tactical", 9, [("body", 0, 4, 0, (0, 0, 0), (0, 0, 0), "pack-body.bin")]),
+        (255, "tactical", 9, [("body", 0, 0, 0, (0, 0, 0), (0, 0, 0), "")]),
+        (255, "tactical", 9, [("body", 0, 4, 0, (0, 0, 0), (0, 0, 0), "pack-body.bin")]),
+        (255, "tactical", 9, [("clear",)])],
+          "the attachment, its optic and the hand's pack body; a flip (the same again unsent); "
+          "unbound and the body reset together; a new body; swapped to another gun and back; then a stop's clear: "
+          + str(sent))
+    out = run(exe, temp, "attachopticsolo", lua, *play, *(["frame"] * 4))
+    check(not answers(out, "NETSEND"), "solo: nothing sent")
+    # a player joining gets the body and the optic with the rest
+    lua = lua.replace("if n == 3 then", "if n == 99 then")
+    out = run(exe, temp, "attachopticjoin", lua, "online", 1, 1, 0, 0, *play, "frame", "frame", "frame",
+              "peerready", 3, "frame")
+    joined = [s for s in attach_sent(out) if s[0] == 3]
+    check(joined == [(3, "tactical", 9, [body, part + (("optic", 1, 1, 1, "pack-part-folded.bin"),)])],
+          "a joining player: the pack body and the optic's state, to that player alone: " + str(joined))
+
+    # another player's: the housing with its attachment, a body for a gun this cartridge has
+    sight = attach_record(1, 7, 0, 0, 3, 1, (0, 90, -20), (0, 0, 0), "pack-sight.bin", "", optic=1, mode=1, folded=1,
+                          housing="pack-sight-folded.bin")
+    out = run(exe, temp, "attachopticrecv", 'mod.on("tick", function() end)', "online", 1, 0, 0, 2, *play,
+              "netattach", "tactical", 1, attach_message(9, sight,
+                                                         attach_record(5, where=1, item=8, fitted=1, muzzled=1,
+                                                                       origin=(0, 4, 100), muzzle=(0, 3, 350),
+                                                                       model="pack-body.bin")),
+              "frame",
+              "netattach", "tactical", 1, attach_message(9, attach_record(1, 7, 0, 0, 3, 1, (0, 90, -20), (0, 0, 0),
+                                                                        "pack-sight.bin", "")),
+              "netattach", "tactical", 1, attach_message(9, attach_record(5, where=1)),
+              "frame",
+              "netattach", "tactical", 1, attach_message(9, attach_record(5, where=0, item=23, model="pack-body.bin")),
+              "netattach", "tactical", 1, attach_message(9, attach_record(5, where=2, item=8, model="pack-body.bin")),
+              "netattach", "tactical", 1, attach_message(9, attach_record(5, where=0, item=8, model="../body.bin")),
+              "netattach", "tactical", 1, attach_message(9, attach_record(5, where=0, item=0, model="pack-body.bin")),
+              "netattach", "tactical", 1, attach_message(9, attach_record(1, 9, 0, 0, 0, 1, (0, 0, 0), (0, 0, 0),
+                                                                        "pack-sight.bin", "Gak47Z", optic=1)),
+              "netattach", "tactical", 1, attach_message(9, attach_record(1, 9, 0, 0, 0, 1, (0, 0, 0), (0, 0, 0),
+                                                                        "pack-sight.bin", "", optic=1, mode=12)),
+              "netattach", "tactical", 1, attach_message(9, attach_record(1, 9, 0, 0, 0, 1, (0, 0, 0), (0, 0, 0),
+                                                                        "pack-sight.bin", "", folded=1, housing="x.bin")),
+              "frame",
+              "netattach", "tactical", 1, attach_message(9, attach_record(3)), "frame")
+    check(answers(out, "ROPTIC", "RBODY", "REMOTEGONE") == [
+        "ROPTIC 1 7 pack-sight-folded.bin 1 1",
+        "RBODY 1 1 8 pack-body.bin fit 2 0 4 100 muzzle 0 3 350",
+        "ROPTIC 1 7 - 0 0",
+        "RBODY 1 1 0 -",
+        "REMOTEGONE 1 0"],
+          "another player's optic housing with its attachment, then none; its pack body, then the hand's own; a gun "
+          "this cartridge doesn't have left alone; a third hand, a bad name, a named own, an optic on a cartridge "
+          "part, a mode past twelve and a fold without an optic refused whole; a clear takes all: "
+          + str(answers(out, "ROPTIC", "RBODY", "REMOTEGONE")))
+    check(out.count("a malformed attachments message from player 1 dropped") == 1, "the malformed logged, once a mission")
+
+
 def ui(exe, temp):
     play = ("start", "prepare", 9, "begin", 9)
     lua = r"""
@@ -2318,6 +2406,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         pack_names(exe, temp)
         attach_loadout(exe, temp)
         attach_network(exe, temp)
+        attach_network_optics_bodies(exe, temp)
         guards_told(temp)
 
     if FAILS:

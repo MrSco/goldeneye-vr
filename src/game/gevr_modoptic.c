@@ -205,6 +205,17 @@ int gevrModOpticFolded(int id)
     return b && b->hasFolded && b->profile->modes[b->selected].folded;
 }
 
+/* gevr_modattach.c, for the others (#335): bound, the selected mode, and
+ * whether it folds the housing; as it stands, nothing retired here */
+int gevrModOpticState(int id, int *mode, int *folded)
+{
+    const Binding *b = bindingFor(id);
+    if (!b) return 0;
+    *mode = b->selected;
+    *folded = b->hasFolded && b->profile->modes[b->selected].folded;
+    return 1;
+}
+
 static float axisOf(const Mtxf *pose, const float axis[3], float out[3])
 {
     float length = 0.f;

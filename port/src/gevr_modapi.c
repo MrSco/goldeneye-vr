@@ -630,6 +630,17 @@ static int authoredGunPoint(lua_State *L, int t, const char *key, float out[3])
     return 1;
 }
 
+/* the mods whose mod.weapon.model a hand's pack body may be (#335): the
+ * others' copies draw it while that mod runs there too */
+static char s_gunBodyMod[2][64];
+static int s_gunBodyAny;
+
+static void gunBodyTold(lua_State *L, int hand)
+{
+    snprintf(s_gunBodyMod[hand], sizeof(s_gunBodyMod[hand]), "%s", gevrModScriptIdOf(L));
+    s_gunBodyAny = 1;
+}
+
 /*
  * model(hand, item, file | nil [, { frame, muzzle, support }]): when the hand draws item, the mod's
  * assets/models/<file> in place of the item's cartridge model, built over
@@ -668,7 +679,9 @@ static int l_gunModel(lua_State *L)
             return luaL_argerror(L, 4, "a frame, muzzle or support point for a pack mesh");
     }
     needPlayer(L, "mod.weapon.model");
-    lua_pushboolean(L, gevrModGameGunModel(hand, item, name, fit, muzzlePoint, supportPoint));
+    const int set = gevrModGameGunModel(hand, item, name, fit, muzzlePoint, supportPoint);
+    if (set && name != NULL) gunBodyTold(L, hand);   /* a pack body is told to the others as the hand draws it */
+    lua_pushboolean(L, set);
     return 1;
 }
 
@@ -2615,6 +2628,8 @@ void gevrModApiReset(void)
      * the next loads) */
     gevrAttachNetReset(netIsActive() && gevrModScriptStage() >= 0);
     attachNetForget();
+    memset(s_gunBodyMod, 0, sizeof(s_gunBodyMod));
+    s_gunBodyAny = 0;
 }
 
 /* ---- the weapons area's events ---- */
@@ -3305,7 +3320,7 @@ void gevrModNetAttach(const char *mod, int from, const void *data, int len)
         }
         if (from < 0 || from >= GEVR_ATTNET_SLOTS) continue;   /* a dedicated server wears nothing */
         keep = 1;
-        if (r[i].op == GEVR_ATTNET_SET) {
+        if (r[i].op == GEVR_ATTNET_SET || (r[i].op == GEVR_ATTNET_GUNBODY && r[i].item)) {
             s_rigs |= 1u << from;
             snprintf(s_rigMod, sizeof(s_rigMod), "%s", mod);
         } else if (r[i].op == GEVR_ATTNET_CLEAR) {
@@ -3346,13 +3361,39 @@ static void attachApply(const char *mod, int from, const unsigned char *data, in
                 memcpy(a.offset[j], r[i].frame[j], sizeof(r[i].frame[j]));
                 a.offset[j][3] = j == 3 ? 1.0f : 0.0f;
             }
-            if (gevrModGameAttachRemote(from, r[i].id, &a, r[i].shown, r[i].body)) s_rigsDrawn |= 1u << from;
+            if (gevrModGameAttachRemote(from, r[i].id, &a, r[i].shown, r[i].body)) {
+                s_rigsDrawn |= 1u << from;
+                /* its optic's housing, never the lens: a pack mesh's on the gun alone */
+                if (r[i].on == GEVR_ATTNET_GUN && !r[i].like[0]) {
+                    gevrModGameAttachRemoteOptic(from, r[i].id, r[i].optic ? r[i].housing : NULL, r[i].mode, r[i].folded);
+                }
+            }
+        } else if (r[i].op == GEVR_ATTNET_GUNBODY) {
+            float fit[4][4];
+
+            for (j = 0; j < 4; j++) {
+                memcpy(fit[j], r[i].frame[j], sizeof(r[i].frame[j]));
+                fit[j][3] = j == 3 ? 1.0f : 0.0f;
+            }
+            /* a gun this cartridge has, else the record's left alone */
+            if (r[i].item == 0 || gevrModGameSwappable(r[i].item)) {
+                if (gevrModGameAttachRemoteBody(from, r[i].where, r[i].item, r[i].item ? r[i].model : NULL,
+                                                r[i].fitted ? (const float (*)[4])fit : NULL,
+                                                r[i].muzzled ? r[i].muzzle : NULL) && r[i].item) {
+                    s_rigsDrawn |= 1u << from;
+                }
+            }
         } else if (r[i].op == GEVR_ATTNET_REMOVE) {
             gevrModGameAttachRemoteGone(from, r[i].id);
         } else if (r[i].op == GEVR_ATTNET_CLEAR) {
             gevrModGameAttachRemoteGone(from, 0);
         }
     }
+}
+
+static int attachOpticState(int id, int *mode, int *folded, char housing[GEVR_ATTNET_NAME + 1])
+{
+    return gevrModGameAttachOpticState(id, mode, folded, housing, GEVR_ATTNET_NAME + 1);
 }
 
 static int attachSend(int to, const char *mod, const void *data, int len)
@@ -3379,8 +3420,29 @@ static void attachNetFrame(void)
             s_rigs &= ~(1u << slot);
         }
     }
+    if (netIsActive() && s_gunBodyAny) {
+        /* the pack gun body each hand draws now: a set, a reset to the
+         * hand's own, a gun swap, all told as they happen */
+        for (i = 0; i < 2; i++) {
+            GevrAttachRecord r;
+            float fit[4][4];
+            int j;
+
+            memset(&r, 0, sizeof(r));
+            if (s_gunBodyMod[i][0] && gevrModScriptOn(s_gunBodyMod[i])
+                && gevrModGameGunBody(i, r.model, sizeof(r.model), &r.item, fit, &r.fitted, r.muzzle, &r.muzzled)) {
+                for (j = 0; j < 4; j++) memcpy(r.frame[j], fit[j], sizeof(r.frame[j]));
+                if (!r.fitted) memset(r.frame, 0, sizeof(r.frame));
+                if (!r.muzzled) memset(r.muzzle, 0, sizeof(r.muzzle));
+                if (!gevrAttachNetGunBody(s_gunBodyMod[i], i, &r)) gevrAttachNetGunBody(NULL, i, NULL);
+            } else {
+                gevrAttachNetGunBody(NULL, i, NULL);
+            }
+        }
+    }
     if (netIsActive() && gevrAttachNetWorn()) {
         gevrAttachNetRefreshBody(gevrModGameAttachBodyAt);
+        gevrAttachNetRefreshOptic(attachOpticState);
     }
     if (netIsActive()) gevrAttachNetPoll(sysGetMicroseconds(), gevrModScriptStage() & 0xFF, attachSend);
 }

@@ -39,6 +39,11 @@
  * match's gun size, as this player's own are. They share the tables: this
  * player's own always find a place (another's is set aside for one), and
  * another's loads a new file only while ATT_REMOTE_FILES_FREE stay free.
+ * An optic's housing comes with it (mod.attach.optic: its folded housing and
+ * whether the selected mode folds it), never its lens: that's the owner's.
+ * So does the pack gun body each hand draws (mod.weapon.model with a pack
+ * mesh): drawn on the copy's held gun in place of the item's model, through
+ * the same pack-mesh path, its file one of the same shared files.
  */
 
 #include <ultra64.h>
@@ -78,6 +83,7 @@ extern void gevrModOpticCheckCarrier(int id, s32 hand);
 extern void gevrModOpticDrawn(int id, s32 hand, const Mtxf *pose);
 extern Gfx *gevrModOpticEmit(Gfx *gdl, s32 hand);
 extern int gevrModOpticFolded(int id);
+extern int gevrModOpticState(int id, int *mode, int *folded);
 extern void gevrModOpticUnbind(int id);
 extern void gevrModOpticReset(void);
 
@@ -118,13 +124,26 @@ typedef struct
     s32 drawnMirrored;
     const ModelFileHeader *drawnGun;  /* NULL until this attachment emits a draw */
     const GevrModMesh *drawnGunMesh;
+    s32 remoteFolded;            /* another player's optic: its selected mode folds the housing */
+    s32 remoteMode;              /* and that mode, from 0 */
     Model model;
     ModelFileHeader *modelOf;    /* the header model was set up for */
     u32 rw[ATT_RW];
 } Attachment;
 
+/* another player's pack gun body in a hand (#335), drawn for item alone */
+typedef struct
+{
+    AttachFile *file;            /* a pack mesh's; NULL the item's own model */
+    s32 item;
+    s32 fitted, muzzled;
+    Mtxf fit;                    /* the mesh on the gun model's root */
+    f32 muzzle[3];               /* its authored muzzle, the mesh's units */
+} RemoteBody;
+
 static AttachFile s_files[GEVR_MODAPI_ATTACH_MODELS];
 static Attachment s_attach[GEVR_MODAPI_ATTACH_MAX];
+static RemoteBody s_remoteBody[MAX_PLAYER_COUNT][2];
 static s32 s_nextId = 1;
 static s32 s_nextRemote = -1;
 static s32 s_remoteAny;    /* another player's placed this mission */
@@ -462,6 +481,7 @@ void gevrModGameAttachReset(void)
         s_attach[i].folded = NULL;
     }
     gevrModOpticReset();
+    memset(s_remoteBody, 0, sizeof(s_remoteBody));
     for (i = 0; i < GEVR_MODAPI_ATTACH_MODELS; i++)
     {
         s_files[i].model[0] = '\0';
@@ -551,6 +571,11 @@ int gevrModGameAttachRemote(int slot, int id, const GevrModAttach *a, int shown,
         at->owner = slot;
         at->ownerId = id;
     }
+    if (at->file != f || a->on != GEVR_MODATTACH_GUN || f->mesh == NULL)
+    {
+        at->folded = NULL;   /* an optic's housing only as told for this pack mesh on the gun */
+        at->remoteFolded = FALSE;
+    }
     at->file = f;
     at->on = a->on;
     at->where = a->where;
@@ -582,6 +607,102 @@ void gevrModGameAttachRemoteGone(int slot, int id)
             s_attach[i].id = 0;
         }
     }
+    if (id == 0 && slot >= 0 && slot < MAX_PLAYER_COUNT)
+    {
+        memset(s_remoteBody[slot], 0, sizeof(s_remoteBody[slot]));   /* its gun bodies too */
+    }
+}
+
+/* another player's attachment's optic housing: its folded housing (a pack
+ * mesh, NULL or "" none), whether the selected mode folds it, and the mode.
+ * The lens stays the owner's: nothing of it is kept here. */
+int gevrModGameAttachRemoteOptic(int slot, int id, const char *housing, int mode, int folded)
+{
+    Attachment *at = NULL;
+    AttachFile *f = NULL;
+    s32 i;
+
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX && at == NULL; i++)
+    {
+        if (s_attach[i].id < 0 && s_attach[i].owner == slot && s_attach[i].ownerId == id)
+        {
+            at = &s_attach[i];
+        }
+    }
+    if (at == NULL || at->on != GEVR_MODATTACH_GUN || at->file->mesh == NULL || mode < 0)
+    {
+        return 0;
+    }
+    if (housing != NULL && housing[0])
+    {
+        f = at->folded != NULL && strcmp(at->folded->model, housing) == 0 ? at->folded : attachLoadRemote(housing, "");
+        if (f != NULL && f->mesh == NULL)
+        {
+            f = NULL;   /* a housing is a pack mesh, as mod.attach.optic takes it */
+        }
+    }
+    at->folded = f;
+    at->remoteFolded = f != NULL && folded;
+    at->remoteMode = mode;
+    return housing == NULL || !housing[0] || f != NULL;
+}
+
+/* this player's attachment's optic as the others are told it: bound, its
+ * mode, whether that mode folds the housing, and the housing's file */
+int gevrModGameAttachOpticState(int id, int *mode, int *folded, char *housing, int cap)
+{
+    const Attachment *a = attachFind(id);
+
+    if (a == NULL || cap <= 0 || !gevrModOpticState(id, mode, folded))
+    {
+        return 0;
+    }
+    snprintf(housing, (size_t) cap, "%s", a->folded != NULL ? a->folded->model : "");
+    return 1;
+}
+
+/* another player's pack gun body in a hand (item 0 or model NULL: the item's
+ * own model again): 1 set, 0 not (a file that isn't a pack mesh, no room
+ * after this player's own files) */
+int gevrModGameAttachRemoteBody(int slot, int hand, int item, const char *model, const float fit[4][4], const float muzzle[3])
+{
+    RemoteBody *b;
+    AttachFile *f;
+    s32 i, j;
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || hand < 0 || hand > 1 || (netIsActive() && slot == netGetLocalSlot()))
+    {
+        return 0;
+    }
+    b = &s_remoteBody[slot][hand];
+    if (item <= 0 || item >= ITEM_IDS_MAX || model == NULL || !model[0])
+    {
+        memset(b, 0, sizeof(*b));
+        return item == 0;
+    }
+    f = b->file != NULL && strcmp(b->file->model, model) == 0 ? b->file : attachLoadRemote(model, "");
+    if (f == NULL || f->mesh == NULL)
+    {
+        memset(b, 0, sizeof(*b));   /* the item's own rather than the old body */
+        return 0;
+    }
+    b->file = f;
+    b->item = item;
+    b->fitted = fit != NULL;
+    b->muzzled = muzzle != NULL;
+    for (i = 0; i < 4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            b->fit.m[i][j] = fit != NULL ? fit[i][j] : (i == j ? 1.0f : 0.0f);
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        b->muzzle[i] = muzzle != NULL ? muzzle[i] : 0.0f;
+    }
+    s_remoteAny = TRUE;
+    return 1;
 }
 
 int gevrModGameAttachBodyAt(int where, float out[3])
@@ -589,6 +710,23 @@ int gevrModGameAttachBodyAt(int where, float out[3])
     extern s32 gevrBodySlotAt(s32 slot, f32 out[3]);   /* gevr_bodyslots.c */
 
     return gevrBodySlotAt(where, out);
+}
+
+/* a pose in a body's passes to the level's scale, which the game's own
+ * matrices take as they're converted (matrixmath.c matrix_4x4_f32_to_s32):
+ * a pack mesh's goes to the display list as it is */
+static void attachWorldScale(Mtxf *pose)
+{
+    extern f32 D_80032310[2];   /* matrixmath.c: the conversion's scale */
+    const f32 k = D_80032310[0] / 65536.0f;
+    s32 i;
+
+    for (i = 0; i < 4; i++)
+    {
+        pose->m[i][0] *= k;
+        pose->m[i][1] *= k;
+        pose->m[i][2] *= k;
+    }
 }
 
 /* one attachment at its anchor's frame: the offset laid in it, the model's
@@ -602,25 +740,18 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     s32 i;
 
     if (a->file->mesh != NULL) {
-        /* in a body's passes (world, another player's): once, in its solid
-         * pass (the mesh draws its own see-through parts), and at the level's
-         * scale, which the game's own matrices take as they're converted
-         * (matrixmath.c matrix_4x4_f32_to_s32) */
+        /* in a body's passes (world, another player's): once, in
+         * its solid pass (the mesh draws its own see-through parts), and at
+         * the level's scale (attachWorldScale) */
         if (world && !(templ->flags & 1)) return gdl;
-        /* an optic with its magnifier swung aside draws its folded housing */
-        const GevrModMesh *mesh = a->folded != NULL && gevrModOpticFolded(a->id) ? a->folded->mesh : a->file->mesh;
+        /* an optic with its magnifier swung aside draws its folded housing
+         * (another player's: as that player's optic is told) */
+        const s32 folded = a->folded != NULL && (a->id < 0 ? a->remoteFolded : gevrModOpticFolded(a->id));
+        const GevrModMesh *mesh = folded ? a->folded->mesh : a->file->mesh;
         matrix_4x4_multiply(anchor, &a->offset, &pose);
         if (world)
         {
-            extern f32 D_80032310[2];   /* matrixmath.c: the conversion's scale */
-            const f32 k = D_80032310[0] / 65536.0f;
-
-            for (i = 0; i < 4; i++)
-            {
-                pose.m[i][0] *= k;
-                pose.m[i][1] *= k;
-                pose.m[i][2] *= k;
-            }
+            attachWorldScale(&pose);
         }
         Gfx *end = gevrModMeshDraw(gdl, &pose, mesh);
         if (drawnPose != NULL && end != gdl) *drawnPose = pose;
@@ -892,6 +1023,79 @@ Gfx *gevrModAttachDrawPlayerGun(Gfx *gdl, ModelRenderData *templ, ChrRecord *chr
         }
     }
     return gdl;
+}
+
+/* the pack gun body another player's hand draws for item, or NULL */
+static RemoteBody *attachPlayerBody(ChrRecord *chr, s32 hand, s32 item)
+{
+    const s32 slot = attachRemoteSlot(chr);
+    RemoteBody *b;
+
+    if (slot < 0 || hand < 0 || hand > 1)
+    {
+        return NULL;
+    }
+    b = &s_remoteBody[slot][hand];
+    return b->file != NULL && b->file->mesh != NULL && b->item == item ? b : NULL;
+}
+
+/* gevr_heldgun.c gevrHeldGunCompute: where the copy's muzzle flash goes
+ * when its pack gun body has an authored muzzle (gun model units from its
+ * root), as gunfire.c puts the player's own there */
+s32 gevrModAttachPlayerMuzzle(ChrRecord *chr, s32 hand, s32 item, f32 out[3])
+{
+    const RemoteBody *b = attachPlayerBody(chr, hand, item);
+
+    if (b == NULL || !b->muzzled)
+    {
+        return FALSE;
+    }
+    gevrModMeshPoint(b->fitted ? &b->fit : NULL, b->muzzle, out);
+    return TRUE;
+}
+
+/* gevr_heldgun.c gevrHeldGunDraw, in each of the body's passes as another
+ * player's gun is drawn: that player's pack gun body for item in place of
+ * the item's model (*replaced), as gunfire.c draws the player's own: the
+ * mesh on the model's root and its fit (once, in the solid pass, at the
+ * level's scale), the model's hand lists as the copy shows them
+ * (model.c modelGunHandList), and with an authored muzzle its flash there */
+Gfx *gevrModAttachDrawPlayerBody(Gfx *gdl, ModelRenderData *templ, ChrRecord *chr, s32 hand, s32 item, Model *gun,
+                                 s32 *replaced)
+{
+    const RemoteBody *b = attachPlayerBody(chr, hand, item);
+    ModelRenderData rd;
+    Mtxf pose;
+
+    *replaced = FALSE;
+    if (b == NULL || gun == NULL || gun->obj == NULL || gun->render_pos == NULL || gun->obj->numMatrices <= 0)
+    {
+        return gdl;
+    }
+    *replaced = TRUE;
+    if (templ->flags & 1)
+    {
+        if (b->fitted)
+        {
+            Mtxf fit = b->fit;
+
+            matrix_4x4_multiply((Mtxf *) gun->render_pos, &fit, &pose);
+        }
+        else
+        {
+            pose = *(Mtxf *) gun->render_pos;
+        }
+        attachWorldScale(&pose);
+        gdl = gevrModMeshDraw(gdl, &pose, b->file->mesh);
+    }
+    rd = *templ;
+    rd.gdl = gdl;
+    modelDrawGunHand(&rd, gun, item > 0 && item < ITEM_IDS_MAX ? gitem_structs[item].item_file_name : NULL);
+    if (b->muzzled)
+    {
+        modelDrawGunFlash(&rd, gun);
+    }
+    return rd.gdl;
 }
 
 /* chr.c chrRenderProp, after another player's body and what's stuck to it,
