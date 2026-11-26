@@ -1680,6 +1680,12 @@ static void inputCouchTickDropIn(void)
     extern int gevrNativePauseOpen(void);
     const s32 seats = gevrCouchSeats();
 
+    /* Players lowered on the options page after more joined: the match has the
+     * fewer, and the rest go back to waiting pads that may drop in */
+    if (!netIsActive() && seats >= 2 && s_seated > seats && s_joinCount > seats) {
+        s_joinCount = seats;
+        inputSeatsCommit();
+    }
     if (netIsActive() || g_gevrStereo || seats < 2 || seats >= INPUT_MAX_CONTROLLERS || s_seated != seats
             || bossGetStageNum() == LEVELID_TITLE || gevrNativePauseOpen()) {
         for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) s_couchPadHeld[k] = 1;   /* a press already down is not one */
@@ -1714,6 +1720,22 @@ static void inputCouchTickDropIn(void)
  * players become the party's local seats, each with the device it joined
  * with, as an online party's local guests are (inputOnlineSeatsSync).
  */
+/*
+ * Couch co-op's seats are an online party's, where the own controls (keyboard
+ * and mouse, touch) are always the first seat: mouse look and the menus read
+ * them there. Before the party starts, the own controls move to the front of
+ * the join page's list; the pads keep their order after them.
+ */
+void inputJoinOwnFirst(void)
+{
+    const s32 own = inputJoinFind(JOIN_OWN);
+
+    if (own <= 0) return;
+    for (s32 i = own; i > 0; --i) s_joinDev[i] = s_joinDev[i - 1];
+    s_joinDev[0] = JOIN_OWN;
+    inputSeatsCommit();
+}
+
 void inputCouchCoopAdopt(void)
 {
     extern int netSlotOfLocalSeat(int seat);
@@ -4161,7 +4183,10 @@ void inputUpdate(void)
          */
         const s32 scripted = pcTestInputActive();
         const s32 frontEnd = bossGetStageNum() == LEVELID_TITLE;
-        const s32 panel = gevrNativePauseOpen();
+        /* the pause window, or one of the game's screens it opened (Select Character,
+         * the photos, Handicap, Teams): the mouse is the pointer on either */
+        extern s32 gevrMenuPanelIsOpen(s32 slot);
+        const s32 panel = gevrNativePauseOpen() || (netIsActive() && gevrMenuPanelIsOpen(netGetLocalSlot()));
         const s32 focused = scripted || SDL_GetKeyboardFocus() != NULL;
         if (scripted) {
             /* A test script drives the mouse (port/pc/pc_testinput.c). The real
@@ -4482,6 +4507,14 @@ static void inputDsZoneFeedback(Uint8 *effect, const s32 force[10])
 #endif
 
 /* A trigger's feel (scale: Trigger feedback), mode TRIGMODE_OFF sets it free */
+/* this build can put a feel on a DualSense's triggers: without one, the fire
+ * point stays where it always was (a bump to pull past must be felt) */
+#if defined(GEVR_VISIONOS) || (!defined(GEVR_IOS) && !SDL_VERSION_ATLEAST(2, 0, 16))
+#define INPUT_TRIG_FEEL_SENDS 0
+#else
+#define INPUT_TRIG_FEEL_SENDS 1
+#endif
+
 static void inputDualSenseFeel(SDL_GameController *pad, s32 right, const InputTrigFeel *f, f32 scale)
 {
     const f32 f0 = f->force0 * scale, f1 = f->force1 * scale;
@@ -4646,6 +4679,15 @@ static void inputTriggerShot(s32 slot, s32 hand, s32 item)
 static void inputTriggerTick(void)
 {
     u64 now = 0;
+#if defined(GEVR_IOS)
+    /* iOS sends a feel to every DualSense at once (ios_app.m): with two or more,
+     * one player's feel would sit on another's pad, so none is raised */
+    s32 dualsenses = 0;
+    for (s32 p = 0; p < INPUT_MAX_CONTROLLERS; p++) dualsenses += pads[p] && inputPadIsDualSense(pads[p]);
+    const s32 feelSends = dualsenses <= 1;
+#else
+    const s32 feelSends = 1;
+#endif
     for (s32 p = 0; p < INPUT_MAX_CONTROLLERS; p++) {
         SDL_GameController *pad = pads[p];
         if (pad != trigFeelPad[p]) {
@@ -4653,7 +4695,7 @@ static void inputTriggerTick(void)
             trigFeelSet[p][0] = trigFeelSet[p][1] = -1;
             trigBuzzUntilUs[p][0] = trigBuzzUntilUs[p][1] = 0;
         }
-        if (!inputPadIsDualSense(pad)) {
+        if (!inputPadIsDualSense(pad) || !INPUT_TRIG_FEEL_SENDS || !feelSends) {
             trigFirePoint[p][0] = trigFirePoint[p][1] = 0.f;
             continue;
         }

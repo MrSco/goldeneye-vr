@@ -11,6 +11,7 @@
 #include "gevr_romlayout.h"
 extern bool netIsActive(void);
 extern bool netSlotOccupied(int slot);
+extern int gevrCouchSeats(void);   /* net_core.c: a couch match's seated players, 0 if not one */
 extern int netGetLocalSlot(void);
 #endif
 
@@ -737,6 +738,22 @@ void shuffle_player_ids(void) {
         array_PLAYER_IDs[i + random % (4 - i)] = temp;
     }
 #ifdef GEVR
+    if (!netIsActive() && gevrCouchSeats() > 0) {
+        /*
+         * A couch match with seats to spare (net_core.c gevrCouchLoadPlayers):
+         * the empty seats' players exist but never tick, so one first in this
+         * order left no pass to run the world's once-a-frame work (doors,
+         * pickups, sounds, the dividers, the end clock). Seated players first,
+         * in the shuffled order; the same random numbers were drawn above.
+         */
+        PLAYER_ID ordered[MAX_PLAYER_COUNT];
+        s32 count = 0;
+        for (i = 0; i < MAX_PLAYER_COUNT; i++)
+            if (array_PLAYER_IDs[i] < gevrCouchSeats()) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < MAX_PLAYER_COUNT; i++)
+            if (array_PLAYER_IDs[i] >= gevrCouchSeats()) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) array_PLAYER_IDs[i] = ordered[i];
+    }
     if (netIsActive()) {
         /*
          * Online, all local human viewports are drawn (1 in VR or solo flat,

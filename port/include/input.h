@@ -175,6 +175,7 @@ s32 inputJoinFrame(s32 onPrevTab, s32 onStartTab);   // 0 stay, 1 play (seated),
 s32 inputJoinCount(void);
 void inputJoinSetMinimum(s32 players);   // START plays once this many joined (Multiplayer 2, couch co-op 1)
 s32 inputJoinMinimum(void);
+void inputJoinOwnFirst(void);             // couch co-op: the keyboard/mouse (touch) seat becomes player 1
 void inputCouchCoopAdopt(void);           // couch co-op began: the joined players become its seats
 const char *inputJoinName(s32 player);    // the device player joined with
 void inputSeatsClear(void);               // back to no join (the mode select)

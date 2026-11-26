@@ -613,7 +613,9 @@ void bossMainloop(void)
             s32 couch = FALSE;
 #ifdef GEVR_FLAT
             extern s32 g_gevrStereo;
-            couch = g_StageNum != LEVELID_TITLE && !g_gevrStereo && !get_is_ramrom_flag() && !gevrCoopActive();
+            extern s32 gevrCouchRoomForDropIns(s32 seated);   /* front.c: the scenario's size, no 2.x styles */
+            couch = g_StageNum != LEVELID_TITLE && !g_gevrStereo && !get_is_ramrom_flag() && !gevrCoopActive()
+                && gevrCouchRoomForDropIns(localSelectedNumPlayers);
 #endif
             localSelectedNumPlayers = gevrCouchLoadPlayers(localSelectedNumPlayers, couch);
             if (gevrCouchSeats() > 0)
@@ -991,7 +993,8 @@ void gevrCoopMissionEndLocal(s32 result)
     mpwatchSetStopPlayFlag();
     for (i = 0; i < getPlayerCount(); i++)
     {
-        if (g_playerPointers[i] && i == netGetLocalSlot())
+        extern int gevrNetSlotIsLocalHuman(int slot);
+        if (g_playerPointers[i] && gevrNetSlotIsLocalHuman(i))   /* every seat on this screen (split screen) */
         {
             s32 prev = get_cur_playernum();
             set_cur_player(i);

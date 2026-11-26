@@ -219,6 +219,7 @@ extern "C" void gevrNativePauseRender(void) {
 #endif
     view.portraits=true;   /* the game's own screens: in the view, or in stereo on the head-locked HUD (mpmenu.c) */
     view.lobby=!view.coop&&gevrInMatchLobby()!=0;
+    view.friendsReady=gevrFriends().status=="ready";   /* Add friend / Accept on a player's name (as the ghosts page) */
     /* a split screen's setup is each player's folder; one player's is this window (mpmenu.c gevrMpOptionsAsMenu) */
     view.setup=gevrMpOptionsAvailable(netGetLocalSlot())!=0 && netLocalSlotCount()>1;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));

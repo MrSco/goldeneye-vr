@@ -4021,10 +4021,16 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
             (s_eyeHeadP[0] > 1e-6f || s_eyeHeadP[0] < -1e-6f) &&
             (s_eyeHeadP[1] > 1e-6f || s_eyeHeadP[1] < -1e-6f) &&
             (sc[0] > vx || sc[1] > vy || sc[0] + sc[2] < vx + vw || sc[1] + sc[3] < vy + vh)) {
+            /* The delta can also carry the walk (flat_headset.c flatApplyLocomotion):
+             * a corner can't be moved with it without its depth, so a frame that
+             * moves takes the whole view, as before #337, instead of a stale doorway
+             * scissor cutting strips off a near room. Turning alone reprojects. */
+            const bool walked = delta != NULL && (delta[12] > 1e-4f || delta[12] < -1e-4f || delta[13] > 1e-4f ||
+                                                  delta[13] < -1e-4f || delta[14] > 1e-4f || delta[14] < -1e-4f);
             const float xs[2] = { (float)sc[0], (float)(sc[0] + sc[2]) };
             const float ys[2] = { (float)sc[1], (float)(sc[1] + sc[3]) };
             float minX = (float)(vx + vw), minY = (float)(vy + vh), maxX = (float)vx, maxY = (float)vy;
-            bool ok = true;
+            bool ok = !walked;
             for (int ix = 0; ix < 2 && ok; ix++) {
                 for (int iy = 0; iy < 2 && ok; iy++) {
                     const float nx = ((xs[ix] - (float)vx) / (float)vw) * 2.0f - 1.0f;

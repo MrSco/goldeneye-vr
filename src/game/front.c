@@ -1107,6 +1107,7 @@ extern s32 inputSeated(void);
 extern void inputJoinSetMinimum(s32 players);
 extern s32 inputJoinMinimum(void);
 extern void inputCouchCoopAdopt(void);
+extern void inputJoinOwnFirst(void);
 extern bool netCouchCoopStart(int seats);
 extern int netCouchCoopActive(void);
 extern void netDisconnect(void);
@@ -4899,6 +4900,7 @@ void interface_menu0E_mpoptions(void)
             /* seated for couch co-op: the party, on this machine only, then its mission select */
             gevrJoinOpen = FALSE;
             gevrJoinCoop = FALSE;
+            inputJoinOwnFirst();   /* the party's first seat has the own controls, as online */
             if (netCouchCoopStart(inputSeated()))
             {
                 inputCouchCoopAdopt();
@@ -5636,7 +5638,9 @@ static void frontPointerToFrame(f32 u, f32 v, f32 *x, f32 *y)
     const f32 wide = portNativeAspect();
     const f32 canvas = (f32)viGetX() / (f32)viGetY();
 
-    if (wide > 1.3334f && canvas > 0.0f && gevrLocalViewCount() < 2)
+    /* pillarboxed only on the title stage (the front end's 4:3); in a match the
+     * screens draw with the HUD, stretched over the whole width */
+    if (wide > 1.3334f && canvas > 0.0f && gevrLocalViewCount() < 2 && bossGetStageNum() == LEVELID_TITLE)
     {
         u = 0.5f + (u - 0.5f) * wide / canvas;
         u = u < 0.0f ? 0.0f : u > 1.0f ? 1.0f : u;   /* on a bar: the canvas's edge */
@@ -5749,6 +5753,9 @@ s32 frontPanelPointer(s32 slot, s32 *id, s32 *click)
     if (hit == 0 || joyGetButtons(slot, pad) || sx > 30 || sx < -30 || sy > 30 || sy < -30) s_panelPointing[slot] = 0;
     else if (hit == 2) s_panelPointing[slot] = 1;
     if (!s_panelPointing[slot]) return 0;
+    /* B (back) and START are the pad's: the screen's own handling takes them,
+     * pointer or not (they did nothing while it pointed) */
+    if (joyGetButtonsPressedThisFrame(slot, B_BUTTON | START_BUTTON)) return 0;
     frontPointerToFrame(u, v, &px, &py);
     for (i = s_panelHitCount[slot] - 1; i >= 0; i--)   /* the last drawn is on top */
     {
@@ -5761,6 +5768,11 @@ s32 frontPanelPointer(s32 slot, s32 *id, s32 *click)
         }
     }
     *click = joyGetButtonsPressedThisFrame(slot, A_BUTTON | Z_TRIG) != 0;
+    if (*click && *id < 0)
+    {
+        *click = 0;
+        return 0;   /* a click on nothing: A as the pad's, on what is highlighted */
+    }
     return 1;
 }
 #endif
@@ -8734,6 +8746,24 @@ void set_players_team_or_scenario_item_flag(int player,s32 flag)
  * The seats nobody took yet get a character no seated player plays and the
  * normal handicap, so a newcomer has a body of their own from the load.
  */
+/*
+ * boss.c: a couch match keeps seats for drop-ins only when its scenario takes
+ * more players than are seated (2 vs 1 is three, no more), and nobody seated
+ * plays a two-controller style (2.x reads pad player + player count: with
+ * four loaded that is no pad, and the second pads would look like drop-ins).
+ */
+s32 gevrCouchRoomForDropIns(s32 seated)
+{
+    s32 i;
+
+    if (seated >= (s32)mp_player_counts[scenario].max) return FALSE;
+    for (i = 0; i < seated && i < MAX_PLAYER_COUNT; i++)
+    {
+        if (controlstyle_player[i] >= CONTROLLER_CONFIG_PLENTY) return FALSE;
+    }
+    return TRUE;
+}
+
 void gevrCouchPrepareSeats(s32 seated)
 {
     s32 slot;
@@ -8755,6 +8785,7 @@ void gevrCouchPrepareSeats(s32 seated)
         }
         player_char[slot] = c < num_chars_selectable_mp ? c : slot;
         player_handicap[slot] = 5;
+        controlstyle_player[slot] = CONTROLLER_CONFIG_HONEY;   /* not the slot's last owner's 2.x */
     }
 }
 
@@ -8776,6 +8807,7 @@ s32 gevrCouchDropIn(void)
     char msg[32];
 
     if (g_gameOverFlag || g_stopPlayFlag) return -1;
+    if (gevrCouchSeats() >= (s32)mp_player_counts[scenario].max) return -1;   /* the scenario's size */
     slot = gevrCouchSeatAdd();
     if (slot < 0) return -1;
     selected_num_players = gevrCouchSeats();   /* the next match keeps them */
@@ -11463,8 +11495,14 @@ Gfx * menu_jump_constructor_handler(Gfx *DL)
 #ifdef GEVR
     /* Screen shape 16:9 (gepc-ref D335/D335a): the front end is 4:3, so it is
      * pillarboxed (centred, undistorted), with a canvas scissor so that what
-     * slides in from off the canvas (the gun barrel) stops at its edge. */
-    PORT_HUD_ASPECT(DL, GE_HUD_ASPECT_CENTER);
+     * slides in from off the canvas (the gun barrel) stops at its edge.
+     * With several local players too (a co-op party's menus are one screen,
+     * not split): only the pre-match lobby's split screen is laid out per
+     * view, over the whole screen. */
+    if (portNativeAspect() > 1.3334f && (gevrLocalViewCount() < 2 || current_menu != MENU_MP_LOBBY))
+    {
+        gSPHudAspectEXT(DL++, GE_HUD_ASPECT_CENTER);
+    }
     if (portNativeAspect() > 1.3334f) {
         gDPSetScissor(DL++, G_SC_NON_INTERLACE, 0, 0, viGetX(), viGetY());
     }
