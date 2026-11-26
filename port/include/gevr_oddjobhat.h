@@ -21,6 +21,11 @@ extern int VrOddjobHat;   /* vr_settings: Mods, saved as OddjobHat */
 /* the hat file is on the headset */
 int gevrHatAvailable(void);
 
+/* gunfire.c, the flat screen only: how far each hand moves out while both
+ * hold throwing knives, so the two hats' brims don't run into each other
+ * (0 while the hat is off or missing) */
+float gevrHatDualSpread(void);
+
 /* load_object_fill_header: notes the knife models' display list nodes */
 void gevrHatModelLoaded(struct ModelFileHeader *header, const char *name);
 

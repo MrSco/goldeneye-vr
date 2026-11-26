@@ -6,6 +6,7 @@
 #include "gevr_gexweapon.h"
 #include "gevr_hand_reload.h"
 #include "gevr_romlayout.h"
+#include "gevr_oddjobhat.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -685,6 +686,14 @@ void gunUpdateAndFire(GUNHAND handnum)
             gunofs.x += (handnum == GUNRIGHT ? 1.0f : -1.0f) * (pp7->PosX - itemstats->PosX);
             gunofs.y += pp7->PosY - itemstats->PosY;
             gunofs.z += pp7->PosZ - itemstats->PosZ;
+        }
+
+        /* Oddjob's hats in both hands: the knives' fists sit too close for two
+         * brims, so on the flat screen each hand moves out (gevr_oddjobhat.c) */
+        if (!g_gevrStereo && item == ITEM_THROWKNIFE
+            && get_item_in_hand_or_watch_menu(handnum == GUNRIGHT ? GUNLEFT : GUNRIGHT) == ITEM_THROWKNIFE)
+        {
+            gunofs.x += (handnum == GUNRIGHT ? 1.0f : -1.0f) * gevrHatDualSpread();
         }
     }
 #endif
