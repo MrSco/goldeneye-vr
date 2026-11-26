@@ -331,6 +331,36 @@ int main(void)
             assert(!replaced);
         }
 
+        /* a guard's pack mesh (#335 review): in the body's passes, so once, in
+         * the solid pass, at the level's scale, as another player's */
+        {
+            static PropRecord gprop;
+            static ChrRecord guard;
+            static Model gmodel;
+            static ModelFileHeader gheader;
+            Attachment *g = &s_attach[5];
+
+            gprop.type = PROP_TYPE_CHR;
+            guard.prop = &gprop;
+            guard.model = &gmodel;
+            gheader.numMatrices = 2;
+            gmodel.obj = &gheader;
+            gmodel.render_pos = (RenderPosView *)nodes;
+            strcpy(s_files[0].model, "patch.bin");
+            s_files[0].ok = TRUE;
+            s_files[0].mesh = (const GevrModMesh *)&file;
+            *g = (Attachment){.id = 77, .file = &s_files[0], .shown = TRUE, .on = GEVR_MODATTACH_GUARD, .node = 3,
+                              .chr = &guard, .partOf = &gheader, .partMtx = 1, .offset = identity};
+            g->offset.m[3][0] = 4;
+            rd.flags = 2;
+            assert(gevrModAttachDrawGuard(&guard, &rd, 0xFF, list) == list);
+            rd.flags = 1;
+            assert(gevrModAttachDrawGuard(&guard, &rd, 0xFF, list) == list + 1);
+            assert(meshPose.m[3][0] == (8 + 4) * 0.5f && meshPose.m[0][0] == 0.5f);
+            rd.flags = 3;   /* a fading body's one pass */
+            assert(gevrModAttachDrawGuard(&guard, &rd, 0x80, list) == list + 1);
+            g->id = 0;
+        }
         D_80032310[0] = 65536.0f;
         online = 0;
     }

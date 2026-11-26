@@ -117,6 +117,9 @@ def placement():
           "a pack mesh in a body's passes: once, at the level's scale")
     check("a->id < 0 ? a->remoteFolded : gevrModOpticFolded(a->id)" in one,
           "another player's optic: its folded housing as that player's is told, never this player's own optic's")
+    guard = function(game, "Gfx *gevrModAttachDrawGuard(")
+    check("attachDraw(gdl, &objdata, a, &node, NULL, TRUE)" in guard,
+          "a guard's pack mesh in the body's passes too: once, at the level's scale")
     pbody = function(game, "Gfx *gevrModAttachDrawPlayerBody(")
     check(pbody.index("*replaced = TRUE;") < pbody.index("if (templ->flags & 1)") < pbody.index("attachWorldScale(&pose);")
           < pbody.index("gevrModMeshDraw(gdl, &pose, b->file->mesh)") < pbody.index("modelDrawGunHand(&rd, gun,")
@@ -182,7 +185,7 @@ def main():
     print("PASS: mod.attach on the other players: the message's bytes and refusals, sends on change at the rate, "
           "a flip, a join's whole state, a removal and a stop reaching the others; an optic's housing state and the "
           "hands' pack gun bodies with them; NET_MOD_ATTACH's place in the network and the API; the draws on the "
-          "other player's gun (its pack body, its optic housing), hands and body")
+          "other player's gun (its pack body, its optic housing), hands and body, and a guard's pack mesh")
 
 
 if __name__ == "__main__":

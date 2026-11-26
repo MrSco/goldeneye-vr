@@ -740,7 +740,7 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     s32 i;
 
     if (a->file->mesh != NULL) {
-        /* in a body's passes (world, another player's): once, in
+        /* in a body's passes (world: a guard's, another player's): once, in
          * its solid pass (the mesh draws its own see-through parts), and at
          * the level's scale (attachWorldScale) */
         if (world && !(templ->flags & 1)) return gdl;
@@ -906,7 +906,9 @@ Gfx *gevrModAttachDrawGuard(ChrRecord *chr, ModelRenderData *body, s32 fadealpha
         }
         node = ((Mtxf *) chr->model->render_pos)[a->partMtx];
         objdata.gdl = gdl;
-        gdl = attachDraw(gdl, &objdata, a, &node, NULL, FALSE);
+        /* in the body's passes, its matrices still floats: a pack mesh once
+         * and at the level's scale, as on another player (world) */
+        gdl = attachDraw(gdl, &objdata, a, &node, NULL, TRUE);
     }
     return gdl;
 }
