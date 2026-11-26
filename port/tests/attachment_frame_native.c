@@ -17,6 +17,7 @@ int netGetLocalSlot(void) { return 0; }
 s32 get_cur_playernum(void) { return 0; }
 ITEM_IDS get_item_in_hand_or_watch_menu(GUNHAND hand) { return held; }
 const GevrModMesh *gevrModGunMesh(s32 hand) { return gunMesh; }
+f32 gevrModGunActionShare(s32 hand, s32 handle) { (void)hand; (void)handle; return 0.0f; }
 Gfx *gevrModMeshDraw(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh) { return gdl + room; }
 void matrix_4x4_multiply(Mtxf *lhs, Mtxf *rhs, Mtxf *out)
 {
