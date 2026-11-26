@@ -2,6 +2,7 @@
 #include "gevr_settings_ui.h"
 #include "gevr_romcheck.h"
 #include "gevr_romlayout.h"
+#include "gevr_romimport.h"
 #include "gevr_bean.h"
 #include "gevr_icloud.h"
 #include "gevr_sync.h"
@@ -485,7 +486,7 @@ static bool gevrKleptonPick(const char *method)
               : !strcmp(method, "openTndPicker") ? "Choose your Tomorrow Never Dies 64 ROM"
               : !strcmp(method, "openMirrorPicker") ? "Choose your Mirror ROM"
               : !strcmp(method, "openMarioPicker") ? "Choose your Mario Characters ROM" : "Choose your GoldenEye 007 ROM";
-        extensions = "z64,v64,n64";
+        extensions = !strcmp(method, "openRomPicker") ? "z64,v64,n64,zip" : "z64,v64,n64";   // a zip: gevr_romimport.c
     } else if (!strcmp(method, "openXblaPicker") && files) {
         dest = std::string(files) + "/.import-xbla";
         title = "Choose your copy of GoldenEye XBLA (its .7z, .zip or Xbox 360 package)";
@@ -3595,7 +3596,40 @@ extern "C" void gevrLauncherRun(void)
     // Find the ROM. A good dump copied into the data folder under any name
     // ("GoldenEye 007 (USA).z64") is renamed to ge.z64, the name the loader
     // looks for, so nobody has to rename files on a headset.
+    // Several ROMs from one pick, or a .zip of them (gevr_romimport.c), sorted
+    // off the frame: a large zip takes a few seconds on a headset.
+    struct ImportResult { std::string summary; int filed = 0; int gotGe = 0; };
+    std::future<ImportResult> importJob;
+    bool importSummaryShown = false;
     auto scan = [&]() {
+        importSummaryShown = false;
+        if (importJob.valid()) {
+            if (importJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+            const ImportResult r = importJob.get();
+            vr_log("launcher: ROM import sorted %d (%s)", r.filed, r.summary.c_str());
+            if (!r.summary.empty()) {
+                message = r.summary;
+                romError = r.filed == 0;
+                importSummaryShown = true;
+            }
+            if (!r.gotGe) {
+                launcherSession.romSelectionFinished();
+                pickerPending = false;
+            }
+        } else if (gevrRomImportPending(dataDir().c_str())) {
+            message = "Sorting the ROMs you chose...";
+            romError = false;
+            const std::string dir = dataDir();
+            importJob = std::async(std::launch::async, [dir]() {
+                ImportResult r;
+                char summary[1024];
+                r.filed = gevrRomImportRun(dir.c_str(), summary, (int)sizeof(summary), &r.gotGe);
+                r.summary = summary;
+                return r;
+            });
+            pickerPending = true;   // keeps the once-a-second scan going until it is done
+            return;
+        }
         // A ROM the file picker copied in (MainActivity.onActivityResult)
         // replaces the one in use if it checks out.
         if (pickerPending) {
@@ -3613,15 +3647,19 @@ extern "C" void gevrLauncherRun(void)
             if (stat(picked.c_str(), &st) == 0) {
                 RomInfo r = probeRom(picked);
                 launcherSession.romSelectionFinished();
+#ifdef _WIN32
+                if (r.good) remove((dataDir() + "/ge.z64").c_str());   // Windows' rename does not replace
+#endif
                 if (r.good && rename(picked.c_str(), (dataDir() + "/ge.z64").c_str()) == 0) {
-                    message = "ROM chosen.";
+                    if (!importSummaryShown) message = "ROM chosen.";
                     romError = false;
                     gevrCloudKick();   // to the player's other Apple devices
                     gevrSyncKick();    // and to the others (Google Drive)
                     vr_log("launcher: picked ROM adopted");
                 } else {
-                    message = r.good ? "Could not replace the ROM in the data folder." :
-                        "That file is not a GoldenEye 007 (USA) ROM: " + r.status + ".";
+                    message = (importSummaryShown ? message + " " : std::string())
+                        + (r.good ? "Could not replace the ROM in the data folder." :
+                           "That file is not a GoldenEye 007 (USA) ROM: " + r.status + ".");
                     romError = true;
                     remove(picked.c_str());
                 }
@@ -3873,6 +3911,10 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
                                    "Android/data/com.gevr.port/files/data (any name).");
 #endif
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("Several ROMs at once, or one .zip of them, works too: GoldenEye X and the "
+                                   "other campaigns go where they belong.");
+                ImGui::PopStyleColor();
                 if (ImGui::Button("Choose ROM file...")) {
                     pickerPending = gevrOpenRomPicker();
                     romError = !pickerPending;

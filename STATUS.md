@@ -27,6 +27,11 @@ Apple hardware, Steam Frame, PC VR, the START save check by hand.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting,
 bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
 Push).
+**Unreleased (t3/bulk-rom-import):** e-ee's request: the main Choose ROM file... takes
+several files or one .zip of them; port/src/gevr_romimport.c sorts each by header
+(GE -> ge.z64, GE-X -> the Mods page, hacks -> their campaign files, no campaign
+switch). test_rom_import.py; Windows hidden run adopted the real ROM from a zip;
+Quest APK builds. Not yet tried on the headset; iOS/Klepton/tvOS take one file (a zip works).
 **Before it:** v0.5.27 (versionCode 140, protocol 27), tag on 37cd0d7a
 ([notes](docs/releases/v0.5.27.md)): volumetric explosions (#249), scrolling
 monitors (#309), Steam Frame scope (#321).

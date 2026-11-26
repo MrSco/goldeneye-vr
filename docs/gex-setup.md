@@ -170,7 +170,9 @@ The ROM title alone does not guarantee the right revision.
 4. Select `gex.z64` from **Download**. The success message is
    **GoldenEye X ROM chosen.** The app stores the file as
    `Android/data/com.gevr.port/files/data/gex.z64` and keeps the main game's
-   ROM separately. Do not use the Play page's main **Choose ROM file...**.
+   ROM separately. The Play page's main **Choose ROM file...** takes
+   `gex.z64` too (alone, beside other ROMs, or in a .zip of them) and passes
+   it to the Mods page, which shows the same message when it is next opened.
 5. Enable **GE-X guns, hands and watch**. Start a mission and equip a
    supported gun to check the replacement.
 

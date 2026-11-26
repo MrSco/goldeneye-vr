@@ -19,6 +19,9 @@
 #include "../fast3d/glad/glad.h"
 #include "../vr/imgui/imgui.h"
 #include "pc_testinput.h"
+#include "gevr_romimport.h"
+
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -89,6 +92,45 @@ static std::string pcNarrow(const std::wstring &w)
     if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], n, nullptr, nullptr);
     return s;
 }
+
+/*
+ * The Open dialog taking several files (the main ROM picker, gevr_romimport.c).
+ * A test script answers with the paths joined by '|'.
+ */
+static PickResult pcChooseFiles(const wchar_t *filter, const wchar_t *title, std::vector<std::wstring> *files)
+{
+    if (pcTestInputActive()) {
+        std::wstring one;
+        const PickResult r = pcChooseFile(filter, title, &one);
+        if (r != PICK_CHOSEN) return r;
+        size_t at = 0;
+        for (size_t bar; (bar = one.find(L'|', at)) != std::wstring::npos; at = bar + 1) files->push_back(one.substr(at, bar - at));
+        files->push_back(one.substr(at));
+        return PICK_CHOSEN;
+    }
+    std::vector<wchar_t> buf(1 << 16, L'\0');
+    OPENFILENAMEW ofn;
+    memset(&ofn, 0, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = GetActiveWindow();
+    ofn.lpstrFilter = filter;
+    ofn.lpstrFile = buf.data();
+    ofn.nMaxFile = (DWORD)buf.size();
+    ofn.lpstrTitle = title;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+    if (!GetOpenFileNameW(&ofn)) {
+        return CommDlgExtendedError() ? PICK_FAILED : PICK_CANCELLED;
+    }
+    // one file: its path; several: the folder, then each name, each ending in a NUL
+    const std::wstring first = buf.data();
+    const wchar_t *p = buf.data() + first.size() + 1;
+    if (!*p) {
+        files->push_back(first);
+        return PICK_CHOSEN;
+    }
+    for (; *p; p += wcslen(p) + 1) files->push_back(first + L"\\" + p);
+    return PICK_CHOSEN;
+}
 #else
 enum PickResult { PICK_CHOSEN, PICK_CANCELLED, PICK_FAILED };
 
@@ -151,7 +193,58 @@ static PickResult pcChooseFile(const char *title, const char *patterns, std::str
     sysLogPrintf(1, "launcher: no file dialog (install zenity or kdialog)");
     return PICK_FAILED;
 }
+
+/* Several files (the main ROM picker); a test script joins them with '|'. iOS: one. */
+static PickResult pcChooseFiles(const char *title, const char *patterns, std::vector<std::string> *files)
+{
+    std::string joined;
+    PickResult r;
+#ifndef GEVR_IOS
+    if (!pcTestInputActive()) {
+        const std::string zenity = "zenity --file-selection --multiple --separator='|' --title=" + pcShellQuote(title)
+            + " --file-filter=" + pcShellQuote(patterns) + " 2>/dev/null";
+        const std::string kdialog = "kdialog --title " + pcShellQuote(title) + " --multiple --separate-output --getopenfilename . "
+            + pcShellQuote(patterns) + " 2>/dev/null";
+        r = PICK_FAILED;
+        for (const std::string &cmd : { zenity, kdialog }) {
+            FILE *p = popen(cmd.c_str(), "r");
+            if (!p) continue;
+            std::string out;
+            char line[4096];
+            while (fgets(line, sizeof(line), p)) out += line;
+            const int status = pclose(p);
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 127) continue;   // not installed
+            for (char &c : out) if (c == '\n') c = '|';
+            while (!out.empty() && (out.back() == '|' || out.back() == '\r')) out.pop_back();
+            r = WIFEXITED(status) && WEXITSTATUS(status) == 0 && !out.empty() ? PICK_CHOSEN : PICK_CANCELLED;
+            joined = out;
+            break;
+        }
+        if (r == PICK_FAILED) sysLogPrintf(1, "launcher: no file dialog (install zenity or kdialog)");
+    } else
 #endif
+    {
+        r = pcChooseFile(title, patterns, &joined);
+    }
+    if (r != PICK_CHOSEN) return r;
+    size_t at = 0;
+    for (size_t bar; (bar = joined.find('|', at)) != std::string::npos; at = bar + 1)
+        if (bar > at) files->push_back(joined.substr(at, bar - at));
+    if (at < joined.size()) files->push_back(joined.substr(at));
+    return files->empty() ? PICK_CANCELLED : PICK_CHOSEN;
+}
+#endif
+
+// Several ROMs chosen at once: each copied into data/picked-import/ under its
+// own name, where the launcher sorts them (gevr_romimport.c).
+static std::string pcImportName(const std::string &path)
+{
+    const size_t slash = path.find_last_of("/\\");
+    std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
+    if (name.empty() || name[0] == '.') name = "file" + name;
+    if (name.size() >= 5 && name.compare(name.size() - 5, 5, ".part") == 0) name += "_";
+    return name;
+}
 
 void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp
 void pcModsApplyCe(const std::string &path);
@@ -207,7 +300,30 @@ bool pcOpenPicker(const char *method)
     if (!dest) return false;
 #ifdef _WIN32
     std::wstring file;
-    if (pcChooseFile(L"N64 ROMs (*.z64;*.v64;*.n64)\0*.z64;*.v64;*.n64\0All files\0*.*\0", L"Choose the ROM", &file) != PICK_CHOSEN) {
+    if (!strcmp(dest, "picked.z64")) {
+        // the main picker: one ROM, several, or a .zip of them
+        std::vector<std::wstring> files;
+        if (pcChooseFiles(L"N64 ROMs or a .zip of them (*.z64;*.v64;*.n64;*.zip)\0*.z64;*.v64;*.n64;*.zip\0All files\0*.*\0",
+                          L"Choose the ROM (or several, or a .zip of them)", &files) != PICK_CHOSEN) {
+            return false;
+        }
+        if (files.size() > 1) {
+            const std::string dir = std::string(fsFullPath(GEVR_ROM_IMPORT_DIR));
+            wchar_t wdir[MAX_PATH * 2];
+            MultiByteToWideChar(CP_UTF8, 0, dir.c_str(), -1, wdir, MAX_PATH * 2);
+            CreateDirectoryW(wdir, nullptr);
+            int copied = 0;
+            for (const std::wstring &f : files) {
+                const std::string to = dir + "/" + pcImportName(pcNarrow(f));
+                wchar_t wto[MAX_PATH * 2];
+                MultiByteToWideChar(CP_UTF8, 0, to.c_str(), -1, wto, MAX_PATH * 2);
+                copied += CopyFileW(f.c_str(), wto, FALSE) != 0;
+            }
+            sysLogPrintf(copied ? 0 : 1, "launcher: picked %d files, %d copied for sorting", (int)files.size(), copied);
+            return copied > 0;
+        }
+        file = files[0];
+    } else if (pcChooseFile(L"N64 ROMs (*.z64;*.v64;*.n64)\0*.z64;*.v64;*.n64\0All files\0*.*\0", L"Choose the ROM", &file) != PICK_CHOSEN) {
         return false;
     }
     char to[MAX_PATH * 2];
@@ -219,7 +335,27 @@ bool pcOpenPicker(const char *method)
     return ok;
 #else
     std::string file;
-    if (pcChooseFile("Choose the ROM", "*.z64 *.v64 *.n64", &file) != PICK_CHOSEN) {
+    if (!strcmp(dest, "picked.z64")) {
+        // the main picker: one ROM, several, or a .zip of them
+        std::vector<std::string> files;
+        if (pcChooseFiles("Choose the ROM (or several, or a .zip of them)", "*.z64 *.v64 *.n64 *.zip", &files) != PICK_CHOSEN) {
+            return false;
+        }
+        if (files.size() > 1) {
+            const std::filesystem::path dir = fsFullPath(GEVR_ROM_IMPORT_DIR);
+            std::error_code ec;
+            std::filesystem::create_directories(dir, ec);
+            int copied = 0;
+            for (const std::string &f : files) {
+                ec.clear();
+                std::filesystem::copy_file(f, dir / pcImportName(f), std::filesystem::copy_options::overwrite_existing, ec);
+                copied += !ec;
+            }
+            sysLogPrintf(copied ? 0 : 1, "launcher: picked %d files, %d copied for sorting", (int)files.size(), copied);
+            return copied > 0;
+        }
+        file = files[0];
+    } else if (pcChooseFile("Choose the ROM", "*.z64 *.v64 *.n64", &file) != PICK_CHOSEN) {
         return false;
     }
     std::error_code ec;

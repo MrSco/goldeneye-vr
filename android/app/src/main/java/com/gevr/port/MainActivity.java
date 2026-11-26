@@ -202,9 +202,14 @@ public class MainActivity extends SDLActivity {
     /** Where the next pick is copied in data/: the launcher checks and adopts it. */
     private volatile String pickTarget = "picked.z64";
 
-    /** Opens the system file picker; the chosen file is copied to data/picked.z64. */
+    /**
+     * Opens the system file picker; one chosen file is copied to data/picked.z64,
+     * several to data/picked-import/. Either may be a .zip of ROMs: the launcher
+     * sorts them by header (port/src/gevr_romimport.c).
+     */
     public void openRomPicker() {
-        openPicker("picked.z64");
+        pickTarget = "picked.z64";
+        openDocument(REQUEST_PICK_ROM, true);
     }
 
     /** The Mods page: the player's GoldenEye X ROM, copied to data/picked-gex.z64. */
@@ -255,10 +260,15 @@ public class MainActivity extends SDLActivity {
     }
 
     private void openDocument(int request) {
+        openDocument(request, false);
+    }
+
+    private void openDocument(int request, boolean several) {
         runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
+            if (several) intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
             try {
                 startActivityForResult(intent, request);
             } catch (Exception e) {
@@ -301,9 +311,22 @@ public class MainActivity extends SDLActivity {
         if (requestCode != REQUEST_PICK_ROM) {
             return;
         }
-        if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-            final Uri uri = data.getData();
+        final java.util.List<Uri> uris = new java.util.ArrayList<>();
+        if (resultCode == RESULT_OK && data != null) {
+            android.content.ClipData clip = data.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount(); i++) {
+                    if (clip.getItemAt(i).getUri() != null) uris.add(clip.getItemAt(i).getUri());
+                }
+            } else if (data.getData() != null) {
+                uris.add(data.getData());
+            }
+        }
+        if (uris.size() == 1) {
+            final Uri uri = uris.get(0);
             new Thread(() -> copyPickedRom(uri), "rom-copy").start();
+        } else if (uris.size() > 1) {
+            new Thread(() -> copyPickedRoms(uris), "rom-copy").start();
         } else {
             pickResult = "No file chosen.";
         }
@@ -364,6 +387,76 @@ public class MainActivity extends SDLActivity {
         }
     }
 
+    // A pick may be a .zip of every ROM (gevr_romimport.c reads up to 256 MB).
+    private static final long PICK_MAX = 256L << 20;
+
+    private long copyUri(Uri uri, File to) throws java.io.IOException {
+        long total = 0;
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+             java.io.OutputStream out = new java.io.FileOutputStream(to)) {
+            if (in == null) throw new java.io.IOException("cannot open");
+            byte[] buf = new byte[1 << 16];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                total += n;
+                if (total > PICK_MAX) throw new java.io.IOException("file too large");
+            }
+        }
+        return total;
+    }
+
+    /** The picked document's name, for the launcher's "Not recognised: ..." line. */
+    private String pickName(Uri uri, int index) {
+        String name = null;
+        try (android.database.Cursor c = getContentResolver().query(uri,
+                new String[] { android.provider.OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+            if (c != null && c.moveToFirst()) name = c.getString(0);
+        } catch (Exception e) {
+            // no name: the index alone
+        }
+        String safe = name == null ? "" : name.replaceAll("[^A-Za-z0-9 ._()+-]", "_");
+        if (safe.endsWith(".part")) safe += "_";
+        if (safe.length() > 80) safe = safe.substring(safe.length() - 80);
+        return index + "-" + (safe.isEmpty() ? "file" : safe);
+    }
+
+    /**
+     * Several files: copied into data/picked-import.part/ and moved to
+     * data/picked-import/ once all are in, so the launcher's sort
+     * (gevr_romimport.c) takes the whole pick at once. A file that cannot be
+     * copied is left out.
+     */
+    private void copyPickedRoms(java.util.List<Uri> uris) {
+        File dir = new File(getExternalFilesDir(null), "data");
+        File staging = new File(dir, "picked-import.part");
+        File done = new File(dir, "picked-import");
+        staging.mkdirs();
+        int copied = 0;
+        for (int i = 0; i < uris.size(); i++) {
+            File to = new File(staging, pickName(uris.get(i), i));
+            try {
+                copyUri(uris.get(i), to);
+                copied++;
+            } catch (Exception e) {
+                Log.e(TAG, "ROM copy failed", e);
+                to.delete();
+            }
+        }
+        done.mkdirs();
+        File[] files = staging.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                File into = new File(done, f.getName());
+                into.delete();
+                if (!f.renameTo(into)) f.delete();
+            }
+        }
+        staging.delete();
+        Log.i(TAG, "ROMs copied from picker (" + copied + " of " + uris.size() + ")");
+        if (copied == 0) pickResult = "Could not copy those files.";
+    }
+
     // Copies through a .part file so the launcher never sees half a ROM; it
     // checks the header and adopts or rejects the file.
     private void copyPickedRom(Uri uri) {
@@ -372,16 +465,8 @@ public class MainActivity extends SDLActivity {
         dir.mkdirs();
         File part = new File(dir, target + ".part");
         long total = 0;
-        try (java.io.InputStream in = getContentResolver().openInputStream(uri);
-             java.io.OutputStream out = new java.io.FileOutputStream(part)) {
-            if (in == null) throw new java.io.IOException("cannot open");
-            byte[] buf = new byte[1 << 16];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
-                total += n;
-                if (total > (64L << 20)) throw new java.io.IOException("file too large");
-            }
+        try {
+            total = copyUri(uri, part);
         } catch (Exception e) {
             Log.e(TAG, "ROM copy failed", e);
             part.delete();
