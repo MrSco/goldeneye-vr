@@ -122,9 +122,13 @@ int gevrRomImportReplace(const char *from, const char *to)
 #ifdef _WIN32
 	/* rename() does not replace there, and remove-then-rename loses the old file if the move fails */
 	wchar_t wf[1100], wt[1100];
-	if (!MultiByteToWideChar(CP_UTF8, 0, from, -1, wf, 1100) || !MultiByteToWideChar(CP_UTF8, 0, to, -1, wt, 1100))
-		return 0;
-	return MoveFileExW(wf, wt, MOVEFILE_REPLACE_EXISTING) != 0;
+	if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, from, -1, wf, 1100)
+	    && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, to, -1, wt, 1100)
+	    && MoveFileExW(wf, wt, MOVEFILE_REPLACE_EXISTING))
+		return 1;
+	/* not UTF-8, or not there as UTF-8: the ANSI code page, as fopen() and rename() read it
+	 * (a launcher path from _fullpath, in a folder with an accent) */
+	return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING) != 0;
 #else
 	return rename(from, to) == 0;
 #endif

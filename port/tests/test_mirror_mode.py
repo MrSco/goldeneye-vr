@@ -70,6 +70,8 @@ static int gevrRomCheckFiles(void*, unsigned, char*, size_t) { return 1; }
 static const struct gevrRomFile g_GevrRomSegments[GEVR_SEG_COUNT] = {
     {}, {}, {}, {0, 26608, 0}
 };
+/* gevr_romimport.c: from replaces to (MoveFileEx on Windows) */
+static int gevrRomImportReplace(const char *from, const char *to) { remove(to); return rename(from, to) == 0; }
 /* IMPORT */
 /* ROM_NAMES */
 /* LOAD */

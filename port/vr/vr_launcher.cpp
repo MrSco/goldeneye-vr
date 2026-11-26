@@ -557,7 +557,9 @@ static void gevrKleptonPickPoll()
                     gevrRomImportTakeNote(data.c_str(), "the file chosen",
                                           ceResult == 1 ? GEVR_ROM_IMPORT_NOTE_NEEDS_BEAN : GEVR_ROM_IMPORT_NOTE_MODS_BUSY);
                 }
-                if (!bean && ceResult != 0) remove(pick.c_str());   // else Mods removes it once read
+                // Mods removes the pick once read only when it reads the pick itself
+                // (the Bean import, or the CE applied from it, not from its zipped copy)
+                if (!bean && !(ceResult == 0 && ce == pick)) remove(pick.c_str());
                 const int staged = gevrRomImportTakeEnd(data.c_str());
                 if (staged == 0) {   // nothing for the ROM check: the message ends the pick
                     std::lock_guard<std::mutex> lock(s_klLock);

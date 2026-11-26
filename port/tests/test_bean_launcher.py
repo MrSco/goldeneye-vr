@@ -42,6 +42,7 @@ void gevrBeanSetEnabled(int on){enabled=on;}
 void vrSettingsSave(){}
 int fsFileSize(const char*){return 0;}
 bool gevrOpenPicker(const char* method){commands.emplace_back(method);return true;}
+static int gevrRomImportReplace(const char *from, const char *to){return rename(from, to) == 0;}   /* gevr_romimport.c */
 std::string gevrTakePickResult(){return "";}
 std::string dataDir(){return "missing-test-data";}
 void vr_log(const char*,...){}
