@@ -34,6 +34,21 @@ typedef struct GevrSyncDriveInfo {
     char status[160];    /* syncing: what this launch's sync did */
 } GevrSyncDriveInfo;
 
+/* The save check at START (gevrSyncSaveCheck*) */
+enum {
+    GEVR_SAVECHECK_IDLE,
+    GEVR_SAVECHECK_CHECKING,   /* reading the other devices' saves (about 5 s at most) */
+    GEVR_SAVECHECK_NEWER,      /* another device's save would win: from, when */
+    GEVR_SAVECHECK_NONE,       /* nothing newer: start */
+    GEVR_SAVECHECK_FAILED      /* couldn't check: play anyway, or try again */
+};
+
+typedef struct GevrSyncSaveCheck {
+    int state;           /* GEVR_SAVECHECK_* */
+    char from[64];       /* NEWER: the device's name */
+    char when[32];       /* NEWER: when it was written, "2026-11-25 20:14" */
+} GevrSyncSaveCheck;
+
 #if (defined(GEVR_PC) || defined(GEVR_NATIVE_SERVICES)) && !defined(GEVR_HEADLESS)
 
 /* main: after the save folder is known (and after gevrCloudLaunch), before
@@ -85,6 +100,18 @@ int gevrSyncSaveChosen(char *buf, int size);   /* the one waiting for the next s
 /* The device's browser at that address (the sign-in page), where it has one. */
 void gevrSyncOpenUrl(const char *url);
 
+/* START: a save another device wrote since this launch (or one the launch
+ * couldn't check) would otherwise be played over. Needed: a store is linked
+ * and its saves weren't read in the last 2 minutes, or iCloud is on. Begin
+ * runs the check off the launcher's thread; Poll says how it went (after about
+ * 8 s with no answer: FAILED). Use puts the newer save in place now, this
+ * device's set aside; Done forgets the check (Play now, Keep this one). */
+int gevrSyncSaveCheckNeeded(void);
+void gevrSyncSaveCheckBegin(void);
+int gevrSyncSaveCheckPoll(GevrSyncSaveCheck *out);
+void gevrSyncSaveCheckUse(void);
+void gevrSyncSaveCheckDone(void);
+
 #else
 
 static inline void gevrSyncLaunch(void) {}
@@ -107,6 +134,11 @@ static inline int gevrSyncSavesAside(char (*names)[96], int max) { (void)names; 
 static inline void gevrSyncUseSaveAside(const char *name) { (void)name; }
 static inline int gevrSyncSaveChosen(char *buf, int size) { if (buf && size > 0) buf[0] = 0; return 0; }
 static inline void gevrSyncOpenUrl(const char *url) { (void)url; }
+static inline int gevrSyncSaveCheckNeeded(void) { return 0; }
+static inline void gevrSyncSaveCheckBegin(void) {}
+static inline int gevrSyncSaveCheckPoll(GevrSyncSaveCheck *out) { if (out) out->state = GEVR_SAVECHECK_NONE; return GEVR_SAVECHECK_NONE; }
+static inline void gevrSyncSaveCheckUse(void) {}
+static inline void gevrSyncSaveCheckDone(void) {}
 
 #endif
 

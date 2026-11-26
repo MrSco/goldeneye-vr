@@ -401,6 +401,31 @@ int main(int argc, char **argv)
         printf("rom=%d\n", gevrSyncTakeRomArrived());
         return 0;
     }
+    // the save check at START: a launch, then (once <folder>/go exists: the test has
+    // had another device save meanwhile) the check, as the launcher runs it
+    if (argc >= 4 && !strcmp(argv[1], "savecheck")) {
+        gsync::launchAt(argv[2], argv[3], gameDir());
+        printf("launched=1\n");
+        fflush(stdout);
+        const std::string go = std::string(argv[2]) + "/go";
+        for (int i = 0; i < 600; i++) {
+            if (FILE *f = fopen(go.c_str(), "rb")) {
+                fclose(f);
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        printf("needed=%d\n", gevrSyncSaveCheckNeeded());
+        gevrSyncSaveCheckBegin();
+        GevrSyncSaveCheck c;
+        for (int i = 0; i < 200 && gevrSyncSaveCheckPoll(&c) == GEVR_SAVECHECK_CHECKING; i++) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        printf("state=%d\nfrom=%s\nwhen=%s\n", c.state, c.from, c.when);
+        if (c.state == GEVR_SAVECHECK_NEWER && argc >= 5 && !strcmp(argv[4], "use")) gevrSyncSaveCheckUse();
+        else gevrSyncSaveCheckDone();
+        return 0;
+    }
     // step 4: this device's name, and a save set aside used again
     if (argc >= 5 && !strcmp(argv[1], "name")) {
         gsync::launchAt(argv[2], argv[3], gameDir());

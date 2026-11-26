@@ -23,6 +23,8 @@ public:
     virtual bool read(const std::string &name, std::string *data, std::string *why) = 0;
     /* replaces the whole file, never half of it */
     virtual bool write(const std::string &name, const std::string &data, std::string *why) = 0;
+    /* a short wait for each answer (the save check at START) */
+    virtual void setQuick(bool on) { (void)on; }
 
     /* ---- blobs: ROMs and packs by content (gevr_sync_files.cpp), any size ---- */
     typedef std::function<bool(long long done, long long total)> Progress;   // false: stop

@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class FakeGoogle:
     def __init__(self):
         self.truncate = False     # downloads cut short (a dropped connection)
+        self.down = False         # Drive's listing answers 503 (an outage)
         self.sessions = {}        # resumable upload id -> dict(meta, total, data)
         self.pieces = 0
         self.files = {}           # id -> dict(name, mimeType, parents, appProperties, data, trashed, created, modified)
@@ -205,6 +206,8 @@ def handler_for(g):
                     return
                 if u.path == "/drive/v3/about":
                     return self.reply(200, {"user": {"emailAddress": "bond@example.com"}})
+                if u.path == "/drive/v3/files" and g.down:
+                    return self.reply(503, {"error": {"message": "Service unavailable"}})
                 if u.path == "/drive/v3/files":
                     q = qs.get("q", [""])[0]
                     role = re.search(r"value='(\w+)'", q).group(1)
@@ -466,6 +469,59 @@ with tempfile.TemporaryDirectory(prefix="gevr-sync-drive-") as temp:
     check(held["files"].startswith("0 0 0 0 held"), "nothing moves while a level is loaded: " + held["files"])
     r = run("files", a, "quest")
     check(r["files"].startswith("1 0 "), "and it moves once the level is over: " + r["files"])
+
+    # ---- the save check at START: another device saved while this one sat in the launcher ----
+    def progress_save(level):
+        b = bytearray(2048)
+        b[32 + 20] = level
+        return bytes(b)
+
+    def savecheck(folder, kind, choice, between, extra_env=None):
+        e = dict(env, GEVR_SYNC_SAVECHECK_AGE_MS="0", **(extra_env or {}))
+        proc = subprocess.Popen([str(exe), "savecheck", str(folder), kind, choice], env=e, stdout=subprocess.PIPE, text=True)
+        first = proc.stdout.readline()
+        check(first.startswith("launched"), "the check's launch")
+        between()
+        (folder / "go").write_text("")
+        out = proc.communicate(timeout=120)[0]
+        (folder / "go").unlink()
+        return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+
+    run("name", c, "tv", "Den")
+    (b / "eeprom.bin").write_bytes(progress_save(1))
+    run("launch", b, "pc")
+    run("launch", c, "tv")
+    check((c / "eeprom.bin").read_bytes() == progress_save(1), "both start on the same save")
+
+    def tv_plays_on():   # Den saves a newer game while the PC sits in its launcher
+        (c / "eeprom.bin").write_bytes(progress_save(2))
+        run("push", c, "tv")
+
+    before = len(list(b.glob("eeprom.bin.before-sync-*")))
+    r = savecheck(b, "pc", "use", tv_plays_on)
+    check(r["needed"] == "1" and r["state"] == "2" and r["from"] == "Den" and r["when"], "the newer save is offered: " + str(r))
+    check((b / "eeprom.bin").read_bytes() == progress_save(2), "Use it: in place before the game reads it")
+    check(len(list(b.glob("eeprom.bin.before-sync-*"))) == before + 1, "this device's kept aside")
+    r = run("launch", b, "pc")
+    check("message" not in r and (b / "eeprom.bin").read_bytes() == progress_save(2), "and in step at the next launch")
+
+    # nothing newer: straight in
+    r = savecheck(b, "pc", "use", lambda: None)
+    check(r["state"] == "3", "nothing newer: no question: " + str(r))
+
+    # can't check (the store doesn't answer): said so
+    def google_down():
+        g.down = True
+    r = savecheck(b, "pc", "use", google_down)
+    g.down = False
+    check(r["state"] == "4", "no answer: Play anyway or Try again: " + str(r))
+
+    # the launch's own check was recent: no check at START
+    (b / "go").write_text("")
+    out = subprocess.run([str(exe), "savecheck", str(b), "pc", "keep"], env=env, check=True, capture_output=True,
+                         text=True, timeout=120).stdout
+    (b / "go").unlink()
+    check("needed=0" in out, "a launch that just read the saves doesn't ask again at START")
 
     # ---- step 4: the device's name in its record, a save set aside used again ----
     r = run("name", c, "tv", "Den")

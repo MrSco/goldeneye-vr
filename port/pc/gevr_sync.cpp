@@ -375,6 +375,16 @@ Baseline g_base;
 std::string g_status, g_message;
 bool g_pushQueued = false;
 bool g_romArrived = false;     // a ROM came: the launcher scans again
+long long g_saveCheckedMs = 0; // when the others' saves were last read (steady clock; 0: not since launch)
+
+// the save check at START (gevrSyncSaveCheck*)
+int g_checkState = 0;          // GEVR_SAVECHECK_*
+unsigned g_checkAttempt = 0;   // a newer check (or Play now) drops an older one's answer
+long long g_checkStarted = 0;
+std::vector<SaveWrite> g_checkWrites;   // the newer saves found
+std::string g_checkFrom;
+long long g_checkWhen = 0;     // ms since 1970
+bool g_checkCloud = false;     // the newer one is iCloud's (Apple)
 
 // ROMs and packs: the background worker (filesWorker)
 std::condition_variable g_filesWake;
@@ -517,35 +527,49 @@ void notifyWritten(const std::string &path)
 #endif
 }
 
-/* The launch sync, g_lock held. */
-void launchSync()
+long long steadyMs()
 {
-    std::string why;
+    return (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+/* Every device's record; false (and why) when one can't be read: a partial
+ * view could put this device's values over one it couldn't read. */
+bool readRecords(Store *store, const std::string &mineId, std::vector<DeviceRecord> *others, std::string *storedMine,
+                 std::string *why)
+{
     std::vector<std::string> names;
-    if (!g_store->list(&names, &why)) {
-        syncLog("could not reach the store (%s): nothing changed", why.c_str());
-        g_status = "Sync: couldn't reach your other devices' settings";
-        return;
-    }
-    std::vector<DeviceRecord> others;
-    std::string storedMine;   // this device's record as the store has it
+    if (!store->list(&names, why)) return false;
     for (const std::string &n : names) {
         std::string id;
         if (!recordNameId(n, &id)) continue;
         std::string text;
-        if (!g_store->read(n, &text, &why)) {
-            // a partial view could put this device's values over one it couldn't read
-            syncLog("could not read %s (%s): nothing changed", n.c_str(), why.c_str());
-            g_status = "Sync: couldn't reach your other devices' settings";
-            return;
+        if (!store->read(n, &text, why)) {
+            *why = "could not read " + n + " (" + *why + ")";
+            return false;
         }
-        if (id == g_mine.id) {
-            storedMine = text;
+        if (id == mineId) {
+            if (storedMine) *storedMine = text;
             continue;
         }
         DeviceRecord r;
-        if (recordParse(text, &r) && r.id == id) others.push_back(r);
+        if (recordParse(text, &r) && r.id == id) others->push_back(r);
     }
+    return true;
+}
+
+/* The launch sync, g_lock held. */
+void launchSync()
+{
+    std::string why;
+    std::vector<DeviceRecord> others;
+    std::string storedMine;   // this device's record as the store has it
+    if (!readRecords(g_store.get(), g_mine.id, &others, &storedMine, &why)) {
+        syncLog("could not reach the store (%s): nothing changed", why.c_str());
+        g_status = "Sync: couldn't check your other devices' settings and saves";
+        return;
+    }
+    g_saveCheckedMs = steadyMs();
     if (g_mine.files[0].empty() && g_mine.files[1].empty() && g_mine.saves.empty() && !storedMine.empty()) {
         DeviceRecord r;
         if (recordParse(storedMine, &r) && r.id == g_mine.id) {   // our cache was lost
@@ -874,6 +898,72 @@ void fileSaved(const std::string &path)
 /* a test's push without the wait */
 void pushForTest() { pushNow(); }
 
+/* ---- the save check at START: another device's newer save, before the game reads its own ---- */
+
+static long long saveCheckAgeMs()
+{
+    const char *a = getenv("GEVR_SYNC_SAVECHECK_AGE_MS");   // a test's "too old"
+    return a && a[0] ? atoll(a) : 120000;
+}
+
+static bool cloudWatches()
+{
+#if defined(GEVR_IOS) && !defined(GEVR_SYNC_TEST)
+    return gevrCloudAvailable() != 0;
+#else
+    return false;
+#endif
+}
+
+/* the Drive (or folder) part, on its own thread; the answer only if still wanted */
+static void saveCheckThread(unsigned attempt, DeviceRecord mine, Baseline base)
+{
+    std::unique_ptr<Store> store = linkedStore();
+    std::vector<DeviceRecord> others;
+    std::string why;
+    bool ok = store != nullptr;
+    if (ok) {
+        store->setQuick(true);
+        ok = readRecords(store.get(), mine.id, &others, nullptr, &why);
+    }
+    std::vector<SaveWrite> writes;
+    if (ok) {
+        std::lock_guard<std::mutex> hold(g_lock);
+        // what the launch sync would put in place now: the saves part of it
+        const Outcome o = sync(mine, others, readLocal(), base, wallMs(), true);
+        writes = o.saves;
+    }
+    std::lock_guard<std::mutex> hold(g_lock);
+    if (attempt != g_checkAttempt) return;   // Play now, or a newer try
+    if (!ok) {
+        syncLog("save check: could not reach the store (%s)", why.c_str());
+        g_checkState = GEVR_SAVECHECK_FAILED;
+        return;
+    }
+    g_saveCheckedMs = steadyMs();
+    if (!writes.empty()) {
+        g_checkWrites = writes;
+        g_checkFrom = writes[0].fromDevice;
+        g_checkWhen = writes[0].t;
+        g_checkCloud = false;
+        g_checkState = GEVR_SAVECHECK_NEWER;
+        syncLog("save check: %s from %s is newer", writes[0].name.c_str(), g_checkFrom.c_str());
+        return;
+    }
+#if defined(GEVR_IOS) && !defined(GEVR_SYNC_TEST)
+    char name[96];
+    long long when = 0;
+    if (gevrCloudSaveNewer(name, sizeof(name), &when)) {
+        g_checkFrom = "your other Apple device";
+        g_checkWhen = when * 1000;
+        g_checkCloud = true;
+        g_checkState = GEVR_SAVECHECK_NEWER;
+        return;
+    }
+#endif
+    g_checkState = GEVR_SAVECHECK_NONE;
+}
+
 #ifdef GEVR_SYNC_FILES
 /* a test's files pass, now: "moved failed arrived deferred error" */
 std::string filesPassForTest()
@@ -1018,6 +1108,104 @@ extern "C" int gevrSyncActive(void)
 {
     std::lock_guard<std::mutex> hold(gsync::g_lock);
     return gsync::g_active ? 1 : 0;
+}
+
+extern "C" int gevrSyncSaveCheckNeeded(void)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    if (gsync::g_store) {
+        // the launch couldn't read the others' saves, or that was a while ago
+        if (!gsync::g_saveCheckedMs || gsync::steadyMs() - gsync::g_saveCheckedMs > gsync::saveCheckAgeMs()) return 1;
+    }
+    return gsync::cloudWatches() ? 1 : 0;   // iCloud's look is local and instant: every START
+}
+
+extern "C" void gevrSyncSaveCheckBegin(void)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    const unsigned attempt = ++gsync::g_checkAttempt;
+    gsync::g_checkState = GEVR_SAVECHECK_CHECKING;
+    gsync::g_checkStarted = gsync::steadyMs();
+    gsync::g_checkWrites.clear();
+    gsync::g_checkCloud = false;
+    if (gsync::g_store) {
+        std::thread(gsync::saveCheckThread, attempt, gsync::g_mine, gsync::g_base).detach();
+        return;
+    }
+#if defined(GEVR_IOS) && !defined(GEVR_SYNC_TEST)
+    char name[96];
+    long long when = 0;
+    if (gevrCloudSaveNewer(name, sizeof(name), &when)) {
+        gsync::g_checkFrom = "your other Apple device";
+        gsync::g_checkWhen = when * 1000;
+        gsync::g_checkCloud = true;
+        gsync::g_checkState = GEVR_SAVECHECK_NEWER;
+        return;
+    }
+#endif
+    gsync::g_checkState = GEVR_SAVECHECK_NONE;
+}
+
+extern "C" int gevrSyncSaveCheckPoll(GevrSyncSaveCheck *out)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    // no answer in time (a slow network): as good as none
+    if (gsync::g_checkState == GEVR_SAVECHECK_CHECKING && gsync::steadyMs() - gsync::g_checkStarted > 8000) {
+        gsync::g_checkAttempt++;
+        gsync::g_checkState = GEVR_SAVECHECK_FAILED;
+    }
+    if (out) {
+        memset(out, 0, sizeof(*out));
+        out->state = gsync::g_checkState;
+        snprintf(out->from, sizeof(out->from), "%s", gsync::g_checkFrom.c_str());
+        if (gsync::g_checkWhen > 0) {
+            const time_t t = (time_t)(gsync::g_checkWhen / 1000);
+            struct tm tm;
+#ifdef _WIN32
+            localtime_s(&tm, &t);
+#else
+            localtime_r(&t, &tm);
+#endif
+            strftime(out->when, sizeof(out->when), "%Y-%m-%d %H:%M", &tm);
+        }
+    }
+    return gsync::g_checkState;
+}
+
+extern "C" void gevrSyncSaveCheckUse(void)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    if (gsync::g_checkState != GEVR_SAVECHECK_NEWER) return;
+    if (gsync::g_checkCloud) {
+#if defined(GEVR_IOS) && !defined(GEVR_SYNC_TEST)
+        gevrCloudSaveUseNewer();
+#endif
+    } else {
+        // as the launch sync puts a winner in place: this device's set aside first
+        const gsync::LocalState local = gsync::readLocal();
+        for (const gsync::SaveWrite &w : gsync::g_checkWrites) {
+            const std::string path = gsync::g_root + "/" + w.name;
+            auto l = local.saves.find(w.name);
+            if (l != local.saves.end()) gsync::backupSave(w.name, l->second);
+            if (!gsync::writeFileAtomic(path, w.data)) continue;
+            gsync::setFileTimeMs(path, w.t);
+            gsync::notifyWritten(path);
+            gsync::g_base.saveHash[w.name] = gsync::hashText(w.data);
+            gsync::g_base.saveT[w.name] = w.t;
+            gsync::syncLog("save check: %s from %s in place", w.name.c_str(), w.fromDevice.c_str());
+        }
+        gsync::writeFileAtomic(gsync::statePath("state.txt"), gsync::baselineText(gsync::g_base));
+    }
+    gsync::g_checkWrites.clear();
+    gsync::g_checkState = GEVR_SAVECHECK_IDLE;
+}
+
+extern "C" void gevrSyncSaveCheckDone(void)
+{
+    std::lock_guard<std::mutex> hold(gsync::g_lock);
+    gsync::g_checkAttempt++;   // a check still running is dropped
+    gsync::g_checkWrites.clear();
+    gsync::g_checkState = GEVR_SAVECHECK_IDLE;
 }
 
 extern "C" void gevrSyncKick(void)

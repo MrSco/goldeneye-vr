@@ -4348,6 +4348,70 @@ extern "C" void gevrLauncherRun(void)
         if (s_injectStart && !active.empty() && activeInfo.good && campaignReady) {
             start = true;
         }
+        /*
+         * The save check at START (gevr_sync.h, docs/cloud-sync.md): a save another
+         * device wrote since this launch hasn't come down yet, and the game is about
+         * to read this device's (owner, 2026-11-25: "maybe they want that save... and
+         * then it makes another save"). Off the launcher's thread; Play now skips it.
+         * The test hook's START (s_injectStart) isn't asked.
+         */
+        {
+            static bool s_saveChecked = false;   // asked once per START
+            if (start && !s_injectStart && !s_saveChecked && gevrSyncSaveCheckNeeded()) {
+                start = false;
+                s_saveChecked = true;
+                gevrSyncSaveCheckBegin();
+                ImGui::OpenPopup("Your saves");
+            }
+            if (ImGui::BeginPopupModal("Your saves", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                GevrSyncSaveCheck chk;
+                const int st = gevrSyncSaveCheckPoll(&chk);
+                const float labelW = std::max({ImGui::CalcTextSize("Keep this one").x, ImGui::CalcTextSize("Play anyway").x,
+                                               ImGui::CalcTextSize("Try again").x});
+                const ImVec2 size(labelW + ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetFontSize(),
+                                  ImGui::GetFrameHeight() * 1.4f);
+                ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+                if (st == GEVR_SAVECHECK_CHECKING) {
+                    ImGui::TextUnformatted("Checking your other devices' saves...");
+                    ImGui::ProgressBar(-1.0f * (float)ImGui::GetTime(), ImVec2(-1, ImGui::GetTextLineHeight()), "");
+                    if (ImGui::Button("Play now", size)) {
+                        gevrSyncSaveCheckDone();
+                        start = true;
+                        ImGui::CloseCurrentPopup();
+                    }
+                } else if (st == GEVR_SAVECHECK_NEWER) {
+                    ImGui::TextWrapped("Your save from %s is newer (%s).", chk.from, chk.when);
+                    ImGui::TextDisabled("Use it to carry on from there. This device's save is kept aside either way.");
+                    if (ImGui::Button("Use it", size)) {
+                        gevrSyncSaveCheckUse();
+                        start = true;
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Keep this one", size)) {
+                        gevrSyncSaveCheckDone();
+                        start = true;
+                        ImGui::CloseCurrentPopup();
+                    }
+                } else if (st == GEVR_SAVECHECK_FAILED) {
+                    ImGui::TextWrapped("Couldn't check your other devices for a newer save.");
+                    if (ImGui::Button("Play anyway", size)) {
+                        gevrSyncSaveCheckDone();
+                        start = true;
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Try again", size)) gevrSyncSaveCheckBegin();
+                } else {   // nothing newer: straight in
+                    gevrSyncSaveCheckDone();
+                    start = true;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopTextWrapPos();
+                ImGui::EndPopup();
+            }
+            if (start) s_saveChecked = false;   // a launcher run again (back from a match) asks again
+        }
         s_injectStart = false;
         focusStart = false;
         // the line under START: a campaign's news if there is any, its terms if

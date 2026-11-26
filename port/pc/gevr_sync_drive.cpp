@@ -272,6 +272,8 @@ public:
         return true;
     }
 
+    void setQuick(bool on) override { readMs_ = on ? 4000 : 10000; }
+
     /* ---- blobs: ROMs and packs, tagged gevr=blob, blob=<id> ---- */
 
     bool listBlobs(std::map<std::string, long long> *blobs, std::string *why) override
@@ -466,8 +468,9 @@ public:
 private:
     /* an API call with the access token, refreshed once when it ran out */
     bool api(const std::string &method, const std::string &url, const std::string *body,
-             std::vector<std::string> headers, HttpReply *r, std::string *why, int readMs = 10000)
+             std::vector<std::string> headers, HttpReply *r, std::string *why, int readMs = 0)
     {
+        if (readMs <= 0) readMs = readMs_;
         for (int attempt = 0; attempt < 2; attempt++) {
             if (!token(why)) return false;
             std::vector<std::string> h = headers;
@@ -494,7 +497,8 @@ private:
     {
         const std::string body = form({ { "client_id", clientId() }, { "client_secret", clientSecret() },
                                         { "refresh_token", link_.refresh }, { "grant_type", "refresh_token" } });
-        HttpReply r = send("POST", oauthUrl() + "/token", &body, { "Content-Type: application/x-www-form-urlencoded" }, why);
+        HttpReply r = send("POST", oauthUrl() + "/token", &body, { "Content-Type: application/x-www-form-urlencoded" }, why,
+                           4u << 20, readMs_);
         jspan o;
         if (r.status == 200 && jsonParse(r.body, &o)) {
             access_ = jsonGetStr(o, "access_token");
@@ -579,6 +583,7 @@ private:
     std::map<std::string, std::string> ids_;   // record name -> Drive file id
     std::map<std::string, std::string> blobFiles_;   // blob id -> Drive file id
     std::recursive_mutex mu_;                        // one caller at a time (the push, a name change)
+    int readMs_ = 10000;                             // each answer's wait (setQuick: the check at START)
     bool listed_ = false;
     std::string folder_;
 };

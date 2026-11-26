@@ -499,7 +499,9 @@ void saveBackup(const std::string &name, const std::string &data)
     for (size_t i = 0; i + 5 < old.size(); i++) remove((g_root + "/" + old[i]).c_str());
 }
 
-void savesLaunchMerge()
+/* apply false: only looks (the check at START, gevrCloudSaveNewer): the first
+ * save iCloud's copy would replace here, its name and time; nothing written */
+bool savesMerge(bool apply, std::string *newerName, long long *newerTime)
 {
     std::set<std::string> names;
     if (DIR *d = opendir(g_root.c_str())) {
@@ -535,11 +537,17 @@ void savesLaunchMerge()
             if (lp != rp) keepLocal = lp;
         }
         if (keepLocal) {
+            if (!apply) continue;
             savePush(n, local, lt);
             cloudLog("%s to iCloud (written %lld, iCloud's %lld)", n.c_str(), lt, rt);
             continue;
         }
         if (!rd) continue;   // neither side has a whole one
+        if (!apply) {
+            if (newerName) *newerName = n;
+            if (newerTime) *newerTime = rt;
+            return true;
+        }
         if (haveFile) saveBackup(n, local);
         if (writeFileAtomic(path, remote)) {
             struct timeval tv[2] = { { (time_t)rt, 0 }, { (time_t)rt, 0 } };
@@ -548,7 +556,10 @@ void savesLaunchMerge()
                      haveLocal ? ", kept as .before-icloud" : "");
         }
     }
+    return false;
 }
+
+void savesLaunchMerge() { savesMerge(true, nullptr, nullptr); }
 
 /* the game just wrote it: the newest, unless it is a blank save and iCloud's has progress */
 void saveSaved(const std::string &name)
@@ -1724,6 +1735,41 @@ extern "C" void gevrCloudFileSaved(const char *path)
         } else if (isSaveName(name)) {
             saveSaved(name);
         }
+    }
+}
+
+/* The check at START (gevr_sync.cpp gevrSyncSaveCheck*): a save another Apple
+ * device wrote while this one sat in the launcher is in the key-value store
+ * (it arrives by itself) but goes into the file only at a launch. */
+extern "C" int gevrCloudSaveNewer(char *name, int nameSize, long long *when)
+{
+    if (!g_available || !g_joined) return 0;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        if (!g_sync) return 0;
+    }
+    std::string n;
+    long long t = 0;
+    bool newer;
+    @autoreleasepool {
+        std::lock_guard<std::mutex> hold(g_kvLock);
+        [kvs() synchronize];
+        newer = savesMerge(false, &n, &t);
+    }
+    if (!newer) return 0;
+    if (name && nameSize > 0) snprintf(name, (size_t)nameSize, "%s", n.c_str());
+    if (when) *when = t;
+    return 1;
+}
+
+/* "Use it": the newer saves in place now, this device's set aside (.before-icloud) */
+extern "C" void gevrCloudSaveUseNewer(void)
+{
+    if (!g_available || !g_joined) return;
+    @autoreleasepool {
+        std::lock_guard<std::mutex> hold(g_kvLock);
+        savesMerge(true, nullptr, nullptr);
+        [kvs() synchronize];
     }
 }
 

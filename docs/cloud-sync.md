@@ -122,6 +122,20 @@ device, one read per device at launch. `deviceId` is random per install
   set aside (the newest three) with **Use this one**: the chosen save comes
   back at the next start, written then, so it is the newest everywhere; the
   one it replaces is set aside in turn.
+- **The save check at START** (owner, 2026-11-25: "maybe they want that
+  save... and then it makes another save"): saves come down at launch, so a
+  save another device wrote while this one sat in the launcher would be
+  played over. START asks first when a store is linked and its saves weren't
+  read in the last 2 minutes (or the launch couldn't read them), and always
+  with iCloud on (its look is local: the key-value store already has the
+  other Apple devices' saves). "Checking your other devices' saves..." with
+  **Play now**; off the launcher's thread, about 5 s per answer, 8 s at
+  most. A save that would win by the usual rule: "Your save from Den is newer
+  (2026-11-25 20:14)." **Use it** puts it in place before the game reads
+  the EEPROM, this device's set aside; **Keep this one** starts as is. No
+  answer: "Couldn't check your other devices for a newer save." **Play
+  anyway** / **Try again**. Nothing newer: straight in. The launch's
+  footer now says "couldn't check your other devices' settings and saves".
 - **Joining:** the iCloud rule. A newly linked device first reads what is
   there; the others' settings win, and it adds only keys nobody has set.
 - **ROMs and packs (step 3, gevr_sync_files.cpp):** ROMs (`*.z64/v64/n64`

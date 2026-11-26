@@ -49,6 +49,12 @@ int gevrCloudTakeMessage(char *buf, int size);
 /* 1 when this build can use iCloud at all (the settings rows show). */
 int gevrCloudAvailable(void);
 
+/* The check at START: 1 when iCloud has a save that would replace this
+ * device's (another Apple device wrote it since this launch), its name and
+ * time (seconds); and putting it in place (this one set aside). */
+int gevrCloudSaveNewer(char *name, int nameSize, long long *when);
+void gevrCloudSaveUseNewer(void);
+
 #else
 
 static inline void gevrCloudLaunch(void) {}
@@ -59,6 +65,8 @@ static inline void gevrCloudStatus(char *buf, int size) { if (buf && size > 0) b
 static inline int gevrCloudProgress(float *done, char *buf, int size) { (void)done; if (buf && size > 0) buf[0] = 0; return 0; }
 static inline int gevrCloudTakeMessage(char *buf, int size) { if (buf && size > 0) buf[0] = 0; return 0; }
 static inline int gevrCloudAvailable(void) { return 0; }
+static inline int gevrCloudSaveNewer(char *name, int nameSize, long long *when) { (void)when; if (name && nameSize > 0) name[0] = 0; return 0; }
+static inline void gevrCloudSaveUseNewer(void) {}
 
 #endif
 
