@@ -209,6 +209,17 @@ def synthetic(exe, work):
         z.writestr("0000000000000000/584108A9/000D0000/", b"")
         z.writestr("0000000000000000/584108A9/000D0000/30BA92710985645EF623D4A6BA9E8EFFAEC62617", package + b"\0" * (64 << 20))
         z.writestr("fyodorovna.nfo", b"nfo")
+    # a zip of everything picked on the Play page (gevr_romimport.c): the retail
+    # zip inside it, stored, beside ROMs and the CE updater
+    # (the release's zip is 372 MB: as large as a package, stored as it is)
+    retail_stored = work / "retail-stored.zip"
+    with zipfile.ZipFile(retail_stored, "w", zipfile.ZIP_STORED) as z:
+        z.writestr("0000000000000000/584108A9/000D0000/30BA92710985645EF623D4A6BA9E8EFFAEC62617", package + b"\0" * (64 << 20))
+    copies["zip of everything"] = work / "everything.zip"
+    with zipfile.ZipFile(copies["zip of everything"], "w") as z:
+        z.writestr("roms/ge.z64", b"\x80\x37\x12\x40" + b"\0" * (12 << 20), zipfile.ZIP_DEFLATED)
+        z.write(retail_stored, "GoldenEye_007_XBLA_Retail.zip", zipfile.ZIP_STORED)
+        z.writestr("CommunityEditionUpdaterV6.zip", b"PK\x05\x06" + b"\0" * 18, zipfile.ZIP_STORED)
 
     if seven_zip(release, work / "folder.7z"):
         copies["7z of the folder"] = work / "folder.7z"

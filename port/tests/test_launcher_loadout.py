@@ -15,7 +15,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 source = (ROOT / "port/vr/vr_launcher.cpp").read_text(encoding="utf-8")
 start = source.index("static void gevrLauncherLoadout(char *buf, size_t size)")
-end = source.index('extern "C" void gevrLauncherRun(void)', start)
+end = source.index("\n}\n", start) + 3   # the function alone: the Bean import line follows it
 production = source[start:end]
 
 fixture = r'''

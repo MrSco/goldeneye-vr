@@ -88,6 +88,7 @@ struct job {
 	const char *only;     // gevrBeanImportZipEntry(): the one entry wanted, by its path's end
 	const char *onlyPath; // and where it goes
 	char scratch[IMPORT_MAXPATH];
+	int nested;           // reading an archive an archive held (zipRunNested)
 };
 
 int gevrBeanImportPercent(void)
@@ -126,6 +127,10 @@ static int cancelled(struct job *j)
 
 static void phase(struct job *j, uint64_t goal, int lo, int hi)
 {
+	if (j->nested) {   // the archive inside: the second half of the bar, after unpacking it (zipRunNested)
+		lo = 50 + lo / 2;
+		hi = 50 + hi / 2;
+	}
 	j->done = 0;
 	j->goal = goal;
 	j->lo = lo;
@@ -1092,7 +1097,7 @@ static int sevenRun(struct job *j, FILE *fp)
 		}
 
 		j->pkgMode = 1;
-		snprintf(j->scratch, sizeof(j->scratch), "%s/.package", j->dest);
+		snprintf(j->scratch, sizeof(j->scratch), "%s/.package%s", j->dest, j->nested ? "2" : "");   // not the archive being read
 	}
 
 	if (!roomFor(j, j->pkgMode ? biggest + (400ull << 20) : wantedBytes)) {
@@ -1340,6 +1345,47 @@ static int zipNameEnds(const char *name, const char *tail)
 	return 1;
 }
 
+static int sevenRun(struct job *j, FILE *fp);
+static int zipRun(struct job *j, FILE *fp);
+
+/*
+ * A zip's largest entry, unpacked to j->scratch, was itself an archive: the
+ * release's own zip or .7z inside a zip of everything (the ROMs, the release,
+ * the Community Edition updater), as the Play page's picker takes it
+ * (gevr_romimport.c). Read once, one level deep, then removed.
+ */
+static int zipRunNested(struct job *j)
+{
+	static const uint8_t sevenSig[6] = { '7', 'z', 0xbc, 0xaf, 0x27, 0x1c };
+	char held[IMPORT_MAXPATH];
+	uint8_t magic[6] = { 0 };
+	FILE *fp;
+	int ok = 0;
+
+	snprintf(held, sizeof(held), "%s", j->scratch);
+	fp = fopen(held, "rb");
+
+	if (!fp || fread(magic, 1, sizeof(magic), fp) != sizeof(magic) || fseeko(fp, 0, SEEK_SET) != 0) {
+		if (fp) fclose(fp);
+		fail(j, "Could not read the package back.");
+		remove(held);
+		return 0;
+	}
+
+	j->nested = 1;   // its own package, if it holds one, is .package2
+
+	if (!memcmp(magic, sevenSig, sizeof(sevenSig))) {
+		ok = sevenRun(j, fp);
+	} else {
+		ok = zipRun(j, fp);
+	}
+
+	fclose(fp);
+	remove(held);
+
+	return ok;
+}
+
 static int zipRun(struct job *j, FILE *fp)
 {
 	uint8_t *tail = NULL;
@@ -1463,11 +1509,22 @@ static int zipRun(struct job *j, FILE *fp)
 			goto done;
 		}
 
-		snprintf(j->scratch, sizeof(j->scratch), "%s/.package", j->dest);
+		snprintf(j->scratch, sizeof(j->scratch), "%s/.package%s", j->dest, j->nested ? "2" : "");   // not the archive being read
 		phase(j, entries[package].csize, 0, 50);
 
 		if (zipExtract(j, fp, size, &entries[package], j->scratch, IMPORT_PACKAGE_MAX, 0)) {
-			stfsRunScratch(j, 50, 100);
+			uint8_t magic[6] = { 0 };
+			FILE *peek = fopen(j->scratch, "rb");
+			const int archive = peek && fread(magic, 1, sizeof(magic), peek) == sizeof(magic)
+				&& (!memcmp(magic, "PK\x03\x04", 4) || !memcmp(magic, "7z\xbc\xaf\x27\x1c", 6));
+
+			if (peek) fclose(peek);
+
+			if (archive && !j->nested) {
+				zipRunNested(j);
+			} else {
+				stfsRunScratch(j, 50, 100);
+			}
 		} else {
 			remove(j->scratch);
 		}

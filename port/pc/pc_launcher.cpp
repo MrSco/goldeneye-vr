@@ -19,6 +19,9 @@
 #include "../fast3d/glad/glad.h"
 #include "../vr/imgui/imgui.h"
 #include "pc_testinput.h"
+#include "gevr_romimport.h"
+
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -89,6 +92,45 @@ static std::string pcNarrow(const std::wstring &w)
     if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], n, nullptr, nullptr);
     return s;
 }
+
+/*
+ * The Open dialog taking several files (the main ROM picker, gevr_romimport.c).
+ * A test script answers with the paths joined by '|'.
+ */
+static PickResult pcChooseFiles(const wchar_t *filter, const wchar_t *title, std::vector<std::wstring> *files)
+{
+    if (pcTestInputActive()) {
+        std::wstring one;
+        const PickResult r = pcChooseFile(filter, title, &one);
+        if (r != PICK_CHOSEN) return r;
+        size_t at = 0;
+        for (size_t bar; (bar = one.find(L'|', at)) != std::wstring::npos; at = bar + 1) files->push_back(one.substr(at, bar - at));
+        files->push_back(one.substr(at));
+        return PICK_CHOSEN;
+    }
+    std::vector<wchar_t> buf(1 << 16, L'\0');
+    OPENFILENAMEW ofn;
+    memset(&ofn, 0, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = GetActiveWindow();
+    ofn.lpstrFilter = filter;
+    ofn.lpstrFile = buf.data();
+    ofn.nMaxFile = (DWORD)buf.size();
+    ofn.lpstrTitle = title;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+    if (!GetOpenFileNameW(&ofn)) {
+        return CommDlgExtendedError() ? PICK_FAILED : PICK_CANCELLED;
+    }
+    // one file: its path; several: the folder, then each name, each ending in a NUL
+    const std::wstring first = buf.data();
+    const wchar_t *p = buf.data() + first.size() + 1;
+    if (!*p) {
+        files->push_back(first);
+        return PICK_CHOSEN;
+    }
+    for (; *p; p += wcslen(p) + 1) files->push_back(first + L"\\" + p);
+    return PICK_CHOSEN;
+}
 #else
 enum PickResult { PICK_CHOSEN, PICK_CANCELLED, PICK_FAILED };
 
@@ -151,10 +193,118 @@ static PickResult pcChooseFile(const char *title, const char *patterns, std::str
     sysLogPrintf(1, "launcher: no file dialog (install zenity or kdialog)");
     return PICK_FAILED;
 }
+
+/* Several files (the main ROM picker); a test script joins them with '|'. iOS: one. */
+static PickResult pcChooseFiles(const char *title, const char *patterns, std::vector<std::string> *files)
+{
+    std::string joined;
+    PickResult r;
+#ifndef GEVR_IOS
+    if (!pcTestInputActive()) {
+        const std::string zenity = "zenity --file-selection --multiple --separator='|' --title=" + pcShellQuote(title)
+            + (patterns[0] ? " --file-filter=" + pcShellQuote(patterns) : std::string()) + " 2>/dev/null";
+        const std::string kdialog = "kdialog --title " + pcShellQuote(title) + " --multiple --separate-output --getopenfilename . "
+            + pcShellQuote(patterns[0] ? patterns : "*") + " 2>/dev/null";
+        r = PICK_FAILED;
+        for (const std::string &cmd : { zenity, kdialog }) {
+            FILE *p = popen(cmd.c_str(), "r");
+            if (!p) continue;
+            std::string out;
+            char line[4096];
+            while (fgets(line, sizeof(line), p)) out += line;
+            const int status = pclose(p);
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 127) continue;   // not installed
+            for (char &c : out) if (c == '\n') c = '|';
+            while (!out.empty() && (out.back() == '|' || out.back() == '\r')) out.pop_back();
+            r = WIFEXITED(status) && WEXITSTATUS(status) == 0 && !out.empty() ? PICK_CHOSEN : PICK_CANCELLED;
+            joined = out;
+            break;
+        }
+        if (r == PICK_FAILED) sysLogPrintf(1, "launcher: no file dialog (install zenity or kdialog)");
+    } else
+#endif
+    {
+        r = pcChooseFile(title, patterns, &joined);
+    }
+    if (r != PICK_CHOSEN) return r;
+    size_t at = 0;
+    for (size_t bar; (bar = joined.find('|', at)) != std::string::npos; at = bar + 1)
+        if (bar > at) files->push_back(joined.substr(at, bar - at));
+    if (at < joined.size()) files->push_back(joined.substr(at));
+    return files->empty() ? PICK_CANCELLED : PICK_CHOSEN;
+}
 #endif
 
-void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp
+bool pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp: false when Mods is busy
 void pcModsApplyCe(const std::string &path);
+int pcModsApplyCeWhenReady(const std::string &path);   // 0 started, 1 no Bean, 2 busy
+
+// What the launcher says when a pick left nothing for its ROM check (MainActivity.pickResult).
+static std::string s_pickNote;
+
+std::string pcTakePickResult(void)
+{
+    std::string out;
+    out.swap(s_pickNote);
+    return out;
+}
+
+static FILE *pcOpenRead(const std::string &utf8)
+{
+#ifdef _WIN32
+    wchar_t w[MAX_PATH * 4];
+    if (!MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, w, MAX_PATH * 4)) return nullptr;
+    return _wfopen(w, L"rb");
+#else
+    return fopen(utf8.c_str(), "rb");
+#endif
+}
+
+/*
+ * The Play page's picker, as MainActivity.takeMainPick: each file chosen is
+ * read where it is (gevrRomImportTake). ROMs, loose or in a zip (a zip of
+ * everything, a zip in it), go to data/picked-import/ for the launcher's sort;
+ * the GoldenEye XBLA copy to the Mods page's Bean import, and the Community
+ * Edition updater to its apply, after that import when both were chosen.
+ */
+static void pcTakeMainPick(const std::vector<std::string> &files)
+{
+    const std::string data = fsFullPath("$B");
+    std::string xbla, ce, ceLabel;
+    gevrRomImportTakeBegin(data.c_str());
+    for (const std::string &file : files) {
+        struct gevrRomImportTake t;
+        FILE *f = pcOpenRead(file);
+        if (!f) {
+            sysLogPrintf(1, "launcher: could not open a picked file");
+            continue;
+        }
+        gevrRomImportTake(f, file.c_str(), data.c_str(), &t);
+        if (t.xbla && xbla.empty()) xbla = file;
+        if (ce.empty() && (t.cePath[0] || t.ce)) {
+            ce = t.cePath[0] ? std::string(t.cePath) : file;
+            ceLabel = file;
+        }
+    }
+    // Handed on before the pick ends, so what could not be is said with the
+    // ROMs: a note goes in with them for the sort's summary. Their progress is
+    // on the Play page beside the ROM (vr_launcher.cpp gevrBeanImportLine).
+    const bool bean = !xbla.empty() && pcModsImportOwn("ge007-bean", xbla);
+    if (!xbla.empty() && !bean) gevrRomImportTakeNote(data.c_str(), xbla.c_str(), GEVR_ROM_IMPORT_NOTE_MODS_BUSY);
+    const int ceResult = ce.empty() ? -1 : pcModsApplyCeWhenReady(ce);   // drops a picked-ce.zip it can't use
+    if (ceResult > 0) {
+        gevrRomImportTakeNote(data.c_str(), ceLabel.c_str(),
+                              ceResult == 1 ? GEVR_ROM_IMPORT_NOTE_NEEDS_BEAN : GEVR_ROM_IMPORT_NOTE_MODS_BUSY);
+    }
+    const int staged = gevrRomImportTakeEnd(data.c_str());
+    if (staged == 0) {   // nothing for the ROM check: the message ends the pick
+        s_pickNote = bean ? "Importing Bean from your GoldenEye XBLA copy."
+            : ceResult == 0 ? "Applying the Community Edition."
+            : "Nothing this knows in that: choose ROMs, a .zip of them or your GoldenEye XBLA copy.";
+    }
+    sysLogPrintf(0, "launcher: main pick: %d file(s), %d for the sort%s%s", (int)files.size(), staged,
+                 bean ? ", the XBLA copy" : "", ceResult == 0 ? ", the Community Edition" : "");
+}
 
 /*
  * The Quest's file pickers (MainActivity.openRomPicker and friends) copy the
@@ -207,7 +357,18 @@ bool pcOpenPicker(const char *method)
     if (!dest) return false;
 #ifdef _WIN32
     std::wstring file;
-    if (pcChooseFile(L"N64 ROMs (*.z64;*.v64;*.n64)\0*.z64;*.v64;*.n64\0All files\0*.*\0", L"Choose the ROM", &file) != PICK_CHOSEN) {
+    if (!strcmp(dest, "picked.z64")) {
+        // the main picker: ROMs, zips of them, the XBLA copy, the CE updater
+        std::vector<std::wstring> files;
+        if (pcChooseFiles(L"ROMs, zips, the XBLA copy, the CE updater\0*.z64;*.v64;*.n64;*.zip;*.7z\0All files (the Xbox 360 package has no extension)\0*.*\0",
+                          L"Choose ROMs, a .zip of them, your GoldenEye XBLA copy or the CE updater", &files) != PICK_CHOSEN) {
+            return false;
+        }
+        std::vector<std::string> narrow;
+        for (const std::wstring &f : files) narrow.push_back(pcNarrow(f));
+        pcTakeMainPick(narrow);
+        return true;
+    } else if (pcChooseFile(L"N64 ROMs (*.z64;*.v64;*.n64)\0*.z64;*.v64;*.n64\0All files\0*.*\0", L"Choose the ROM", &file) != PICK_CHOSEN) {
         return false;
     }
     char to[MAX_PATH * 2];
@@ -219,7 +380,15 @@ bool pcOpenPicker(const char *method)
     return ok;
 #else
     std::string file;
-    if (pcChooseFile("Choose the ROM", "*.z64 *.v64 *.n64", &file) != PICK_CHOSEN) {
+    if (!strcmp(dest, "picked.z64")) {
+        // the main picker: ROMs, zips of them, the XBLA copy, the CE updater
+        std::vector<std::string> files;
+        if (pcChooseFiles("Choose ROMs, a .zip of them, your GoldenEye XBLA copy or the CE updater", "", &files) != PICK_CHOSEN) {
+            return false;
+        }
+        pcTakeMainPick(files);
+        return true;
+    } else if (pcChooseFile("Choose the ROM", "*.z64 *.v64 *.n64", &file) != PICK_CHOSEN) {
         return false;
     }
     std::error_code ec;

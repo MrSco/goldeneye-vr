@@ -39,6 +39,7 @@ static std::string gevrTakePickResult() {return {};}
 static int fsFileSize(const char*) {return 0;}
 static std::string dataDir() {return "this-fixture-has-no-ROM";}
 static bool gevrOpenPicker(const char*) {return false;}
+static int gevrRomImportReplace(const char *from, const char *to) {return rename(from, to) == 0;}   /* gevr_romimport.c */
 static void vr_log(const char*,...) {}
 /* PRODUCTION */
 int main(){

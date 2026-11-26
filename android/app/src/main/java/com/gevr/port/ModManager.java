@@ -298,8 +298,10 @@ final class ModManager {
     }
 
     private void run(Pack p, Job job) {
+        boolean ok = false;
         try {
             job.run();
+            ok = true;
         } catch (Exception e) {
             if (cancelled) {
                 Log.i(TAG, p.id + " cancelled");
@@ -309,9 +311,23 @@ final class ModManager {
                 errorId = p.id;
             }
         } finally {
-            progress = -1;
-            busyState = NONE;
-            busyId = null;
+            synchronized (this) {
+                progress = -1;
+                busyState = NONE;
+                busyId = null;
+                // the Community Edition picked with the copy it patches (applyCeWhenReady),
+                // started before anything else can take the worker
+                final Uri ce = pendingCe;
+                pendingCe = null;
+                if (ce != null && !(ok && "ge007-bean".equals(p.id) && applyCe(ce))) dropPickedCe(ce);
+            }
+        }
+    }
+
+    /** The updater MainActivity.takeMainPick unpacked from a zip of everything, once used or dropped. */
+    static void dropPickedCe(Uri uri) {
+        if ("file".equals(uri.getScheme()) && uri.getPath() != null && uri.getPath().endsWith("/picked-ce.zip")) {
+            new File(uri.getPath()).delete();
         }
     }
 
@@ -321,27 +337,50 @@ final class ModManager {
     private static native int nativeBeanImportPercent();
     private static native void nativeBeanImportCancel();
 
-    /** The file the player picked for an own-copy pack (MainActivity.openXblaPicker). */
-    synchronized void importOwn(String id, Uri uri) {
+    /** The file the player picked for an own-copy pack (MainActivity.openXblaPicker). False when busy. */
+    synchronized boolean importOwn(String id, Uri uri) {
         final Pack p = find(id);
-        if (p == null || !p.own() || busyId != null) return;
+        if (p == null || !p.own() || busyId != null) return false;
         errorId = null;
         cancelled = false;
         progress = 0;
         busyState = IMPORTING;
         busyId = p.id;
         worker.execute(() -> run(p, () -> importFrom(p, uri)));
+        return true;
     }
 
     private static native String nativeBeanCeApply(int fd, String beanDir);
+
+    /** The updater picked beside the copy it patches, waiting for that import to finish. */
+    private Uri pendingCe;
+
+    static final int CE_STARTED = 0, CE_NEEDS_BEAN = 1, CE_BUSY = 2;
+
+    /**
+     * The Play page's picker (MainActivity.takeMainPick): the updater applied
+     * now if Bean is in, or once the import running (picked with it) is done.
+     * CE_NEEDS_BEAN when there is no Bean to apply it to, CE_BUSY when Mods is
+     * busy with another pack.
+     */
+    synchronized int applyCeWhenReady(Uri uri) {
+        final Pack p = find("ge007-bean");
+        if (p == null) return CE_NEEDS_BEAN;
+        if (IMPORTING.equals(busyState) && p.id.equals(busyId)) {
+            pendingCe = uri;
+            return CE_STARTED;
+        }
+        if (!installed(p)) return CE_NEEDS_BEAN;
+        return applyCe(uri) ? CE_STARTED : CE_BUSY;
+    }
 
     /**
      * The Community Edition updater the player picked (MainActivity.openCePicker):
      * applied to the imported Bean copy, into its ce/ folder (port/src/gevr_bean_ce.c).
      */
-    synchronized void applyCe(Uri uri) {
+    synchronized boolean applyCe(Uri uri) {
         final Pack p = find("ge007-bean");
-        if (p == null || !installed(p) || busyId != null) return;
+        if (p == null || !installed(p) || busyId != null) return false;
         errorId = null;
         cancelled = false;
         progress = -1;
@@ -354,9 +393,11 @@ final class ModManager {
                 // the native side reads and closes it (fdopen)
                 failure = nativeBeanCeApply(fd.detachFd(), new File(root(), p.id).getAbsolutePath());
             }
+            dropPickedCe(uri);   // unpacked from a zip of everything (gevr_romimport.c)
             if (!failure.isEmpty()) throw new IOException(failure);
             Log.i(TAG, "applied the Community Edition to " + p.id);
         }));
+        return true;
     }
 
     private void importFrom(Pack p, Uri uri) throws Exception {

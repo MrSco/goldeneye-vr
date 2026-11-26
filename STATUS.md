@@ -47,6 +47,16 @@ longer overlap (`flat` in gevr_oddjobhat.txt, docs/oddjob-hat.md); PC-tested
 with the N64, Bean and GE-X hands at 16:9 and 4:3 (4:3 brims under the ammo
 counters: user OK), not yet on the Quest's 2D screen. GE-X's held hat sits mostly
 below the flat screen's bottom edge (one knife or two): user OK, left as is.
+**Unreleased (t3/bulk-rom-import):** e-ee's request: the main Choose ROM file... takes
+several files or one zip of everything. gevr_romimport.c reads each in place (seeking,
+zips in zips one level): ROMs sorted by header (GE -> ge.z64, GE-X -> Mods page, hacks
+-> campaign files, no campaign switch); the XBLA copy (any form, incl. the retail zip
+inside a zip: gevr_bean_import.c zipRunNested) to the Bean import; the CE updater (or
+its zip inside) applied after that import (applyCeWhenReady). Play page shows the
+outcome and Bean/CE progress. test_rom_import.py, test_bean_import.py; Windows hidden
+runs with the real ROM + retail zip + CE zip (one zip, and 3 files): all three land.
+Quest APK builds; not yet tried on the headset. One flaky Windows 'could not finish
+importing' (pc_mods movePath, passed on rerun).
 **Before it:** v0.5.27 (versionCode 140, protocol 27), tag on 37cd0d7a
 ([notes](docs/releases/v0.5.27.md)): volumetric explosions (#249), scrolling
 monitors (#309), Steam Frame scope (#321).
