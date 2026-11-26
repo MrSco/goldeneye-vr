@@ -294,6 +294,7 @@ static NetMsgPlayerState s_remote_players[GEVR_MAX_PLAYERS];
 static bool s_remote_active[GEVR_MAX_PLAYERS];
 static GevrPoseHistory s_avatar_history[GEVR_MAX_PLAYERS];
 static bool s_waiting_for_match_snapshot = false;
+static bool s_hello_sent = false;   /* this join's HELLO went out: a reasonless turn-away after it is the host's */
 static bool s_stage_ready_sent = false;
 static int s_loaded_map = -1; /* the round's stage code as loaded: Facility and Facility (Full) share a LEVELID (PR #224) */
 static uint64_t s_last_stage_ready_us = 0;
@@ -997,6 +998,7 @@ bool netConnect(const char *host_addr, uint16_t port) {
     }
     enet_peer_timeout(s_server_peer, 32, 3000, 6000); /* a vanished host is noticed in seconds */
     
+    s_hello_sent = false;
     if (!rejoin) {
         s_state = NET_STATE_CONNECTING;
         s_local_slot = -1;
@@ -1670,6 +1672,16 @@ static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
     } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_CONTENT) {
         snprintf(s_join_refusal, sizeof(s_join_refusal),
                  "Cannot join: this game's %s is not the same as yours.", netContentPartName(reason & 0xFFu));
+    } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_VERSION) {
+        snprintf(s_join_refusal, sizeof(s_join_refusal), (reason & 0xFFu) > (GEVR_NET_VERSION & 0xFFu)
+                 ? "Cannot join: the host has a newer version of GoldenEye VR. Update this game to join."
+                 : "Cannot join: the host has an older version of GoldenEye VR. The host needs to update.");
+    } else if (reason == 0 && s_state == NET_STATE_CONNECTING && s_hello_sent) {
+        /* turned away after its HELLO, before the welcome, with no reason: a host
+         * from before NET_DISCONNECT_VERSION on another version, or a full game
+         * (an unreachable host never gets the HELLO) */
+        snprintf(s_join_refusal, sizeof(s_join_refusal),
+                 "Cannot join: the host turned the connection away. The game may be full, or the host has another version of GoldenEye VR.");
     } else {
         return false;
     }
@@ -4647,8 +4659,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
     
     if (magic != GEVR_NET_MAGIC || version != GEVR_NET_VERSION) {
         NET_ERR("Ignored packet with invalid magic/version: %08x v%d", magic, version);
-        if (magic == GEVR_NET_MAGIC && version != GEVR_NET_VERSION)
-            enet_peer_disconnect(peer, 0);
+        if (magic == GEVR_NET_MAGIC && version != GEVR_NET_VERSION)   /* the reason says which side is older */
+            enet_peer_disconnect(peer, NET_DISCONNECT_VERSION | (GEVR_NET_VERSION & 0xFFu));
         return;
     }
     /* Pose packets keep an idle player alive. A frozen or force-quit headset stops here. */
@@ -6548,6 +6560,7 @@ void netPoll(void) {
                     ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
                     enet_peer_send(event.peer, NET_CHAN_RELIABLE, packet);
                     NET_LOG("Sent hello packet to host (%d local seat(s)).", 1 + want_extra);
+                    s_hello_sent = true;
                 }
                 break;
             }
