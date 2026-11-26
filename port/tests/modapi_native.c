@@ -163,10 +163,18 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 }
 int gevrModGameLook(int hand) { return s_look[hand]; }
 /* gun.c's per-hand models: a mod's files are the names starting Gtac */
-int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3])
+int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
+                        const GevrModGunParts *parts)
 {
     printf("GUNMODEL %d %d %s\n", hand, item, name ? name : "-");
-    if (muzzle != NULL && (item == 3 || (item >= 26 && item <= 29))) return 0;   /* thrown: input.c gevrIsThrowable */
+    if ((muzzle != NULL || parts != NULL) && (item == 3 || (item >= 26 && item <= 29))) return 0;   /* thrown: input.c gevrIsThrowable */
+    if (parts != NULL) {
+        printf("GUNPARTS %d %x %.1f %.1f %.1f %x %.1f %.1f %.1f %d\n", hand,
+               parts->pictures[GEVR_MODPART_ACTION], parts->travel[0][0], parts->travel[0][1], parts->travel[0][2],
+               parts->pictures[GEVR_MODPART_HANDLE], parts->travel[1][0], parts->travel[1][1], parts->travel[1][2],
+               parts->holdOpen);
+        return name != NULL && strcmp(name, "pack-body.bin") == 0;
+    }
     if (frame != NULL) {
         printf("GUNFRAME %d %.1f %.1f %.1f %.1f %.1f\n", hand,
                frame[0][0], frame[1][2], frame[2][1], frame[3][1], frame[3][3]);
@@ -212,6 +220,12 @@ int gevrModGameAttach(const GevrModAttach *a)
 }
 int gevrModGameDetach(int id) { printf("DETACH %d\n", id); s_attached--; return 1; }
 int gevrModGameAttachShow(int id, int shown) { printf("ATTACHSHOW %d %d\n", id, shown); return 1; }
+int gevrModGameAttachAction(int id, const float travel[3], int handle)
+{
+    if (travel == NULL) printf("ATTACHACTION %d -\n", id);
+    else printf("ATTACHACTION %d %.0f %.0f %.0f %d\n", id, travel[0], travel[1], travel[2], handle);
+    return id != 2;   /* the second is on a hand */
+}
 int gevrModGameAttachPlace(int id, const float offset[4][4])
 {
     int i;

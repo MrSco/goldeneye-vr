@@ -628,8 +628,63 @@ static int authoredGunPoint(lua_State *L, int t, const char *key, float out[3])
     return 1;
 }
 
+/* A travel: three numbers in model units, each within the attachment range. */
+static void travelVector(lua_State *L, int t, const char *call, float out[3])
+{
+    if (!lua_istable(L, t) || lua_rawlen(L, t) != 3) {
+        luaL_error(L, "%s: travel needs three numbers", call);
+    }
+    for (int axis = 0; axis < 3; ++axis) {
+        if (lua_rawgeti(L, t, axis + 1) != LUA_TNUMBER) {
+            luaL_error(L, "%s: travel needs three numbers", call);
+        }
+        const double value = lua_tonumber(L, -1);
+        if (!(value >= -GEVR_MODAPI_ATTACH_RANGE && value <= GEVR_MODAPI_ATTACH_RANGE)) {
+            luaL_error(L, "%s: travel components are limited to +/-4000 model units", call);
+        }
+        out[axis] = (float)value;
+        lua_pop(L, 1);
+    }
+}
+
+/* action = { pictures = { n, ... }, travel = { x, y, z } } (and handle): the
+ * body's pictures that move, zero-based, and where they are fully back */
+static int movingGroup(lua_State *L, int t, const char *key, unsigned *pictures, float travel[3])
+{
+    if (lua_getfield(L, t, key) == LUA_TNIL) {
+        lua_pop(L, 1);
+        return 0;
+    }
+    if (!lua_istable(L, -1)) return luaL_error(L, "mod.weapon.model: %s needs { pictures, travel }", key);
+    const int group = lua_gettop(L);
+    *pictures = 0;
+    if (lua_getfield(L, group, "pictures") != LUA_TTABLE || lua_rawlen(L, -1) < 1) {
+        return luaL_error(L, "mod.weapon.model: %s.pictures needs one or more picture numbers", key);
+    }
+    for (lua_Integer i = 1; i <= (lua_Integer)lua_rawlen(L, -1); ++i) {
+        int isNumber = 0;
+        lua_rawgeti(L, -1, i);
+        const lua_Integer n = lua_tointegerx(L, -1, &isNumber);
+        if (!isNumber || n < 0 || n >= GEVR_MODAPI_PICTURES_MAX || (*pictures & (1u << n))) {
+            return luaL_error(L, "mod.weapon.model: %s.pictures are distinct picture numbers from 0 to %d", key,
+                              GEVR_MODAPI_PICTURES_MAX - 1);
+        }
+        *pictures |= 1u << n;
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    if (lua_getfield(L, group, "travel") == LUA_TNIL) {
+        return luaL_error(L, "mod.weapon.model: %s needs a travel", key);
+    }
+    char call[48];
+    snprintf(call, sizeof(call), "mod.weapon.model: %s", key);
+    travelVector(L, lua_gettop(L), call, travel);
+    lua_pop(L, 2);
+    return 1;
+}
+
 /*
- * model(hand, item, file | nil [, { frame, muzzle, support }]): when the hand draws item, the mod's
+ * model(hand, item, file | nil [, { frame, muzzle, support, action, handle, holdOpen }]): when the hand draws item, the mod's
  * assets/models/<file> in place of the item's cartridge model, built over
  * that model's header (its switch and texture counts, its skeleton); nil, the
  * item's own. A hand holding item now loads it at once. True when set; false
@@ -656,17 +711,30 @@ static int l_gunModel(lua_State *L)
     float frame[4][4], muzzle[3], support[3];
     const float (*fit)[4] = NULL;
     const float *muzzlePoint = NULL, *supportPoint = NULL;
+    GevrModGunParts parts = { { 0, 0 }, { { 0 } }, 1 };
+    int hasParts = 0;
     if (!lua_isnoneornil(L, 4)) {
         luaL_checktype(L, 4, LUA_TTABLE);
         if (name == NULL) return luaL_argerror(L, 4, "only with a pack mesh file");
         if (authoredFrame(L, 4, "mod.weapon.model", frame)) fit = frame;
         if (authoredGunPoint(L, 4, "muzzle", muzzle)) muzzlePoint = muzzle;
         if (authoredGunPoint(L, 4, "support", support)) supportPoint = support;
-        if (fit == NULL && muzzlePoint == NULL && supportPoint == NULL)
-            return luaL_argerror(L, 4, "a frame, muzzle or support point for a pack mesh");
+        hasParts |= movingGroup(L, 4, "action", &parts.pictures[GEVR_MODPART_ACTION], parts.travel[GEVR_MODPART_ACTION]);
+        hasParts |= movingGroup(L, 4, "handle", &parts.pictures[GEVR_MODPART_HANDLE], parts.travel[GEVR_MODPART_HANDLE]);
+        if (parts.pictures[GEVR_MODPART_ACTION] & parts.pictures[GEVR_MODPART_HANDLE]) {
+            return luaL_argerror(L, 4, "a picture moves with the action or the handle, not both");
+        }
+        if (lua_getfield(L, 4, "holdOpen") != LUA_TNIL) {
+            if (!lua_isboolean(L, -1)) return luaL_argerror(L, 4, "holdOpen is true or false");
+            parts.holdOpen = lua_toboolean(L, -1);
+            hasParts = 1;
+        }
+        lua_pop(L, 1);
+        if (fit == NULL && muzzlePoint == NULL && supportPoint == NULL && !hasParts)
+            return luaL_argerror(L, 4, "a frame, muzzle, support point, action, handle or holdOpen for a pack mesh");
     }
     needPlayer(L, "mod.weapon.model");
-    lua_pushboolean(L, gevrModGameGunModel(hand, item, name, fit, muzzlePoint, supportPoint));
+    lua_pushboolean(L, gevrModGameGunModel(hand, item, name, fit, muzzlePoint, supportPoint, hasParts ? &parts : NULL));
     return 1;
 }
 
@@ -2402,11 +2470,38 @@ static int l_attachPlace(lua_State *L)
     return 1;
 }
 
+/* action(id, { travel = { x, y, z }, handle } | nil): a part on the gun moves
+ * with its action (gevr_modaction.h), to travel in the anchor's frame when
+ * fully back; handle, only with the rack's pull. nil puts it back to staying
+ * where it's placed. True when this mod has it and it's on a gun. */
+static int l_attachAction(lua_State *L)
+{
+    const int at = attachOwned(L, luaL_checkinteger(L, 1));
+    float travel[3];
+    int handle = 0, moves = 0;
+
+    if (!lua_isnoneornil(L, 2)) {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        if (lua_getfield(L, 2, "travel") == LUA_TNIL) return luaL_argerror(L, 2, "a travel");
+        travelVector(L, lua_gettop(L), "mod.attach.action", travel);
+        lua_pop(L, 1);
+        if (lua_getfield(L, 2, "handle") != LUA_TNIL) {
+            if (!lua_isboolean(L, -1)) return luaL_argerror(L, 2, "handle is true or false");
+            handle = lua_toboolean(L, -1);
+        }
+        lua_pop(L, 1);
+        moves = 1;
+    }
+    lua_pushboolean(L, at >= 0 && gevrModGameAttachAction(s_attachOwners[at].id, moves ? travel : NULL, handle));
+    return 1;
+}
+
 static const luaL_Reg s_attachFuncs[] = {
     { "add", l_attachAdd },
     { "remove", l_attachRemove },
     { "show", l_attachShow },
     { "place", l_attachPlace },
+    { "action", l_attachAction },
     { NULL, NULL },
 };
 

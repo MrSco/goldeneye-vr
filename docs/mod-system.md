@@ -582,6 +582,31 @@ in-game screen). We maintain the adapters, not the mods.
     applies. Leaving out `support` or clearing the pack body restores the
     carrier's usual hold point. Legacy models and thrown weapons refuse it.
 
+    Moving parts: `action = { pictures = { 1 }, travel = { 0, 0, -44 } }`
+    names the body's pictures (zero-based, as in its file) whose triangles
+    move with the gun's action, a bolt or a slide, and `travel` where they
+    sit when fully back, in the same model units and basis as `muzzle`,
+    before the fit, each component from -4000 to 4000. `handle` takes the
+    same shape for a charging handle that moves only when the hand racks
+    the gun. A picture is in one group at most; a picture the file doesn't
+    have refuses the whole look (false). At the call the body's display
+    list is built again in parts (the rest, and each group's own list,
+    drawn on its own matrix); the vertices and pictures stay the file's.
+    How far along they are is the game's own slide rule, not a clock of
+    the mod's (`port/include/gevr_modaction.h`): the shot that moves a
+    cartridge gun's slide (`sub_GAME_7F05E808`) opens the action a quarter
+    a tick, and it closes a sixth a tick while the magazine has rounds, as
+    `sub_GAME_7F05E83C` moves GoldenEye's slide by its `BoltRecoilBack`,
+    here on a stroke of 1, so a carrier whose stroke is 0 (the sniper
+    rifle) still cycles. On an empty magazine it stays back, as
+    GoldenEye's slide does; `holdOpen = false` lets it close instead, for
+    a gun whose action doesn't lock back. With hand reload, the rack's
+    pull moves both groups as far along their travel as the hand has
+    pulled (`gevrRackShare`), the action group at whichever is further
+    back. The hand's own state starts closed for each gun it draws.
+    Legacy models and thrown weapons refuse moving parts, and only the
+    local player's hands show them, as with the rest of the pack body.
+
     The flash follows the muzzle. Replacing the gun body hides the
     carrier's flash, since at the carrier's point it would show inside or
     beyond the new barrel. With `muzzle`, the carrier's own flash comes
@@ -589,7 +614,8 @@ in-game screen). We maintain the adapters, not the mods.
     in `model.c`), on the same firing frames, at the same random scale and
     turn and with the item's flash extension. A carrier without a flash
     (the sniper rifle) still shows none. This format alone does not add
-    action geometry, a grip, optics, or remote weapon looks.
+    a grip, optics, or remote weapon looks; moving parts come with the
+    `action` and `handle` options above.
 
     **Pack mesh byte layout.** Integers and IEEE 754 floats are little
     endian; there is no implicit padding. The same file can be a held
@@ -1145,6 +1171,17 @@ in-game screen). We maintain the adapters, not the mods.
     frame from the next frame (a slide locked back after the last shot);
     `mod.attach.remove(id)`. Each answers true only to the mod that
     attached it. None stay past a mission, nor past a mod stopping.
+  - `mod.attach.action(id, { travel = { x, y, z }, handle = true })`
+    makes a part on the gun move with the gun's action, as a pack body's
+    `action` and `handle` pictures do (`mod.weapon.model` above): `travel`
+    is where it sits when fully back, in its anchor's frame and model
+    units, each component from -4000 to 4000, added to its placement's
+    origin by how far the action is open. Without `handle` (or with
+    false) it moves with each shot and the hand rack's pull, as a bolt or
+    a slide; with `handle = true` only with the pull, as a charging handle
+    that stays forward when the gun fires. `nil` puts it back to staying
+    where it's placed. True when the mod has it and it's on a gun; a part
+    on a hand, the body or a guard has no action, and answers false.
   - Built over a prop (P) file, a model's parts are laid out by its own
     nodes, as a prop's are. A gun (G) file's joints are posed only by the
     gun's animation, so a model built over one is drawn rigid at its root,

@@ -89,6 +89,9 @@ typedef struct
     ModelFileHeader *partOf;     /* and the body the part's matrix was found in */
     s32 partMtx;
     Mtxf offset;
+    s32 moves;                   /* on the gun: it moves with the action (mod.attach.action) */
+    s32 handle;                  /* only with the rack's pull, not each shot */
+    f32 travel[3];               /* fully back, in the anchor's frame */
     Mtxf drawnPose;
     u32 drawnFrame;
     ITEM_IDS drawnItem;
@@ -367,6 +370,24 @@ int gevrModGameAttachPlace(int id, const float offset[4][4])
     return a != NULL;
 }
 
+int gevrModGameAttachAction(int id, const float travel[3], int handle)
+{
+    Attachment *a = attachFind(id);
+    s32 i;
+
+    if (a == NULL || a->on != GEVR_MODATTACH_GUN)
+    {
+        return 0;
+    }
+    a->moves = travel != NULL;
+    a->handle = travel != NULL && handle;
+    for (i = 0; i < 3; i++)
+    {
+        a->travel[i] = travel != NULL ? travel[i] : 0.0f;
+    }
+    return 1;
+}
+
 int gevrModGameAttachShow(int id, int shown)
 {
     Attachment *a = attachFind(id);
@@ -401,7 +422,7 @@ void gevrModGameAttachReset(void)
 /* one attachment at its anchor's frame: the offset laid in it, the model's
  * node matrices from there as the game's props get theirs (instcalcmatrices),
  * or every one the pose for a model with animated joints (attachHasJoints) */
-static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *anchor, Mtxf *drawnPose)
+static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *anchor, const Mtxf *offset, Mtxf *drawnPose)
 {
     ModelFileHeader *h = &a->file->header;
     ModelRenderData rd = *templ;
@@ -409,7 +430,7 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     s32 i;
 
     if (a->file->mesh != NULL) {
-        matrix_4x4_multiply(anchor, &a->offset, &pose);
+        matrix_4x4_multiply(anchor, (Mtxf *) offset, &pose);
         Gfx *end = gevrModMeshDraw(gdl, &pose, a->file->mesh);
         if (drawnPose != NULL && end != gdl) *drawnPose = pose;
         return end;
@@ -432,7 +453,7 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
         modelInit(&a->model, h, a->rw);
         a->modelOf = h;
     }
-    matrix_4x4_multiply(anchor, &a->offset, &pose);
+    matrix_4x4_multiply(anchor, (Mtxf *) offset, &pose);
     mtx = dynAllocate(h->numMatrices * sizeof(Mtxf));
     for (i = 0; i < h->numMatrices; i++)
     {
@@ -508,8 +529,21 @@ Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun
 
         if (a->id != 0 && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand && a->node < gun->obj->numMatrices)
         {
+            Mtxf offset = a->offset;
+
             node = ((Mtxf *) gun->render_pos)[a->node];
-            Gfx *end = attachDraw(gdl, templ, a, &node, &a->drawnPose);
+            if (a->moves)
+            {
+                /* where the action is now (gevr_modaction.h), along its travel in the anchor's frame */
+                const f32 share = gevrModGunActionShare(hand, a->handle);
+                s32 k;
+
+                for (k = 0; k < 3; k++)
+                {
+                    offset.m[3][k] += share * a->travel[k];
+                }
+            }
+            Gfx *end = attachDraw(gdl, templ, a, &node, &offset, &a->drawnPose);
             if (end != gdl) {
                 a->drawnFrame = os_scheduler.frameCount;
                 a->drawnItem = get_item_in_hand_or_watch_menu(hand);
@@ -560,7 +594,7 @@ Gfx *gevrModAttachDrawGuard(ChrRecord *chr, ModelRenderData *body, s32 fadealpha
         }
         node = ((Mtxf *) chr->model->render_pos)[a->partMtx];
         objdata.gdl = gdl;
-        gdl = attachDraw(gdl, &objdata, a, &node, NULL);
+        gdl = attachDraw(gdl, &objdata, a, &node, &a->offset, NULL);
     }
     return gdl;
 }
@@ -622,7 +656,7 @@ Gfx *gevrModAttachDrawBody(Gfx *gdl)
          * off hand, 2 the gun hand, as gunfire.c gevrHandTag), the body's the body (3) */
         gDPNoOpTag(gdl++, 0x565F0000 | (u32) (a->on == GEVR_MODATTACH_HAND ? (a->where == GUNRIGHT ? 2 : 1) : 3));
         matrix_4x4_7F058C64();
-        gdl = attachDraw(gdl, &rd, a, &frame, NULL);
+        gdl = attachDraw(gdl, &rd, a, &frame, &a->offset, NULL);
         matrix_4x4_7F058C88();
         gDPNoOpTag(gdl++, 0x565F0000);   /* the world again */
     }

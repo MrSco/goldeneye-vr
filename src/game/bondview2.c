@@ -2327,6 +2327,12 @@ int gevrFitLook(int hand)
 #include "gevr_rack.h"
 static GevrRack s_gevrRack[2];
 
+/* gun.c: a pack gun's moving parts follow the pull (gevr_modaction.h) */
+f32 gevrRackPullShare(s32 hand)
+{
+    return hand == GUNRIGHT || hand == GUNLEFT ? gevrRackShare(&s_gevrRack[hand]) : 0.0f;
+}
+
 static void gevrGunOff(s32 hand, f32 off[3])
 {
     extern float VrBeanGunOff[3];

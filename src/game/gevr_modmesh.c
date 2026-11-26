@@ -14,12 +14,22 @@
 
 extern void gfx_texture_cache_delete(const uint8_t *address);
 
+#define GEVR_MODMESH_SPLITS 4   /* distinct moving-part choices kept per file */
+
+typedef struct {
+    unsigned pictures[GEVR_MODPART_GROUPS];
+    Gfx *lists[GEVR_MODPART_GROUPS + 1];   /* the rest, then each group's */
+} GevrModMeshSplit;
+
 struct GevrModMesh {
     char name[64];
     GevrPackMeshView view;
     uint8_t *bytes;
     Vtx *vertices;
     Gfx *commands;
+    uint32_t used, translucent, opaque;   /* pictures: drawn, blended, texture alpha ignored */
+    GevrModMeshSplit splits[GEVR_MODMESH_SPLITS];
+    unsigned nsplits;
     struct GevrModMesh *next;
     /* The load-block command names these aligned stand-in tiles. Fast3D
      * replaces each with the full RGBA picture before decoding the tile. */
@@ -68,13 +78,12 @@ static int readOpaquePictures(const char *name, unsigned pictures, uint32_t *mas
     return 1;
 }
 
-static size_t buildMesh(GevrModMesh *mesh, uint32_t opaquePictures)
+/* The vertices, once a file: shared by its whole list and any split lists. */
+static void buildVertices(GevrModMesh *mesh, uint32_t opaquePictures)
 {
     const GevrPackMeshView *view = &mesh->view;
-    Gfx *gdl = mesh->commands;
-    unsigned tex, pass;
+    unsigned tex;
     uint32_t used = 0, translucent = 0;
-    int rgb = 0;
     size_t tri;
     unsigned i;
 
@@ -111,6 +120,23 @@ static size_t buildMesh(GevrModMesh *mesh, uint32_t opaquePictures)
             if (pic->rgba[a] < 255) { translucent |= bit; break; }
         }
     }
+    mesh->used = used;
+    mesh->translucent = translucent;
+    mesh->opaque = opaquePictures;
+}
+
+/* A list of the file's triangles whose pictures are in include: the whole
+ * body, or one part of a split one. */
+static size_t buildList(const GevrModMesh *mesh, Gfx *commands, uint32_t include)
+{
+    const GevrPackMeshView *view = &mesh->view;
+    Gfx *gdl = commands;
+    const uint32_t used = mesh->used & include, translucent = mesh->translucent & include;
+    const uint32_t opaquePictures = mesh->opaque;
+    unsigned tex, pass;
+    int rgb = 0;
+    size_t tri;
+    unsigned i;
 
     /* Pack draws bypass subdraw. Set up depth explicitly so opaque triangles
      * occlude one another across the held model and its attachments. */
@@ -174,7 +200,16 @@ static size_t buildMesh(GevrModMesh *mesh, uint32_t opaquePictures)
         if (rgb) { gDPSetCombineMode(gdl++, G_CC_MODULATERGBA, G_CC_MODULATERGBA2); }
     }
     gSPEndDisplayList(gdl++);
-    return (size_t)(gdl - mesh->commands);
+    return (size_t)(gdl - commands);
+}
+
+/* commands a list of these pictures' triangles can take (buildList) */
+static size_t listRoom(const GevrModMesh *mesh, uint32_t include)
+{
+    size_t tri, n = 0;
+    for (tri = 0; tri < mesh->view.triangles; ++tri)
+        n += (include >> mesh->view.corners[tri * 3 * GEVR_PACKMESH_CORNER_BYTES + 24] & 1) != 0;
+    return 32 + (size_t)mesh->view.textures * 18 + n * 2;
 }
 
 int gevrModMeshLoad(const char *name, const GevrModMesh **out)
@@ -227,7 +262,8 @@ int gevrModMeshLoad(const char *name, const GevrModMesh **out)
     mesh->bytes = bytes;
     mesh->view = view;
     snprintf(mesh->name, sizeof(mesh->name), "%s", name);
-    commands = buildMesh(mesh, opaquePictures);
+    buildVertices(mesh, opaquePictures);
+    commands = buildList(mesh, mesh->commands, UINT32_MAX);
     mesh->next = s_meshes;
     s_meshes = mesh;
     *out = mesh;
@@ -291,6 +327,86 @@ Gfx *gevrModMeshDraw(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh)
     return gdl;
 }
 
+static const GevrModMeshSplit *findSplit(const GevrModMesh *mesh, const unsigned pictures[GEVR_MODPART_GROUPS])
+{
+    for (unsigned i = 0; i < mesh->nsplits; ++i) {
+        if (!memcmp(mesh->splits[i].pictures, pictures, sizeof(mesh->splits[i].pictures))) return &mesh->splits[i];
+    }
+    return NULL;
+}
+
+int gevrModMeshSplit(const GevrModMesh *constMesh, const unsigned pictures[GEVR_MODPART_GROUPS])
+{
+    /* The cache is the file's own; a split adds lists, never changes the body's. */
+    GevrModMesh *mesh = (GevrModMesh *)constMesh;
+    const uint32_t files = mesh->view.textures >= 32 ? UINT32_MAX : (UINT32_C(1) << mesh->view.textures) - 1;
+    uint32_t moving = 0;
+    GevrModMeshSplit split = {{0}};
+    int group;
+
+    for (group = 0; group < GEVR_MODPART_GROUPS; ++group) {
+        if ((pictures[group] & ~files) || (pictures[group] & moving)) return 0;
+        moving |= pictures[group];
+    }
+    if (!moving || findSplit(mesh, pictures) != NULL) return moving != 0;
+    if (mesh->nsplits == GEVR_MODMESH_SPLITS) {
+        sysLogPrintf(LOG_WARNING, "mods: pack model %s: more than %d moving-part choices", mesh->name, GEVR_MODMESH_SPLITS);
+        return 0;
+    }
+    memcpy(split.pictures, pictures, sizeof(split.pictures));
+    for (group = 0; group <= GEVR_MODPART_GROUPS; ++group) {
+        const uint32_t include = group == 0 ? ~moving : pictures[group - 1];
+        if (group > 0 && !include) continue;
+        split.lists[group] = calloc(listRoom(mesh, include), sizeof(Gfx));
+        if (split.lists[group] == NULL) {
+            for (int k = 0; k <= GEVR_MODPART_GROUPS; ++k) free(split.lists[k]);
+            sysLogPrintf(LOG_WARNING, "mods: pack model %s: moving-part lists could not be allocated", mesh->name);
+            return 0;
+        }
+        buildList(mesh, split.lists[group], include);
+    }
+    mesh->splits[mesh->nsplits++] = split;
+    sysLogPrintf(LOG_NOTE, "mods: pack model %s: moving pictures 0x%x with the action, 0x%x with the handle",
+        mesh->name, pictures[GEVR_MODPART_ACTION], pictures[GEVR_MODPART_HANDLE]);
+    return 1;
+}
+
+static Gfx *drawList(Gfx *gdl, const Mtxf *pose, const Gfx *list)
+{
+    Mtx *mtx = dynAllocate(sizeof(*mtx));
+    guMtxF2L((float (*)[4])pose->m, mtx);
+    gSPMatrix(gdl++, osVirtualToPhysical(mtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gSPDisplayList(gdl++, osVirtualToPhysical((void *)list));
+    return gdl;
+}
+
+Gfx *gevrModMeshDrawParts(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh,
+                          const unsigned pictures[GEVR_MODPART_GROUPS], const f32 offset[GEVR_MODPART_GROUPS][3])
+{
+    const GevrModMeshSplit *split = pictures != NULL ? findSplit(mesh, pictures) : NULL;
+    int group;
+
+    if (split == NULL) return gevrModMeshDraw(gdl, pose, mesh);
+    if (!gevrDynRoom(gdl, 2 + 2 * (GEVR_MODPART_GROUPS + 1), (GEVR_MODPART_GROUPS + 1) * sizeof(Mtx))) {
+        if (!s_frameWarning) {
+            sysLogPrintf(LOG_WARNING, "mods: no frame room for pack model %s", mesh->name);
+            s_frameWarning = 1;
+        }
+        return gdl;
+    }
+    gDPNoOpTag(gdl++, GEVR_PACKMESH_DRAW_BEGIN);
+    gdl = drawList(gdl, pose, split->lists[0]);
+    for (group = 0; group < GEVR_MODPART_GROUPS; ++group) {
+        Mtxf moved = *pose;
+        if (split->lists[group + 1] == NULL) continue;
+        /* the group's offset in the body's own frame, then the body's pose */
+        gevrModMeshPoint(pose, offset[group], moved.m[3]);
+        gdl = drawList(gdl, &moved, split->lists[group + 1]);
+    }
+    gDPNoOpTag(gdl++, GEVR_PACKMESH_DRAW_END);
+    return gdl;
+}
+
 void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3])
 {
     for (int axis = 0; axis < 3; ++axis) {
@@ -306,6 +422,9 @@ void gevrPackMeshCollect(void)
         unsigned tex;
         s_retired = m->next;
         for (tex = 0; tex < m->view.textures; ++tex) gfx_texture_cache_delete((const uint8_t *)m->keys[tex]);
+        for (unsigned i = 0; i < m->nsplits; ++i) {
+            for (int k = 0; k <= GEVR_MODPART_GROUPS; ++k) free(m->splits[i].lists[k]);
+        }
         free(m->commands);
         free(m->vertices);
         free(m->bytes);
