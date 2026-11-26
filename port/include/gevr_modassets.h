@@ -42,6 +42,7 @@ int gevrModAssetNameOk(const char *name);
 int gevrModAssetHasModel(const char *name);
 /* Open a validated model in the active pack; the caller closes it. */
 FILE *gevrModAssetOpenModel(const char *name);
+FILE *gevrModAssetOpenOptic(const char *name);   /* a flat .opt name in assets/models */
 /* Optional .opaque companion to a validated pack mesh name. */
 FILE *gevrModAssetOpenModelOpacity(const char *name);
 /* One flat stem in assets/effects; the loader adds the PNG extension. */

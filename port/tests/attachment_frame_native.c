@@ -19,6 +19,12 @@ int netGetLocalSlot(void) { return 0; }
 s32 get_cur_playernum(void) { return 0; }
 ITEM_IDS get_item_in_hand_or_watch_menu(GUNHAND hand) { return held; }
 const GevrModMesh *gevrModGunMesh(s32 hand) { return gunMesh; }
+void gevrModOpticCheckCarrier(int id, s32 hand) {}
+void gevrModOpticDrawn(int id, s32 hand, const Mtxf *pose) {}
+Gfx *gevrModOpticEmit(Gfx *gdl, s32 hand) { return gdl; }
+int gevrModOpticFolded(int id) { return 0; }
+void gevrModOpticUnbind(int id) {}
+void gevrModOpticReset(void) {}
 Gfx *gevrModMeshDraw(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh) { meshPose = *pose; return gdl + room; }
 /* another player's (#335): its copy is player 2 */
 s32 getPlayerPointerIndex(PropRecord *prop) { return 2; }

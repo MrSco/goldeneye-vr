@@ -203,7 +203,10 @@ void gfx_opengl_draw_vignette(float strength, float blink);   // gfx_opengl.cpp
 void gfx_opengl_draw_volumetric(int batchId);                 // gfx_opengl.cpp (issue #249)
 extern "C" float gevrStereoVignette(void);          // bondview2.c
 extern "C" float gevrTeleportBlink(void);           // gevr_teleport.c: the teleport's blink, 0..1
-void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
+void gfx_vr_scope_record(bool on, bool invert_y);
+void gfx_mod_optic_scope_record(const float* projection, bool invert_y);
+#include "gevr_modoptic.h"
+void gfx_mod_optic_surface(const GevrOpticSurface* surface, const float projection[16], bool invert_y);   // gfx_opengl.cpp (issue #40)
 void gfx_vr_scope_only(int hand);                   // GUNRIGHT 0 / GUNLEFT 1, -1 ends
 void gfx_vr_scope_render(void);
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation);
@@ -5662,6 +5665,11 @@ static void gfx_run_dl(Gfx* cmd) {
                         gfx_vr_scope_record(true, gfx_rapi->get_clip_parameters().invert_y);
                         break;
 
+                    case GEVR_OPTIC_SCOPE_RECORD:   // lv.c: the game's scopes and a pack optic's lens
+                        gfx_flush();
+                        gfx_mod_optic_scope_record(rsp.P_matrix[0], gfx_rapi->get_clip_parameters().invert_y);
+                        break;
+
                     case VR_SCOPE_REC_END:
                         gfx_flush();
                         gfx_vr_scope_record(false, false);
@@ -5705,6 +5713,11 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
+                break;
+            case G_GEVR_OPTIC_SURFACE:   // gevr_modoptic.c: a pack optic's lens on its housing
+                gfx_flush();
+                gfx_mod_optic_surface((const GevrOpticSurface*)seg_addr(cmd->words.w1),
+                    rsp.P_matrix[0], gfx_rapi->get_clip_parameters().invert_y);
                 break;
             case G_GEVR_SKY_VTX:
                 memset(s_gevrPresentedFresh, 0, sizeof(s_gevrPresentedFresh));   // pre-projected: none presented
