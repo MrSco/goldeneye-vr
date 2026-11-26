@@ -64,6 +64,15 @@ float VrGexBatFit[9][3];   /* vr_settings_defaults.c: [7], [8] the glove bat's e
 static int ownArt;   /* gevr_romlayout.h: the ROM's art is GoldenEye's own, not a hack's */
 static int gevrRomRetailArt(void) { return ownArt; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
+static const coord3d packPoint = {{18, 30, 240}};
+static int packHand = -1;
+static s32 gevrModGunSupport(s32 hand, coord3d *out)
+{
+    if (hand != packHand) return 0;
+    *out = packPoint;
+    return 1;
+}
+
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
 /* gun.c: how far below the fist the off hand takes the bat (real cm): held near the
@@ -209,6 +218,30 @@ static void testSlot(int gun, int leftHanded, int weapon)
         float side = (leftHanded != (gun == GUNLEFT)) ? r[i] : -r[i];
         near(palm, snap[i] - 3 * side * GEVR_UNITS_PER_METRE / 100);
     }
+    /* The pack moves both reach and hold through the gun matrix. The
+     * player's saved trim still applies and the stock point returns on clear. */
+    Mtxf carrier;
+    coord3d authored = packPoint;
+    f32 stockTarget[3], packTarget[3], restoredTarget[3];
+    assert(gevrStereoTwoHandTarget(stockTarget));
+    assert(gevrStereoGunMatrix(gun, &carrier));
+    mtx4TransformVecInPlace(&carrier, &authored);
+    packHand = gun;
+    for (int drawn = 0; drawn < 2; drawn++)
+    {
+        float packSnap[3];
+        assert(gevrTwoHandBarrel(opos, packSnap, &dist, drawn));
+        for (int i = 0; i < 3; i++) near(packSnap[i], authored.f[i]);
+    }
+    assert(gevrStereoTwoHandTarget(packTarget));
+    for (int i = 0; i < 3; i++)
+    {
+        float side = (leftHanded != (gun == GUNLEFT)) ? r[i] : -r[i];
+        near(packTarget[i], authored.f[i] - 3 * side * GEVR_UNITS_PER_METRE / 100);
+    }
+    packHand = -1;
+    assert(gevrStereoTwoHandTarget(restoredTarget));
+    for (int i = 0; i < 3; i++) near(restoredTarget[i], stockTarget[i]);
     ownGripItem = -1;
     VrGripTrim[1][0] = 0;
 

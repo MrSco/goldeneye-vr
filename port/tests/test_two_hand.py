@@ -42,7 +42,8 @@ production = [function(buttons, 'static inline int gevrPhysHand('),
 production.extend(function(math, signature) for signature in (
     'void matrix_4x4_set_rotation_around_xyz(', 'void matrix_4x4_set_identity(',
     'void matrix_4x4_get_rotation_around_xyz(', 'void matrix_column_1_scalar_multiply(',
-    'void matrix_scalar_multiply('))
+    'void matrix_scalar_multiply(', 'void matrix_4x4_rotate_vector(', 'void mtx4RotateVecInPlace(',
+    'void mtx4TransformVecInPlace('))
 production.extend(function(view, signature) for signature in (
     'static void gevrMtxMul(', 'static s32 gevrMtxInvAffine(',
     'static s32 gevrGripAxesRaw(', 'static s32 gevrGripAxes(',

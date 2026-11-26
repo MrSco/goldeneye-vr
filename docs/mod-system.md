@@ -576,6 +576,12 @@ in-game screen). We maintain the adapters, not the mods.
     a thrown weapon refuses `muzzle`, since it leaves the hand by the
     throw.
 
+    `support = { x, y, z }` sets where the off hand reaches and holds the
+    body in VR. It uses the same model units, axes and limits as `muzzle`
+    and goes through the pack body's fit. The player's Gun fit trim still
+    applies. Leaving out `support` or clearing the pack body restores the
+    carrier's usual hold point. Legacy models and thrown weapons refuse it.
+
     The flash follows the muzzle. Replacing the gun body hides the
     carrier's flash, since at the carrier's point it would show inside or
     beyond the new barrel. With `muzzle`, the carrier's own flash comes

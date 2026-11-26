@@ -44,3 +44,17 @@ items = items[:items.index("} ITEM_IDS;") + len("} ITEM_IDS;")]
 run("gun_model_native.c",
     "typedef int s32;\n" + items + "\n" + function(inputs, "s32 gevrIsThrowable(s32 item)") + "\n"
     + function(game, "int gevrModGameGunModel(int hand, int item, const char *name"))
+
+gun = (ROOT / "src/game/gun.c").read_text(encoding="utf-8")
+mesh = (ROOT / "src/game/gevr_modmesh.c").read_text(encoding="utf-8")
+tables = gun[gun.index("#define GEVR_MODGUN_NAME"):gun.index("static const char *gevrModGunModelFor(")]
+run("support_fit_native.c", tables + "\n" + "\n".join(
+    function(source, name) for source, name in (
+        (mesh, "void gevrModMeshPoint("),
+        (gun, "static const char *gevrModGunModelFor("),
+        (gun, "static s32 gevrModGunShownOk("),
+        (gun, "static s32 gevrModGunFittedItem("),
+        (gun, "s32 gevrModGunSupport("),
+        (gun, "void gevrModGunModelSet("),
+        (gun, "void gevrModGunModelReset("),
+    )))

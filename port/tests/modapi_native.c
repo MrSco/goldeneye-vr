@@ -163,7 +163,7 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 }
 int gevrModGameLook(int hand) { return s_look[hand]; }
 /* gun.c's per-hand models: a mod's files are the names starting Gtac */
-int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3])
+int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3])
 {
     printf("GUNMODEL %d %d %s\n", hand, item, name ? name : "-");
     if (muzzle != NULL && (item == 3 || (item >= 26 && item <= 29))) return 0;   /* thrown: input.c gevrIsThrowable */
@@ -172,7 +172,8 @@ int gevrModGameGunModel(int hand, int item, const char *name, const float frame[
                frame[0][0], frame[1][2], frame[2][1], frame[3][1], frame[3][3]);
     }
     if (muzzle != NULL) printf("GUNMUZZLE %d %.1f %.1f %.1f\n", hand, muzzle[0], muzzle[1], muzzle[2]);
-    if (frame != NULL || muzzle != NULL) return name != NULL && strcmp(name, "pack-body.bin") == 0;
+    if (support != NULL) printf("GUNSUPPORT %d %.1f %.1f %.1f\n", hand, support[0], support[1], support[2]);
+    if (frame != NULL || muzzle != NULL || support != NULL) return name != NULL && strcmp(name, "pack-body.bin") == 0;
     return name == NULL || strncmp(name, "Gtac", 4) == 0 || strcmp(name, "pack-body.bin") == 0;
 }
 void gevrModGameGunModelReset(void) { printf("GUNMODEL reset\n"); }
