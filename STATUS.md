@@ -41,6 +41,12 @@ gevr_level.txt. Asked the #356 reporter what confused them in the controls.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting,
 bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
 Push).
+**Unreleased (t3/separate-dual-hat-models):** dual throwing knives with
+Oddjob's hat on a flat screen: each hand eases 10 units out so the brims no
+longer overlap (`flat` in gevr_oddjobhat.txt, docs/oddjob-hat.md); PC-tested
+with the N64, Bean and GE-X hands at 16:9 and 4:3 (4:3 brims under the ammo
+counters: user OK), not yet on the Quest's 2D screen. GE-X's held hat sits mostly
+below the flat screen's bottom edge (one knife or two): user OK, left as is.
 **Before it:** v0.5.27 (versionCode 140, protocol 27), tag on 37cd0d7a
 ([notes](docs/releases/v0.5.27.md)): volumetric explosions (#249), scrolling
 monitors (#309), Steam Frame scope (#321).

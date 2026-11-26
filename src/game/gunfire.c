@@ -6,6 +6,7 @@
 #include "gevr_gexweapon.h"
 #include "gevr_hand_reload.h"
 #include "gevr_romlayout.h"
+#include "gevr_oddjobhat.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -685,6 +686,29 @@ void gunUpdateAndFire(GUNHAND handnum)
             gunofs.x += (handnum == GUNRIGHT ? 1.0f : -1.0f) * (pp7->PosX - itemstats->PosX);
             gunofs.y += pp7->PosY - itemstats->PosY;
             gunofs.z += pp7->PosZ - itemstats->PosZ;
+        }
+
+        /* Oddjob's hats in both hands: the knives' fists sit too close for two
+         * brims, so on the flat screen each hand moves out (gevr_oddjobhat.c).
+         * Eased: the gun hand stays up while the off hand rises, and slides
+         * over instead of jumping. */
+        {
+            static f32 spread[MAX_PLAYER_COUNT][2];
+            const s32 pl = get_cur_playernum();
+
+            if (pl >= 0 && pl < MAX_PLAYER_COUNT)
+            {
+                f32 *cur = &spread[pl][handnum == GUNRIGHT ? 0 : 1];
+                const f32 want = (!g_gevrStereo && item == ITEM_THROWKNIFE
+                                  && get_item_in_hand_or_watch_menu(handnum == GUNRIGHT ? GUNLEFT : GUNRIGHT) == ITEM_THROWKNIFE)
+                                 ? gevrHatDualSpread() : 0.0f;
+                const f32 step = 0.7f * g_GlobalTimerDelta;   /* 10 units in about a quarter second */
+
+                if (g_gevrStereo) *cur = 0.0f;
+                else if (*cur < want) *cur = (want - *cur > step) ? *cur + step : want;
+                else if (*cur > want) *cur = (*cur - want > step) ? *cur - step : want;
+                gunofs.x += (handnum == GUNRIGHT ? 1.0f : -1.0f) * *cur;
+            }
         }
     }
 #endif
