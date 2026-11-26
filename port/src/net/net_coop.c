@@ -2191,7 +2191,9 @@ void gevrCoopPressTaken(const ChrRecord *self, ObjectRecord *obj)
         if (!s_press_by[i] || s_press_tag[i] != tag) continue;
         by = s_press_by[i] - 1;
         s_press_by[i] = 0;   /* taken, by whichever list: never a later press's presser */
-        if (coopBackgroundList(self) && g_playerPointers[by]) {
+        /* the presser as gevrCoopPartyTestTry takes a player: still in, up, and
+         * on a tile (the list's room tests read it); else the list keeps its Bond */
+        if (coopBackgroundList(self) && coopPlayerTargetable(by) && g_playerPointers[by]->prop->stan) {
             set_cur_player(by);
             s_party_pinned = TRUE;
         }

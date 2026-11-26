@@ -355,16 +355,31 @@ static void test_party_and_presses(void)
     cur_player = 1; Offset = 0;
     run_case(pressed[0]);
     assert(goto_calls == 5 && cur_player == 0);
+    /* a presser downed, or off any tile, by the time the list takes it: the
+     * press counts, the list keeps its own Bond (its room tests read the tile) */
+    coopApplyActivate(2, 7);
+    downed[2] = 1; cur_player = 0; Offset = 0;
+    run_case(pressed[0]);
+    assert(goto_calls == 6 && cur_player == 0);
+    downed[2] = 0;
+    {
+        StandTile *keep = g_playerPointers[2]->prop->stan;
+        coopApplyActivate(2, 7);
+        g_playerPointers[2]->prop->stan = NULL; cur_player = 0; Offset = 0;
+        run_case(pressed[0]);
+        assert(goto_calls == 7 && cur_player == 0);
+        g_playerPointers[2]->prop->stan = keep;
+    }
     /* a guard list's press leaves its target alone; a stage load forgets */
     coopApplyActivate(2, 7);
     ChrEntityp = &a_guard; cur_player = 1; Offset = 0;
     run_case(pressed[0]);
-    assert(goto_calls == 6 && cur_player == 1);
+    assert(goto_calls == 8 && cur_player == 1);
     coopApplyActivate(2, 7);
     coopPressReset();
     ChrEntityp = &bg_chrs[0]; Offset = 0;
     run_case(pressed[0]);
-    assert(goto_calls == 7 && cur_player == 1);
+    assert(goto_calls == 9 && cur_player == 1);
 
     ChrEntityp = NULL;
     host_guards = 0;
