@@ -950,6 +950,21 @@ in-game screen). We maintain the adapters, not the mods.
     a tile to stand on and its rooms, which a bare point doesn't give.
     False when there's no such place; the game drops it when its 20
     smokes are all in use.
+  - `mod.effect.blood({ headBurst = 10, bodies = { 2, 3 } })` opts a
+    solo campaign into pack blood on guard gunshot impacts. It draws
+    animated spray, droplets, surface stains and pools. The optional
+    `headBurst` percentage applies to fatal head hits on the listed guard
+    body rows. It defaults to zero. Head bursts also require Ragdolls and
+    Dismemberment, while all pack blood requires the player's Blood patch
+    setting. The game keeps using its stock effects in co-op.
+  - The pack supplies eight 128 by 128 frames in one 1024 by 128 RGBA
+    PNG per role in `assets/effects/`. The seven files are
+    `blood-spray.png`, `blood-stream.png`, `blood-splat.png`,
+    `blood-ribbon.png`, `blood-mist.png`, `blood-pool.png` and
+    `blood-drop.png`. Each is at most 1 MiB compressed. A missing or
+    invalid sheet leaves stock effects in place and the call returns
+    false. A successful setup lasts for the mission. `mod.effect.blood(false)`
+    restores stock effects and clears the pack effects immediately.
   - Not built: bullet impacts. `explosionCreateBulletImpact()` marks a
     surface a shot hit, with its normal and room; a mod has no shot's hit
     to give it.

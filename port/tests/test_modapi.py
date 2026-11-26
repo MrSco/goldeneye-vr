@@ -1269,11 +1269,20 @@ mod.on("mission_start", function()
                          { "smoke", { pad = -1 } }, { "smoke", { pad = 1.5 } } }) do
     assert(not pcall(e.play, table.unpack(bad)), "a bad effect or place")
   end
+  assert(e.blood({ headBurst = 10, bodies = { 4, 2 } }) and e.blood(false))
+  assert(e.blood({}))
+  assert(not pcall(e.blood, { headBurst = 101 }))
+  assert(not pcall(e.blood, { headBurst = 0/0 }))
+  assert(not pcall(e.blood, { bodies = { -1 } }))
+  assert(not pcall(e.blood, { bodies = { 256 } }))
+  assert(not pcall(e.blood, { bodies = { 2.5 } }))
   print("effects ok")
 end)
 """
     out = run(exe, temp, "effects", lua, *play)
     check(logs(out) == ["effects ok"], "mod.audio and mod.effect: " + out[-600:])
+    check(answers(out, "BLOOD") == ["BLOOD 10 2 4", "BLOOD 0"],
+          "pack blood validates the head-burst odds and the eligible body rows")
     check(answers(out, "SOUND", "SMOKE") == ["SOUND 5 -1.00 -", "SOUND 120 0.50 -", "SOUND 7 -1.00 10 20 30",
                                              "SOUND 8 0.25 1 2 3", "SMOKE 1 1 0", "SMOKE 7 2 7", "SMOKE 6 3 12"],
           "the sounds and smokes as the game gets them (the sound's own volume unless given): "

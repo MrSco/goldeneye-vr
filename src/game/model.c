@@ -7,6 +7,7 @@
 #ifdef GEVR
 #include "gevr_hand_reload.h"
 #include "gevr_bean.h"
+#include "gevr_ragdoll.h"
 #include "gevr_n64mag.h"
 #include "vtxstore.h"
 #include "gevr_oddjobhat.h"
@@ -5746,7 +5747,11 @@ static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly
         visited++;
 #endif
 
-        if (root->Child)
+        if (root->Child
+#ifdef GEVR
+            && ((root->Opcode & 255) != MODELNODE_OPCODE_HEAD || !gevrRagdollHidesHead(mdl))
+#endif
+        )
         {
             root = root->Child;
         }

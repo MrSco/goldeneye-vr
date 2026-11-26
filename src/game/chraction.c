@@ -2251,6 +2251,7 @@ void triggered_on_shot_hit(ChrRecord *self, coord3d *arg1, f32 arg2, s32 req_ani
             chrDropItems(self);
             increment_num_kills_display_text_in_MP();
 #ifdef GEVR
+            gevrRagdollNoteShotDeath(self, req_animation_id, arg1->f, item);
             gevrModGuardKilled(self, GEVR_MODKILL_SHOT, item);   /* a mod's guard_killed */
 #endif
 

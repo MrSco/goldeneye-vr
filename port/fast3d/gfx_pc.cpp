@@ -90,6 +90,7 @@ static float s_beanRoomFogLine[2];
 static unsigned s_beanPaintUploads, s_beanPaintHits;
 extern "C" int gevrStatsPicture(const void *addr, const uint8_t **rgba, int *w, int *h);   // bondview2.c
 #include "gevr_bean.h"
+#include "gevr_modblood.h"
 #include "gevr_modassets.h"   /* a mod's textures (assets/textures) */
 #include "gevr_packmesh.h"
 #include "gevr_modpack.h"
@@ -2093,7 +2094,8 @@ static void import_texture(int i, int tile, bool is_rect) {
         /* Mods: Oddjob's hat loads its pictures the same way (gevr_oddjobhat.c) */
         if ((gevrBeanTexture(frameAddr, &beanRgba, &beanW, &beanH)
              || gevrHatTexture(frameAddr, &beanRgba, &beanW, &beanH)
-             || gevrPackMeshTexture(frameAddr, &beanRgba, &beanW, &beanH))
+             || gevrPackMeshTexture(frameAddr, &beanRgba, &beanW, &beanH)
+             || gevrModBloodTexture(frameAddr, &beanRgba, &beanW, &beanH))
             && beanRgba && beanW > 0 && beanH > 0) {
             /* UV normalization below uses the logical tile, not the 16x16
              * stand-in's byte count. Keep both axes in those same units. */

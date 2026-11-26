@@ -1752,8 +1752,39 @@ static int l_effectPlay(lua_State *L)
     return 1;
 }
 
+/* blood({ headBurst = percent, bodies = { body rows } }) or blood(false). */
+static int l_effectBlood(lua_State *L)
+{
+    if (lua_isboolean(L, 1) && !lua_toboolean(L, 1)) {
+        lua_pushboolean(L, gevrModGameBlood(NULL));
+        return 1;
+    }
+    luaL_checktype(L, 1, LUA_TTABLE);
+    GevrModBloodConfig config = {0};
+    wholeField(L, 1, "headBurst", 0, 100, &config.headBurst, "mod.effect.blood", "a percentage from 0 to 100");
+    lua_getfield(L, 1, "bodies");
+    if (!lua_isnil(L, -1)) {
+        luaL_checktype(L, -1, LUA_TTABLE);
+        const lua_Unsigned count = lua_rawlen(L, -1);
+        if (count > GEVR_MOD_BLOOD_BODIES) return luaL_argerror(L, 1, "too many body rows");
+        for (lua_Unsigned i = 1; i <= count; ++i) {
+            lua_rawgeti(L, -1, (lua_Integer)i);
+            int valid;
+            const lua_Integer body = lua_tointegerx(L, -1, &valid);
+            if (!valid || body < 0 || body >= GEVR_MOD_BLOOD_BODIES)
+                return luaL_argerror(L, 1, "bodies must contain integer body rows from 0 to 255");
+            config.bodies[body] = 1;
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+    lua_pushboolean(L, gevrModGameBlood(&config));
+    return 1;
+}
+
 static const luaL_Reg s_effectFuncs[] = {
     { "play", l_effectPlay },
+    { "blood", l_effectBlood },
     { NULL, NULL },
 };
 
@@ -2468,6 +2499,7 @@ void gevrModApiReset(void)
     gevrModGameScope(1, GEVR_MODSCOPE_GAME, 0, NULL, 0.0f, 0.0f);
     gevrModGameGunModelReset();   /* and the hands' own models */
     gevrModGameAttachReset();     /* and nothing attached */
+    gevrModGameBlood(NULL);
     gevrModGameSetSpeed(1.0f);    /* and the player's own speed */
     memset(s_attachOwners, 0, sizeof(s_attachOwners));
 }

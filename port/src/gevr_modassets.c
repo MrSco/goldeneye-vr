@@ -64,6 +64,15 @@ FILE *gevrModAssetOpenModelOpacity(const char *name)
     return fopen(path, "rb");
 }
 
+FILE *gevrModAssetOpenEffect(const char *name)
+{
+    char filename[sizeof(".png") + 63], path[1024];
+    if (!nameOk(name) || strchr(name, '.')) return NULL;
+    snprintf(filename, sizeof(filename), "%s.png", name);
+    if (!assetPath(path, sizeof(path), gevrModActive(), "effects", filename)) return NULL;
+    return fopen(path, "rb");
+}
+
 /* a file to read: a folder opens on some systems but gives no byte */
 int gevrModAssetHasModel(const char *name)
 {
