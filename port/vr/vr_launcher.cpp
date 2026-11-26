@@ -4381,7 +4381,7 @@ extern "C" void gevrLauncherRun(void)
                     }
                 } else if (st == GEVR_SAVECHECK_NEWER) {
                     ImGui::TextWrapped("Your save from %s is newer (%s).", chk.from, chk.when);
-                    ImGui::TextDisabled("Use it to carry on from there. This device's save is kept aside either way.");
+                    ImGui::TextDisabled("Use it to carry on from there; this device's save is kept aside. Keep this one plays it as it is.");
                     if (ImGui::Button("Use it", size)) {
                         gevrSyncSaveCheckUse();
                         start = true;
