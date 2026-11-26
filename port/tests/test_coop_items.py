@@ -18,9 +18,27 @@ gun = (ROOT / "src/game/gun.c").read_text(encoding="utf-8")
 tick = block(action, "void chrlvAllChrTick(void)")
 assert "gevrCoopNearestPlayer(" in tick
 assert "set_cur_player(gevrTarget)" in tick
+# #356: a background list's run may leave the player who passed a party test
+# as current, prop or not; the tick puts the list's starting player back.
+assert "if (gevrCoop && get_cur_playernum() != gevrPrev)" in tick
+for case in ("AI_IFBondInRoomWithPad", "AI_IFBondDistanceToPadLessThanDecimeter",
+             "AI_IFBondDistanceToPadGreaterThanDecimeter", "AI_IFBondYPosLessThan", "AI_IFBondHasItemEquipped"):
+    assert "GEVR_PARTY_TEST(" in block(ai, "                case " + case + ":"), case
+run = ai[ai.index("void                   ai(PropDefHeaderRecord *Entityp"):]
+assert "gevrCoopPartyRunStart();" in run[:run.index("gevrCoopScriptEffect(AiListp, Offset)")]
+assert "GEVR_PARTY_TEST(TRUE," in block(ai, "                case AI_IFBondDistanceToPadGreaterThanDecimeter:")
+chrprop = (ROOT / "src/game/chrprop.c").read_text(encoding="utf-8")
+assert chrprop.count("tickop = propobjInteract(prop);\n#ifdef GEVR\n") == 2 and chrprop.count("gevrInteractObjectOnline(prop);") == 2
+online = block(chrprop, "static void gevrInteractObjectOnline(PropRecord *prop)\n{")
+assert "gevrCoopReportActivate(prop->obj);" in online
+# a switch's door goes out only from this player's own press, never from a host's co-op script
+assert "netSendDoorState(link->second->obj" in online and "(netCoopActive() && netIsHost())" in online
+assert "netSendDoorState" not in block(chrprop, "void sub_GAME_7F03E6A0(PropRecord *prop)")
 assert "set_cur_player(gevrPrev)" in tick
 assert "gevrCoopGrantItem(wep->weaponnum)" in propobj
-assert "gevrCoopReportGadgetUse(temp_v0_8->obj)" in gunfire
+# the use queues in the gun tick and reports from the frame's view (#357)
+assert "gevrGadgetUseQueue();" in gunfire
+assert "gevrCoopReportGadgetUse(prop->obj);" in block(chrprop, "void gevrGadgetUseFlush(void)")
 casualties = block(gunfire, "s32 get_civilian_casualties(void)")
 assert "gevrCoopActive()" in casualties and "g_playerPlayerData[i].killed_civilians" in casualties
 collision = block(bondview, "void bondviewCalcUpdatePlayerCollision(")
@@ -87,6 +105,25 @@ parts = {
         block(coop, "static void coopReceiveTank("),
     )),
     "TANK_SYNC": bondview[sync_start:sync_end],
+    "PARTY": "\n\n".join((
+        ai[ai.index("#define GEVR_PARTY_TEST"):ai.index("#endif", ai.index("#define GEVR_PARTY_TEST"))],
+        coop[coop.index("static int s_party_prev"):coop.index("int gevrCoopPartyTestBegin(")],
+        block(coop, "int gevrCoopPartyTestBegin("),
+        block(coop, "int gevrCoopPartyTestTry("),
+        block(coop, "int gevrCoopPartyTestSettled("),
+        block(coop, "void gevrCoopPartyTestEnd("),    )),
+    "PRESS": "\n\n".join((
+        coop[coop.index("#define COOP_PRESSES"):coop.index("static void coopRememberPress(")],
+        block(coop, "static void coopRememberPress("),
+        block(coop, "static void coopPressReset(void)\n{"),
+        block(coop, "void gevrCoopReportActivate("),
+        block(coop, "static void coopApplyActivate("),
+        block(coop, "void gevrCoopPressTaken("),
+    )),
+    "ACTIVATE_CASE": block(coop, "case NET_COOP_EVENT_ACTIVATE:"),
+    "ACTIVATED_CASE": block(ai, "case AI_IFObjectWasActivated:\n                {"),
+    "IN_ROOM_CASE": block(ai, "case AI_IFBondInRoomWithPad:\n                {"),
+    "FAR_CASE": block(ai, "case AI_IFBondDistanceToPadGreaterThanDecimeter:\n                {"),
     "GRANT_CASE": block(coop, "case NET_COOP_EVENT_GRANT:"),
     "GADGET_CASE": block(coop, "case NET_COOP_EVENT_GADGET:"),
     "AI_CASE": block(ai, "case AI_IFBondUsedGadgetOnObject:\n                {"),
@@ -116,4 +153,4 @@ with tempfile.TemporaryDirectory(prefix="gevr-coop-items-") as temp:
     if result.returncode:
         raise RuntimeError(result.stderr)
     subprocess.run([str(exe)], check=True)
-print("Co-op gadget grant, gadget use, tank isolation, tank pose sync, and Surface 2 mine checks passed")
+print("Co-op gadget grant, gadget use, party tests and presses (#356 #357), tank isolation, tank pose sync, and Surface 2 mine checks passed")

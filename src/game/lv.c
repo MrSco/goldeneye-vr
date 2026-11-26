@@ -1112,6 +1112,8 @@ Gfx* lvlRender(Gfx* DL)
             chraiUpdateOnscreenPropCount();
             chrpropUpdateAutoaimTarget();
 #ifdef GEVR
+            /* a gadget used this tick: what it is used on, in this view (chrprop.c) */
+            { extern void gevrGadgetUseFlush(void); gevrGadgetUseFlush(); }
             {
                 /* the hands a barrel pass traced this frame stay out (gevrLocalBarrelPlan) */
                 extern void chraiCheckUseHeldItem(s32 hand);

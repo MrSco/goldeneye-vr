@@ -502,7 +502,11 @@ static void gevrLevelJumpProbe(void)
         { "aztec", LEVELID_AZTEC }, { "egypt", LEVELID_EGYPT },
     };
     static u32 tick;
+#ifdef GEVR_PC
+    const char *path = "gevr_level.txt";   /* the PC game runs in its own folder, as gevr_cheat.txt */
+#else
     const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_level.txt";
+#endif
     char word[32] = {0};
     s32 level = LEVELID_NONE, diff = DIFFICULTY_AGENT, entry, i, cuba = 0;
     FILE *fp;

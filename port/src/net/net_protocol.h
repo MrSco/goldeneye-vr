@@ -230,6 +230,7 @@ enum {
     NET_COOP_EVENT_GRANT = 8,   /* s32 item: a teammate collected a shared mission gadget */
     NET_COOP_EVENT_GADGET = 9,  /* s32 tag: a teammate used a gadget on this tagged object */
     NET_COOP_EVENT_MINE = 10,   /* s32 item, s32 tag: a thrown mine stuck (tag) or landed (-1) */
+    NET_COOP_EVENT_ACTIVATE = 11, /* s32 tag: a teammate pressed this tagged object (a console, a switch) */
 };
 #define NET_COOP_HELD_MAX 8
 enum {

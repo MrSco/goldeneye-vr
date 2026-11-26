@@ -97,6 +97,7 @@ static void coopBehindLockTick(void);
 static void coopBehindLockReset(void);
 static void coopSendScriptSnapshot(int slot);
 static void coopGadgetReset(void);
+static void coopPressReset(void);
 static bool s_downed[4];                  /* revive: each player down, not dead (every machine's view) */
 static int s_host_sees_me_down[4] = { -1, -1, -1, -1 }; /* per local seat: host's last word, -1 none */
 static u64 s_down_sent_us[4];
@@ -883,6 +884,7 @@ void netCoopStageLoaded(void)
     coopDropInReset();
     coopCinemaReset();
     coopGadgetReset();
+    coopPressReset();
     gevrHordeStageLoaded();
     s_last_send_us = 0;
     g_gevrCoopGuardTick = FALSE;
@@ -1864,6 +1866,71 @@ s32 gevrCoopNearestPlayer(const coord3d *pos)
     return best;
 }
 
+/*
+ * A background list's test of "Bond" asks the whole party (#356, #357).
+ * A background list has no guard and no position, so its "Bond" was
+ * whoever happened to be the current player when the lists ran: Egypt's
+ * floor pattern counted one player's steps and ignored the others. Each
+ * test now tries the list's own player first, then every other player who
+ * can be targeted. "Bond is in this room / near this pad / holding this /
+ * below this height" passes when anyone is, and that player stays the
+ * list's Bond for the rest of the run: its later tests ask only that player
+ * (Cradle: "in the shaft room" then "below this height" is one player, not
+ * one in the room and another fallen elsewhere). chrlvAllChrTick puts the
+ * current player back after the run. "Bond is far from this pad" passes only when
+ * everyone is: the lists use it to wait until nobody can see a spawn or
+ * hear a sound. Guard lists keep their target (gevrCoopGuardTarget).
+ */
+static int s_party_prev = -1;   /* the player the test started with */
+static int s_party_all;
+static int s_party_pinned;      /* this run's Bond is settled: later tests ask only them */
+
+static int coopBackgroundList(const ChrRecord *self)
+{
+    return gevrCoopHostGuards() && self && g_ActiveChrs && self >= g_ActiveChrs &&
+           self < g_ActiveChrs + g_ActiveChrsCount;
+}
+
+/* chrai.c ai(): a list's run starts */
+void gevrCoopPartyRunStart(void)
+{
+    s_party_pinned = FALSE;
+}
+
+int gevrCoopPartyTestBegin(const ChrRecord *self, int all)
+{
+    s_party_prev = -1;
+    if (!coopBackgroundList(self) || s_party_pinned) return 1;
+    s_party_prev = get_cur_playernum();
+    s_party_all = all;
+    return 1 + 4;
+}
+
+int gevrCoopPartyTestTry(int k)
+{
+    if (k == 0) return 1;   /* the list's own player, as solo */
+    k--;
+    /* the tests read the player's tile (its room); a player not yet on one is skipped */
+    if (s_party_prev < 0 || k == s_party_prev || !coopPlayerTargetable(k) || !g_playerPointers[k]->prop->stan) return 0;
+    set_cur_player(k);
+    return 1;
+}
+
+/* After one try: whether the test is settled (stop trying). */
+int gevrCoopPartyTestSettled(int passed)
+{
+    if (s_party_prev < 0) return 1;
+    return s_party_all ? !passed : passed;
+}
+
+void gevrCoopPartyTestEnd(int passed)
+{
+    if (s_party_prev < 0) return;
+    if (s_party_all || !passed) set_cur_player(s_party_prev);
+    else s_party_pinned = TRUE;   /* whoever passed is Bond for the rest of the run */
+    s_party_prev = -1;
+}
+
 /* A door a list shuts behind "Bond" (#246). Solo, the script tests Bond's
  * room and then closes and locks the door he came through (Control's door
  * after Natalya opens it). A co-op list's Bond is whoever got there first,
@@ -2056,6 +2123,82 @@ int gevrCoopGadgetUser(const void *list)
     if (s_gadget_user < 0 || list != s_gadget_list || g_GlobalTimer != s_gadget_tick ||
         !netCoopActive() || !g_playerPointers[s_gadget_user]) return -1;
     return s_gadget_user;
+}
+
+/*
+ * A teammate's press of a console or switch (#357). Scripts ask "was this
+ * object activated?" (Aztec's launch mainframe and exhaust bay switch, Dam,
+ * Facility, Caverns), and only the host runs them, so a client's press set
+ * the flag on its own headset alone. The client reports the object's tag;
+ * the host sets the flag and remembers who pressed it, and the list that
+ * takes the press treats that player as Bond for the rest of its run.
+ */
+#define COOP_PRESSES 8
+static s32 s_press_tag[COOP_PRESSES];
+static s8 s_press_by[COOP_PRESSES];   /* the presser's slot + 1, 0 free */
+static u8 s_press_next;
+
+static void coopRememberPress(s32 tag, int slot)
+{
+    int at = s_press_next;
+
+    for (int i = 0; i < COOP_PRESSES; i++)
+        if (s_press_by[i] && s_press_tag[i] == tag) at = i;
+    if (at == s_press_next) s_press_next = (u8)((s_press_next + 1) % COOP_PRESSES);
+    s_press_tag[at] = tag;
+    s_press_by[at] = (s8)(slot + 1);
+}
+
+static void coopPressReset(void)
+{
+    memset(s_press_by, 0, sizeof(s_press_by));
+    s_press_next = 0;
+}
+
+/* chrprop.c: this headset's player pressed obj (propobjInteract ran) */
+void gevrCoopReportActivate(ObjectRecord *obj)
+{
+    s32 tag;
+    s32 me = get_cur_playernum();
+
+    if (!obj || !netCoopActive() || !netSlotIsLocalHuman(me)) return;
+    tag = coopTagOf(obj);
+    if (tag < 0) return;   /* untagged: no script can ask about it */
+    if (netIsHost()) coopRememberPress(tag, me);
+    else if (gevrCoopPuppets()) coopSendEventFor(me, NET_COOP_EVENT_ACTIVATE, tag, 0, 1);
+}
+
+static void coopApplyActivate(int slot, s32 tag)
+{
+    ObjectRecord *obj = objFindByTagId(tag);
+
+    if (!obj || !obj->prop) return;
+    obj->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
+    coopRememberPress(tag, slot);
+    COOP_LOG("slot %d pressed tagged object %d", slot, tag);
+}
+
+/* chrai.c, AI_IFObjectWasActivated took the press: a background list's
+ * Bond becomes whoever pressed it (puts nothing back: chrlvAllChrTick does). */
+void gevrCoopPressTaken(const ChrRecord *self, ObjectRecord *obj)
+{
+    s32 tag;
+
+    if (!gevrCoopHostGuards()) return;
+    tag = coopTagOf(obj);
+    for (int i = 0; i < COOP_PRESSES; i++) {
+        int by;
+        if (!s_press_by[i] || s_press_tag[i] != tag) continue;
+        by = s_press_by[i] - 1;
+        s_press_by[i] = 0;   /* taken, by whichever list: never a later press's presser */
+        /* the presser as gevrCoopPartyTestTry takes a player: still in, up, and
+         * on a tile (the list's room tests read it); else the list keeps its Bond */
+        if (coopBackgroundList(self) && coopPlayerTargetable(by) && g_playerPointers[by]->prop->stan) {
+            set_cur_player(by);
+            s_party_pinned = TRUE;
+        }
+        break;
+    }
 }
 
 /*
@@ -2310,6 +2453,11 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
         case NET_COOP_EVENT_GADGET: {
             s32 tag = netbufReadS32(b);
             if (!b->error && !netbufReadLeft(b)) coopApplyGadgetUse(slot, tag);
+            break;
+        }
+        case NET_COOP_EVENT_ACTIVATE: {
+            s32 tag = netbufReadS32(b);
+            if (!b->error && !netbufReadLeft(b)) coopApplyActivate(slot, tag);
             break;
         }
         case NET_COOP_EVENT_MINE: {

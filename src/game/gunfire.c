@@ -6349,19 +6349,22 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         {
             if (handptr->field_88C == 0)
             {
+#ifdef GEVR
+                /* What the gadget is used on is found where the B press finds
+                 * it, after this frame's own view (chrprop.c gevrGadgetUseFlush):
+                 * here the on-screen props are a barrel pass's, along the gun
+                 * (lv.c), which missed the object in front (#357). */
+                extern void gevrGadgetUseQueue(void);
+                gevrGadgetUseQueue();
+                (void)temp_v0_8;
+#else
                 temp_v0_8 = propFindForInteract();
 
                 if (temp_v0_8 != NULL)
                 {
                     temp_v0_8->obj->state |= 0x40;
-#ifdef GEVR
-                    /* co-op: the host's script is what opens the door */
-                    {
-                        extern void gevrCoopReportGadgetUse(ObjectRecord *obj);
-                        gevrCoopReportGadgetUse(temp_v0_8->obj);
-                    }
-#endif
                 }
+#endif
             }
         }
         else if ((var_s1 != ITEM_POLARIZEDGLASSES)

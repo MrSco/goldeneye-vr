@@ -37,6 +37,22 @@
 #include <ultra64.h>
 #ifdef GEVR
 #include "net_coop.h"
+
+/* co-op (#356, #357): a background list's test of "Bond" asks the party.
+ * ALL: every player must pass (far from a pad); else anyone may, and the
+ * one who did is the list's Bond for the rest of its run (net_coop.c). */
+#define GEVR_PARTY_TEST(ALL, RESULT, EXPR)                                \
+    {                                                                     \
+        s32 gevrK, gevrN = gevrCoopPartyTestBegin(ChrEntityp, (ALL));     \
+        (RESULT) = FALSE;                                                 \
+        for (gevrK = 0; gevrK < gevrN; gevrK++)                           \
+        {                                                                 \
+            if (!gevrCoopPartyTestTry(gevrK)) continue;                   \
+            (RESULT) = (EXPR) ? TRUE : FALSE;                             \
+            if (gevrCoopPartyTestSettled(RESULT)) break;                  \
+        }                                                                 \
+        gevrCoopPartyTestEnd(RESULT);                                     \
+    }
 #endif
 
 // hack? used to match as called with 2 args, but decompiled code takes 1
@@ -999,6 +1015,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
     {
 #ifdef GEVR
         gevrCoopBondRoomPassed(NULL, -1);   /* a Bond room test counts only within this run */
+        gevrCoopPartyRunStart();            /* and so does the Bond a party test settled (#356) */
 #endif
         // loop forever (or until broken)
         for (;;)
@@ -2206,7 +2223,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     AiIFBondDistanceToPadLessThanDecimeterRecord *ai    = AiListp + Offset;
                     u16                                           pad   = ntohs(ai->PAD);
                     f32                                           value = ntohs(ai->DISTANCE) * 10.0f;
+#ifdef GEVR
+                    s32 gevrNear;
+                    GEVR_PARTY_TEST(FALSE, gevrNear, value > chrGetDistanceFromBondToPad(ChrEntityp, pad))
+                    if (gevrNear)
+#else
                     if (value > chrGetDistanceFromBondToPad(ChrEntityp, pad))
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -2221,7 +2244,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     AiIFBondDistanceToPadGreaterThanDecimeterRecord *ai    = AiListp + Offset;
                     u16                                              pad   = ntohs(ai->PAD);
                     f32                                              value = ntohs(ai->DISTANCE) * 10.0f;
+#ifdef GEVR
+                    s32 gevrFar;
+                    GEVR_PARTY_TEST(TRUE, gevrFar, value < chrGetDistanceFromBondToPad(ChrEntityp, pad))
+                    if (gevrFar)
+#else
                     if (value < chrGetDistanceFromBondToPad(ChrEntityp, pad))
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -2249,7 +2278,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiIFBondInRoomWithPadRecord *ai     = AiListp + Offset;
                     u16                          pad_id = ntohs(ai->PAD);
+#ifdef GEVR
+                    s32 gevrIn;
+                    GEVR_PARTY_TEST(FALSE, gevrIn, check_if_actor_is_at_preset(ChrEntityp, pad_id))
+                    if (gevrIn)
+#else
                     if (check_if_actor_is_at_preset(ChrEntityp, pad_id))
+#endif
                     {
     #ifdef ENABLE_LOG
                         osSyncPrintf("BOND IN ROOM\n");
@@ -2342,9 +2377,18 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     s32 gevrUser = gevrCoopGadgetUser(AiListp);
                     s32 gevrPrev = get_cur_playernum();
                     s32 gevrHeld;
-                    if (gevrUser >= 0) set_cur_player(gevrUser);
-                    gevrHeld = ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNRIGHT) || ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNLEFT);
-                    if (gevrUser >= 0) set_cur_player(gevrPrev);
+                    if (gevrUser >= 0)
+                    {
+                        set_cur_player(gevrUser);
+                        gevrHeld = ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNRIGHT) || ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNLEFT);
+                        set_cur_player(gevrPrev);
+                    }
+                    else
+                    {
+                        /* no gadget use to answer for: anyone holding it (#357) */
+                        GEVR_PARTY_TEST(FALSE, gevrHeld,
+                                        ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNRIGHT) || ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNLEFT))
+                    }
                     if (gevrHeld)
 #else
                     if (ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNRIGHT) || ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNLEFT)) // order matters
@@ -2393,6 +2437,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     if (obj && obj->prop && (obj->runtime_bitflags & RUNTIMEBITFLAG_ACTIVATED))
                     {
                         obj->runtime_bitflags &= ~RUNTIMEBITFLAG_ACTIVATED;
+#ifdef GEVR
+                        gevrCoopPressTaken(ChrEntityp, obj);   /* who pressed it is Bond (#357) */
+#endif
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
                     else
@@ -4289,7 +4336,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiIFBondYPosLessThanRecord *ai      = AiListp + Offset;
                     f32                         bondpos = (s16)ntohs(ai->Y_POS);
+#ifdef GEVR
+                    s32 gevrBelow;
+                    GEVR_PARTY_TEST(FALSE, gevrBelow, getCurrentPlayerProp()->pos.y < bondpos)
+                    if (gevrBelow)
+#else
                     if (getCurrentPlayerProp()->pos.y < bondpos)
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }

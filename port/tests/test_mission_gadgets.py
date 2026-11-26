@@ -43,7 +43,12 @@ production='\n'.join(function(gun,s) for s in ('static void gevrEquipGadgetResul
     'static void giveWeaponCaseItemsInHand(','void give_weapon_case_items('))
 use=function(gun,'if (handptr->weapon_action_state == GUN_ANIM_STATE_USE_ITEM)')
 fixture=(ROOT/'port/tests/mission_gadget_use_native.c').read_text(encoding='utf-8')
-fixture=fixture.replace('/* PRODUCTION */',production).replace('/* USE_ITEM */',use)
+chrprop=(ROOT/'src/game/chrprop.c').read_text(encoding='utf-8')
+start=chrprop.index('static s32 s_gevrGadgetUseAt[4];')
+queue=chrprop[start:chrprop.index('#endif',start)]
+lv=(ROOT/'src/game/lv.c').read_text(encoding='utf-8')
+assert 'chrpropUpdateAutoaimTarget();\n#ifdef GEVR\n            /* a gadget used this tick' in lv and 'gevrGadgetUseFlush();' in lv
+fixture=fixture.replace('/* PRODUCTION */',production).replace('/* USE_ITEM */',use).replace('/* QUEUE */',queue)
 with tempfile.TemporaryDirectory(prefix='gevr-mission-gadgets-') as temp:
     source,exe=Path(temp)/'test.c',Path(temp)/'test.exe'
     source.write_text(fixture,encoding='utf-8')
