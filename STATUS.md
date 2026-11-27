@@ -41,6 +41,18 @@ gevr_level.txt. Asked the #356 reporter what confused them in the controls.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting,
 bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
 Push).
+**Unreleased (t3/blood-patch-tactical-mod, #342 blood on the floor):** the
+Blood patch also leaves Perfect Dark's splats, ported from Dab's Mod
+(splat.c/wallhit.c): 0-2 per wound on the level within 180 units behind it,
+drips from wounded guards, a six-splat pool under each body (a Ragdolls body
+where it rests), each growing in. Drawn as GoldenEye's own wall hits with the
+Paintball splat tinted gBloodColour, in a ring of 96 of their own
+(src/game/gevr_blood.c), never the game's random sequence. Not on objects yet
+(doors, Dam's huts: PD's objTestHit pass). Tactical's pack blood on
+`mod-system` (gevr_modblood.c) was not used: its sheets come from a Unity
+store bundle. When `mod-system` merges, a pack's `mod.effect.blood` should
+replace these splats. PC-tested in Dam (rock-wall splat, pools);
+test_blood_splats.py.
 **Unreleased (t3/separate-dual-hat-models):** dual throwing knives with
 Oddjob's hat on a flat screen: each hand eases 10 units out so the brims no
 longer overlap (`flat` in gevr_oddjobhat.txt, docs/oddjob-hat.md); PC-tested

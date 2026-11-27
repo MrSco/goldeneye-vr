@@ -34,6 +34,7 @@
 #include "gevr_romlayout.h"
 #include "gevr_ragdoll.h"
 #include "gevr_avatar.h"
+#include "gevr_blood.h"
 #endif
 #include "propobj.h"
 #include "stan.h"
@@ -4147,6 +4148,15 @@ void chrHandleBulletHit(struct ShotData *shot, struct BulletHit *bhit)
 
     // Create a blood stain at the impact point.
     chrCreateBloodStain(bhit->model, bhit->hitpart, bhit->node, &jointpos);
+#ifdef GEVR
+    /* Mods: the Blood patch's splats behind the wound (gevr_blood.c) */
+    if (VrBloodPatch && shot->weapon != ITEM_UNARMED)
+    {
+        coord3d world = hitpos;
+        mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &world);
+        gevrBloodChrHit(chr, &world, &shot->dir);
+    }
+#endif
 }
 
 

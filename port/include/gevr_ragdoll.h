@@ -41,6 +41,8 @@ void gevrRagdollBeanCap(const struct Model *model, int matrix, const s16 (*rim)[
 int gevrRagdollBodies(void);
 int gevrRagdollBodyParts(int body, struct coord3d *pos, int max);
 void gevrRagdollDoorFade(int body);
+/* the Blood patch's pools (gevr_blood.c): a body's serial, root and rest */
+unsigned gevrRagdollBodyRest(int body, struct coord3d *root, int *resting);
 #ifdef __cplusplus
 }
 #endif

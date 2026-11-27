@@ -1485,7 +1485,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
     bool blood = VrBloodPatch != 0;
     if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) { VrBloodPatch = blood ? 1 : 0; vrSettingsSave(); }
     if (ImGui::IsItemHovered())
-        gevrTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
+        gevrTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks, and leave blood on the walls\nand pools on the floor.");
     // Oddjob's hat shares the row: a mod pack (ModManager "oddjob-hat") the
     // player downloads here, then turns on and off.
     for (const ModPack &p : packs) {

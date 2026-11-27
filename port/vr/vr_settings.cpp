@@ -471,7 +471,8 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "BeanFillTextures=%d\n", VrBeanFillTextures ? 1 : 0);
     iniPrintf(f, "; 1 = with Project Bean on, the Community Edition's files, once its updater is applied.\n");
     iniPrintf(f, "BeanCommunityEdition=%d\n", VrBeanCommunityEdition ? 1 : 0);
-    iniPrintf(f, "; 1 = Wreck's blood patch: shot guards spray the red sparks Rare left in the game.\n");
+    iniPrintf(f, "; 1 = Wreck's blood patch: shot guards spray the red sparks Rare left in the game,\n");
+    iniPrintf(f, "; and leave blood on the walls and pools on the floor (Perfect Dark's splats).\n");
     iniPrintf(f, "BloodPatch=%d\n", VrBloodPatch ? 1 : 0);
     iniPrintf(f, "; 1 = Oddjob's hat in place of the throwing knife, from files/mods/oddjob_hat.bin.\n");
     iniPrintf(f, "OddjobHat=%d\n", VrOddjobHat ? 1 : 0);

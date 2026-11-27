@@ -891,6 +891,19 @@ int gevrRagdollBodyParts(int body, coord3d *pos, int max)
     return n;
 }
 
+/* The Blood patch's pool under a body (gevr_blood.c): its serial, its root in
+ * world units and whether it has come to rest (asleep, or down a second and a
+ * half). 0 for an empty or fading slot. */
+unsigned gevrRagdollBodyRest(int body, coord3d *root, int *resting)
+{
+    if (body<0 || body>=RD_BODIES || !root || !resting) return 0;
+    const RdBody *b=&s_bodies[body];
+    if (!b->used || b->doorhit || b->alpha<=0) return 0;
+    for (int k=0;k<3;k++) root->f[k]=b->joints[b->root].m[3][k];
+    *resting=b->asleep || b->age>1.5f;
+    return b->serial;
+}
+
 void gevrRagdollDoorFade(int body)
 {
     if (body<0 || body>=RD_BODIES) return;
