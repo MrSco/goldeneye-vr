@@ -41,7 +41,7 @@ gevr_level.txt. Asked the #356 reporter what confused them in the controls.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting,
 bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
 Push).
-**Unreleased (t3/blood-patch-tactical-mod, #342 blood on the floor):** the
+**Unreleased (PR #363, #342 blood on the floor):** the
 Blood patch also leaves Perfect Dark's splats, ported from Dab's Mod
 (splat.c/wallhit.c): 0-2 per wound on the level within 180 units behind it,
 drips from wounded guards, a six-splat pool under each body (a Ragdolls body
@@ -60,7 +60,10 @@ a splat on the rear leaf is hidden behind the front leaf, as a hole is);
 test_blood_splats.py. On the Quest
 the build runs, but no scripted shot hit a guard, so the VR draw is still
 unchecked (it shares the bullet holes' path). The `kill` test hook removes
-spawned bodies, so it makes no pools.
+spawned bodies, so it makes no pools. Also in #363, for the release notes:
+a shot's hit node stays a pointer through chrpropAddBulletHit (64-bit cut it),
+so a CCTV camera's glass takes the N64's 100x damage again and a door
+window's holes clear when it breaks - a gameplay change, protocol 30 covers it.
 **Unreleased (t3/separate-dual-hat-models):** dual throwing knives with
 Oddjob's hat on a flat screen: each hand eases 10 units out so the brims no
 longer overlap (`flat` in gevr_oddjobhat.txt, docs/oddjob-hat.md); PC-tested
