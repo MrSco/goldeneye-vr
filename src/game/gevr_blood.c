@@ -37,6 +37,7 @@
 #include <string.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
+#include <bondaicommands.h>
 #include "bg.h"
 #include "bgroomtrans.h"
 #include "bondview.h"
@@ -44,6 +45,7 @@
 #include "chrai.h"
 #include "chrobjdata.h"
 #include "matrixmath.h"
+#include "model.h"
 #include "stan.h"
 #include "image_bank.h"
 #include "gevr_blood.h"
@@ -641,6 +643,55 @@ void gevrBloodChrHit(ChrRecord *chr, const coord3d *hitpos, const coord3d *shotd
         s->tickssincesplat = 0;
         s->lastdroppos = chr->prop->pos;
     }
+}
+
+/*
+ * A blade's or a gun butt's blow (chrprop.c chraiFistAttackHandler, the
+ * headset's gevrChopHit): neither GoldenEye nor PD bleeds for a melee hit, so
+ * the Blood patch adds what a shot leaves. The stain goes on the struck
+ * part's box, on its face toward the blow, as the "wound" cheat lays one
+ * (bondview2.c gevrWoundGuards); the splats spray on from the part's middle
+ * along the blow, as a shot's do. The chr is on screen (both look through the
+ * on-screen list), so its matrices are this frame's. Fists stay clean.
+ */
+void gevrBloodMeleeHit(ChrRecord *chr, s32 hitpart, const coord3d *dir)
+{
+    extern ModelNode *gevrWoundChest(ModelNode *node, s32 part);   /* bondview2.c */
+    ModelNode *root, *node;
+    Mtxf *mtx, inv;
+    coord3d vdir, local, world;
+    const struct bbox *box;
+    float lo[3], hi[3], d[3];
+    int k, axis = 2;
+    s32 part;
+
+    if (!BLOOD_ON || !bloodChrBleeds(chr) || !dir || !chr->model->obj || !chr->model->render_pos) return;
+    if (chr->prop->type != PROP_TYPE_CHR && chr->prop->type != PROP_TYPE_VIEWER) return;
+    if (!(chr->prop->flags & PROPFLAG_ONSCREEN)) return;
+    /* the crouched blows' general parts have no box of their own */
+    part = hitpart == HIT_GENERALHALF ? HIT_PELVIS : hitpart == HIT_GENERAL ? HIT_CHEST : hitpart;
+    root = chr->model->obj->RootNode;
+    node = gevrWoundChest(root, part);
+    if (!node) node = gevrWoundChest(root, part = HIT_CHEST);
+    if (!node || !(mtx = modelFindNodeMtx(chr->model, node, 0))) return;
+
+    /* the blow in the part's own axes: it lands on the face it comes from */
+    vdir = *dir;
+    mtx4RotateVecInPlace(camGetWorldToScreenMtxf(), &vdir);
+    matrix_4x4_set_inverse_rotation_and_translation(mtx, &inv);
+    mtx4RotateVecInPlace(&inv, &vdir);
+    box = &node->Data->BoundingBox.Bounds;
+    lo[0] = box->xmin; lo[1] = box->ymin; lo[2] = box->zmin;
+    hi[0] = box->xmax; hi[1] = box->ymax; hi[2] = box->zmax;
+    for (k = 0; k < 3; k++) d[k] = vdir.f[k];
+    if (fabsf(d[0]) > fabsf(d[axis])) axis = 0;
+    for (k = 0; k < 3; k++) local.f[k] = (lo[k] + hi[k]) * 0.5f;
+    local.f[axis] = d[axis] < 0.0f ? hi[axis] : lo[axis];
+    chrCreateBloodStain(chr->model, part, node, &local);
+
+    for (k = 0; k < 3; k++) world.f[k] = mtx->m[3][k];
+    mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &world);
+    gevrBloodChrHit(chr, &world, dir);
 }
 
 static int bloodChrDownEnough(ChrRecord *chr)

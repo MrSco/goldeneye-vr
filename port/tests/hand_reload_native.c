@@ -61,6 +61,7 @@ static int lastSound, lastChopItem, chopResult;
 static float lastNeed = -1;
 static void sndPlaySfx(void *buffer, int sound, void *state)
 { (void)buffer; (void)state; lastSound = sound; whiffs++; }
+s32 g_gevrChopBleeds;   /* chrprop.c: the Blood patch's melee blood, set around the chop */
 s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item,
                 const f32 velocity[3], f32 need, s32 land, f32 *into)
 {

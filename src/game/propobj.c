@@ -4207,6 +4207,7 @@ s32 chrobjTestPointPolygonCollision(struct coord3d *point, f32 collision_radius,
 
 #ifdef GEVR
 #include "gevr_ragdoll.h"   /* a moving door fades the ragdoll bodies it touches */
+#include "gevr_blood.h"   /* the Blood patch: a thrown knife's wound sprays */
 #endif
 
 /**
@@ -5285,6 +5286,13 @@ s32 objTick(struct PropRecord *prop)
 										mtx4TransformVecInPlace(&inverseNodeMatrix, &bloodStainPos);
 										chrCreateBloodStain(g_CurrentProjectileModel, bodypartshot, dword_CODE_bss_80075B74, &bloodStainPos);
 									}
+#ifdef GEVR
+									/* the Blood patch: a thrown knife's wound sprays as a shot's does (gevr_blood.c) */
+									if (bodypartshot != HIT_GUN && bodypartshot != HIT_HAT)
+									{
+										gevrBloodChrHit((ChrRecord *) temp_s0_13, &collisionPoint, &flt_CODE_bss_80075B78);
+									}
+#endif
 								}
 							}
 						}

@@ -1161,8 +1161,9 @@ s32 gevrBlastObjects(f32 radius)
 }
 
 /* "wound<R>" (gevrCheatProbe): a bruise on the chest (or head) of every guard
- * within radius of Bond, on the part box's front and back; returns how many */
-static ModelNode *gevrWoundChest(ModelNode *node, s32 part)
+ * within radius of Bond, on the part box's front and back; returns how many.
+ * The part's box: the Blood patch's melee stains too (gevr_blood.c). */
+ModelNode *gevrWoundChest(ModelNode *node, s32 part)
 {
     for (; node != NULL; node = node->Next)
     {
@@ -4487,7 +4488,12 @@ void gevrHandChopTick(s32 ctrl)
         {
             dir[i] = len > 1e-6f ? end[i] / len : (i == 2 ? -1.0f : 0.0f);
         }
-        got = gevrChopHit(at, end, GEVR_CHOP_TOUCH_CM * cm, dir, damage, vel, need, s_cool[ctrl] <= 0, &into);
+        {
+            extern s32 g_gevrChopBleeds;   /* chrprop.c: the Blood patch's melee blood */
+            g_gevrChopBleeds = knife || club || !bare;   /* a blade or a gun butt, not a fist */
+            got = gevrChopHit(at, end, GEVR_CHOP_TOUCH_CM * cm, dir, damage, vel, need, s_cool[ctrl] <= 0, &into);
+            g_gevrChopBleeds = 0;
+        }
         if (got == 2 && s_cool[ctrl] <= 0)
         {
             f32 d[3];
