@@ -82,7 +82,7 @@ int main(void)
 
     player.hand_item[0] = ITEM_TEST;
     player.hands[0].weapon_ammo_in_magazine = 3;
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, &parts);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, NULL, &parts);
     s_gevrModGunShown[0][0].owner = owner;
     s_gevrModGunShown[0][0].mesh = &mesh;
     strcpy(s_gevrModGunShown[0][0].name, "pack.bin");
@@ -119,7 +119,7 @@ int main(void)
     player.hands[0].weapon_ammo_in_magazine = 0;
     for (int i = 0; i < 10; ++i) tick(i == 0, 1.0f);
     near(gevrModGunActionShare(0, FALSE), 1.0f, "held open on an empty magazine by default");
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, &noHold);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, NULL, &noHold);
     for (int i = 0; i < 6; ++i) tick(0, 1.0f);
     near(gevrModGunActionShare(0, FALSE), 0.0f, "a body that doesn't hold open closes on its own");
 
@@ -129,9 +129,9 @@ int main(void)
     near(gevrModGunActionShare(0, FALSE), 0.0f, "another item doesn't take the last one's open action");
     assert(gevrModGunParts(0, offset) == NULL);
     player.hand_item[0] = ITEM_TEST;
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, NULL);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, NULL, NULL);
     assert(gevrModGunParts(0, offset) == NULL);
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, &parts);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, NULL, &parts);
     assert(gevrModGunParts(0, offset) != NULL);
     /* A pack's timing (MrSco on #353): open 1, close 5, ease 0.4 is native
      * Tactical's rifle stroke, open * (0.4 + 0.6 * open) from the shot's own
@@ -140,7 +140,7 @@ int main(void)
         GevrModGunParts timed = parts;
         timed.holdOpen = FALSE;
         timed.timing = (GevrModActionTiming){ 1, 5, 0.4f };
-        gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, &timed);
+        gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, NULL, &timed);
         player.hands[0].weapon_ammo_in_magazine = 5;
         for (int i = 0; i < 8; ++i) tick(0, 1.0f);   /* closed */
         s_partShots = 0;

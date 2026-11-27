@@ -8,6 +8,7 @@
   glove with the gun, and the off hand's own arm left out meanwhile.
 """
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -42,6 +43,7 @@ def check(ok, what):
 
 gun = (ROOT / "src/game/gun.c").read_bytes().decode().replace("\r\n", "\n")
 game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode().replace("\r\n", "\n")
+mesh = (ROOT / "src/game/gevr_modmesh.c").read_bytes().decode().replace("\r\n", "\n")
 tables = gun[gun.index("#define GEVR_MODGUN_NAME"):gun.index("static const char *gevrModGunModelFor(")]
 production = "\n".join([tables] + [function(gun, name) for name in (
     "static const char *gevrModGunModelFor(",
@@ -51,9 +53,10 @@ production = "\n".join([tables] + [function(gun, name) for name in (
     "const GevrModMesh *gevrModGunHand(",
     "s32 gevrModGunSupportGloveShown(",
     "s32 gevrModGunTriggerHeld(",
+    "s32 gevrModGunGrip(",
     "void gevrModGunModelSet(",
     "void gevrModGunModelReset(",
-)] + [function(game, "int gevrModGameGunHands(")])
+)] + [function(game, "int gevrModGameGunHands("), function(mesh, "void gevrModMeshPoint(")])
 fixture = (ROOT / "port/tests/pack_hands_native.c").read_text(encoding="utf-8")
 with tempfile.TemporaryDirectory(prefix="gevr-pack-hands-") as temp:
     source, exe = Path(temp) / "pack_hands_native.c", Path(temp) / "pack_hands_native.exe"
@@ -73,4 +76,20 @@ check(body.index("gevrModGunSupportGloveShown(handnum)") < body.index("GEVR_MODH
 arm = fire[fire.index("if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun())"):]
 arm = arm[:arm.index("gevrRenderBeanGripArm")]
 check("!gevrModGunSupportGloveShown(gevrStereoTwoHandGun())" in arm, "and the off hand's own arm not drawn meanwhile")
-print("PASS: pack gloves per pose and fit, the trigger, two-handed support, refusals, resets and the draws")
+view = (ROOT / "src/game/bondview2.c").read_bytes().decode().replace("\r\n", "\n")
+matrix = function(view, "s32 gevrStereoGunMatrix(")
+check("out->m[3][i] = pos[i] + ((VrLeftHandedMode ? -off[0] : off[0]) * right[i] + off[1] * up[i]\n"
+      "                                 + (GEVR_GRIP_TO_ORIGIN_CM + off[2]) * back[i]) * cm * size;" in matrix
+      and "out->m[0][i] = (VrLeftHandedMode ? right[i] : -right[i]) * k;" in matrix,
+      "the root and axes the fixture checks the grip through are bondview2's own")
+check(matrix.index("gevrGunOff(handnum, off);") < matrix.index("gevrModGunGrip(handnum, &grip)")
+      < matrix.index("gevrModGripOff(grip.f, player, VrGunOffDefault, GEVR_VIEWMODEL_CM, GEVR_GRIP_TO_ORIGIN_CM, off);")
+      < matrix.index("gevrRackNudge(&s_gevrRack[handnum])") and "s_gevrGunOffOverride == NULL && gevrModGunGrip" in matrix,
+      "the grip takes the player's fit as trim, before the rack's nudge, never over a fit override")
+check("#define GEVR_VIEWMODEL_CM 0.85f" in view and "#define GEVR_GRIP_TO_ORIGIN_CM 12.0f" in view,
+      "the fixture's view and grip constants are bondview2's")
+defaults = (ROOT / "port/vr/vr_settings_defaults.c").read_bytes().decode()
+own = [float(v) for v in re.findall(r"float VrGunOff[XYZ] = (-?[\d.]+)f;", defaults)]
+kept = [float(v) for v in re.search(r"VrGunOffDefault\[3\] = \{ (-?[\d.]+)f, (-?[\d.]+)f, (-?[\d.]+)f \}", defaults).groups()]
+check(own == kept == [2.74, 1.94, -12.35], "the kept default fit is the shipped one, as the fixture uses")
+print("PASS: pack gloves per pose and fit, the trigger, two-handed support, the grip point, refusals, resets and the draws")

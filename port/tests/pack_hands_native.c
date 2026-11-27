@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "gevr_modaction.h"
+#include "gevr_modgrip.h"
+#include <math.h>
 
 typedef int s32;
 typedef unsigned char u8;
@@ -27,6 +29,7 @@ static int netIsActive(void) { return FALSE; }
 static int get_cur_playernum(void) { return 0; }
 static int netGetLocalSlot(void) { return 0; }
 static void gevrModMeshReset(void) {}
+void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3]);   /* gevr_modmesh.c, pasted in */
 
 /* the mission's meshes: glove files are pack-*.bin; bad-*.bin won't load */
 static const GevrModMesh s_meshes[8];
@@ -79,7 +82,7 @@ int main(void)
 
     /* no pack body drawn yet: the stock hand */
     assert(gevrModGunHand(GUNRIGHT, GEVR_MODHAND_READY, &fit, &fitted) == NULL);
-    gevrModGunModelSet(GUNRIGHT, ITEM_TEST, "pack-body.bin", bodyFit, NULL, NULL, NULL);
+    gevrModGunModelSet(GUNRIGHT, ITEM_TEST, "pack-body.bin", bodyFit, NULL, NULL, NULL, NULL);
     s_gevrModGunShown[0][GUNRIGHT].owner = owner;
     s_gevrModGunShown[0][GUNRIGHT].mesh = &body;
     strcpy(s_gevrModGunShown[0][GUNRIGHT].name, "pack-body.bin");
@@ -127,6 +130,47 @@ int main(void)
     assert(gevrModGunHand(GUNRIGHT, GEVR_MODHAND_READY, &fit, &fitted) == NULL);
     strcpy(s_gevrModGunShown[0][GUNRIGHT].name, "pack-body.bin");
     assert(gevrModGunHand(GUNRIGHT, GEVR_MODHAND_READY, &fit, &fitted) != NULL);
+    /* the grip point: through the body's fit, only on its own body, none after a reset */
+    {
+        static const float grip[3] = {0, -40, 90};
+        coord3d at;
+        gevrModGunModelSet(GUNRIGHT, ITEM_TEST, "pack-body.bin", bodyFit, NULL, NULL, grip, NULL);
+        assert(gevrModGunGrip(GUNRIGHT, &at) && at.f[0] == 0 && at.f[1] == -40 && at.f[2] == 97);
+        assert(!gevrModGunGrip(GUNLEFT, &at));
+        gevrModGunModelSet(GUNRIGHT, ITEM_TEST, "pack-body.bin", bodyFit, NULL, NULL, NULL, NULL);
+        assert(!gevrModGunGrip(GUNRIGHT, &at));   /* a later look without it clears it */
+        gevrModGunModelSet(GUNRIGHT, ITEM_TEST, "pack-body.bin", bodyFit, NULL, NULL, grip, NULL);
+        strcpy(s_gevrModGunShown[0][GUNRIGHT].name, "previous.bin");
+        assert(!gevrModGunGrip(GUNRIGHT, &at));   /* pending */
+        strcpy(s_gevrModGunShown[0][GUNRIGHT].name, "pack-body.bin");
+    }
+    /* the placement (gevr_modgrip.h) through bondview2's root formula: the grip
+     * point lands in the controller's grip at the default fit, either hand
+     * mode, and the player's trim moves it by exactly the trim */
+    for (int lefty = 0; lefty < 2; ++lefty) {
+        static const float game[3] = {2.74f, 1.94f, -12.35f};
+        const float right[3] = {0.6f, 0.0f, 0.8f}, up[3] = {0, 1, 0}, back[3] = {-0.8f, 0.0f, 0.6f}, pos[3] = {5, 6, 7};
+        const float cm = 3.0f, size = 1.1f, viewCm = 0.85f, toOrigin = 12.0f, k = viewCm * cm * size;
+        const float point[3] = {3, -40, 97};
+        for (int trimmed = 0; trimmed < 2; ++trimmed) {
+            const float player[3] = { game[0] + trimmed * 1.0f, game[1] - trimmed * 2.0f, game[2] + trimmed * 0.5f };
+            float off[3], root[3], at[3], ax[3][3];
+            gevrModGripOff(point, player, game, viewCm, toOrigin, off);
+            for (int i = 0; i < 3; ++i) {
+                /* bondview2.c gevrStereoGunMatrix: the axes and the root */
+                ax[0][i] = (lefty ? right[i] : -right[i]) * k;
+                ax[1][i] = up[i] * k;
+                ax[2][i] = -back[i] * k;
+                root[i] = pos[i] + ((lefty ? -off[0] : off[0]) * right[i] + off[1] * up[i] + (toOrigin + off[2]) * back[i]) * cm * size;
+            }
+            for (int i = 0; i < 3; ++i) at[i] = root[i] + point[0] * ax[0][i] + point[1] * ax[1][i] + point[2] * ax[2][i];
+            for (int i = 0; i < 3; ++i) {
+                const float trim = ((lefty ? -1.0f : 1.0f) * (player[0] - game[0]) * right[i] + (player[1] - game[1]) * up[i]
+                                    + (player[2] - game[2]) * back[i]) * cm * size;
+                assert(fabsf(at[i] - (pos[i] + trim)) < 1e-3f);
+            }
+        }
+    }
     gevrModGunModelReset();
     assert(gevrModGunHand(GUNRIGHT, GEVR_MODHAND_READY, &fit, &fitted) == NULL);
     puts("pack hands: gloves per pose and fit on their own pack body, the trigger, two-handed support, refusals and resets");

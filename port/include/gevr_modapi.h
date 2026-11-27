@@ -485,7 +485,7 @@ typedef struct GevrModGunParts {
  * item's own. 0 when the run's mod has no such file (nothing changes), or
  * when parts name pictures the file doesn't have */
 int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
-                        const GevrModGunParts *parts);
+                        const float grip[3], const GevrModGunParts *parts);
 /* A pack gun's own hand (mod.weapon.hands): gloves in place of the stock
  * hand and sleeve while the hand draws item's pack body, as pack meshes. */
 enum { GEVR_MODHAND_READY, GEVR_MODHAND_TRIGGER, GEVR_MODHAND_SUPPORT, GEVR_MODHAND_POSES };

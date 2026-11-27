@@ -1555,6 +1555,8 @@ mod.on("mission_start", function()
   print("fit", mod.weapon.model("right", "ak47", "pack-body.bin", {frame=frame, muzzle={0, 3, 350}}))
   print("muzzle only", mod.weapon.model("left", "ak47", "pack-body.bin", {muzzle={4, 5, 6}}))
   print("support only", mod.weapon.model("left", "ak47", "pack-body.bin", {support={4, 5, 60}}))
+  print("grip only", mod.weapon.model("left", "ak47", "pack-body.bin", {grip={0, -40, 90}}))
+  print("bad grip", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {grip={0, 0, 4001}})))
   print("bad support", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {support={0, 0, 4001}})))
   print("bad muzzle", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {muzzle={0, 0, 4001}})))
   print("nan muzzle", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {muzzle={0/0, 0, 1}})))
@@ -1567,7 +1569,7 @@ mod.on("mission_start", function()
 end)
 """
     out = run(exe, temp, "gunmodel_fit", lua, "start", "prepare", 9, "begin", 9)
-    check(logs(out) == ["fit true", "muzzle only true", "support only true", "bad support false", "bad muzzle false", "nan muzzle false", "short muzzle false",
+    check(logs(out) == ["fit true", "muzzle only true", "support only true", "grip only true", "bad grip false", "bad support false", "bad muzzle false", "nan muzzle false", "short muzzle false",
                         "thrown muzzle false", "legacy false", "clear with fit false", "wrong shape false", "unfitted true"],
           "fitted gun model results: " + str(logs(out)))
     check(answers(out, "GUNFRAME") == ["GUNFRAME 0 -1.0 1.0 1.0 12.0 1.0", "GUNFRAME 1 -1.0 1.0 1.0 12.0 1.0"],
@@ -1576,6 +1578,8 @@ end)
           "only valid model-local muzzle points for a gun reach the game")
     check(answers(out, "GUNSUPPORT") == ["GUNSUPPORT 1 4.0 5.0 60.0"],
           "only valid model-local support points reach the game")
+    check(answers(out, "GUNGRIP") == ["GUNGRIP 1 0.0 -40.0 90.0"],
+          "only valid model-local grip points reach the game")
 
 
 def gunmodel_parts(exe, temp):

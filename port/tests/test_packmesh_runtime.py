@@ -84,6 +84,7 @@ mod.on("tick", function(dt)
     local bolt = attach("attachment.bin")
     print("mesh-test moving", mod.weapon.model("right", item, "moving.bin",
       {action={pictures={1}, travel={0, 0, -40}}, holdOpen=false}), mod.attach.action(bolt, {travel={0, 0, -40}}))
+    print("mesh-test grip", mod.weapon.model("right", item, "moving.bin", {grip={0, -20, 40}}))
     print("mesh-test gloves", mod.weapon.hands("right", item, {ready="held.bin", trigger="attachment.bin"}),
       mod.weapon.hands("right", item, {ready="cartridge.bin"}))
   elseif time > 10 and phase == 2 then
@@ -105,7 +106,7 @@ end)
         assert result.returncode == 0, (result.returncode, result.stdout[-3000:], result.stderr[-3000:], log[-5000:])
         for pattern in (r"mesh-test bad false nil", r"mesh-test cartridge nil", r"mesh-test load true [1-9]\d*",
                         r"mesh-test drawn mod", r"refused pack model bad\.bin: malformed model",
-                        r"mesh-test stray false", r"mesh-test moving true true", r"mesh-test gloves true false", r"mesh-test moving drawn mod",
+                        r"mesh-test stray false", r"mesh-test moving true true", r"mesh-test gloves true false", r"mesh-test grip true", r"mesh-test moving drawn mod",
                         r"pack model moving\.bin: 2 triangles, 2 RGBA textures \(GEVRWPN1\)",
                         r"pack model moving\.bin: moving pictures 0x2 with the action, 0x0 with the handle"):
             assert re.search(pattern, log), (pattern, "\n".join(line for line in log.splitlines() if re.search(r"\bmods?:|mesh-test|input script:", line)))

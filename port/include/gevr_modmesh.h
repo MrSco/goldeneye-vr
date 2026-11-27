@@ -27,6 +27,8 @@ void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3]);
 s32 gevrModGunMuzzle(s32 hand, coord3d *out);
 /* Fitted off-hand hold point for the body the hand is actually drawing. */
 s32 gevrModGunSupport(s32 hand, coord3d *out);
+/* Fitted grip point: where the hand holds the body it is drawing (VR). */
+s32 gevrModGunGrip(s32 hand, coord3d *out);
 /* The moving parts of the body the hand is drawing, NULL for none; and each
  * group's offset this frame (gevr_modaction.h's share of its travel). */
 const GevrModGunParts *gevrModGunParts(s32 hand, f32 offset[GEVR_MODPART_GROUPS][3]);

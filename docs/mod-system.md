@@ -641,6 +641,17 @@ in-game screen). We maintain the adapters, not the mods.
     applies. Leaving out `support` or clearing the pack body restores the
     carrier's usual hold point. Legacy models and thrown weapons refuse it.
 
+    `grip = { x, y, z }`, in the same units, axes and limits and through
+    the body's fit, is where the hand holds the body: in VR the gun is
+    placed so that point sits in the controller's grip, in place of the
+    game's default place for the carrier. The player's own Gun fit trim,
+    how far their fit moved the gun from the game's default place
+    (`VrGunOffDefault`), still adds on top, so a pack never overrides the
+    player's settings (`port/include/gevr_modgrip.h`). Without `grip`, the
+    game's own place stays, with the player's trim as before. The hand
+    rack's nudge still applies; a Gun fit preview that places the gun
+    itself is left alone. Legacy models and thrown weapons refuse it.
+
     Moving parts: `action = { pictures = { 1 }, travel = { 0, 0, -44 } }`
     names the body's pictures (zero-based, as in its file) whose triangles
     move with the gun's action, a bolt or a slide, and `travel` where they

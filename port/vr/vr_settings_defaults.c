@@ -275,6 +275,9 @@ float VrSetWorldScale = 1.0f;
 float VrGunOffX = 2.74f;     /* grip fit trim in the controller frame, cm: right */
 float VrGunOffY = 1.94f;     /* up */
 float VrGunOffZ = -12.35f;   /* back */
+/* the same, kept: a pack gun's grip point (bondview2.c) adds only how far the
+ * player's Gun fit moved the gun from these */
+const float VrGunOffDefault[3] = { 2.74f, 1.94f, -12.35f };
 /* Issue #35: the holding hand's trim for a two-handed hold, per class (0
  * handguns, 1 long guns): cm along the off hand's side, up and forward, then
  * degrees about the hand model's X, Y, Z (bondview2.c gevrStereoTwoHandMatrix).

@@ -197,14 +197,14 @@ int gevrModGameGunBody(int hand, char *name, int cap, int *item, float fit[4][4]
 }
 /* gun.c's per-hand models: a mod's files are the names starting Gtac */
 static int gunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
-                    const GevrModGunParts *parts);
+                    const float grip[3], const GevrModGunParts *parts);
 int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
-                        const GevrModGunParts *parts)
+                        const float grip[3], const GevrModGunParts *parts)
 {
-    return gunModelSet(hand, item, name, frame, muzzle, gunModel(hand, item, name, frame, muzzle, support, parts));
+    return gunModelSet(hand, item, name, frame, muzzle, gunModel(hand, item, name, frame, muzzle, support, grip, parts));
 }
 static int gunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
-                    const GevrModGunParts *parts)
+                    const float grip[3], const GevrModGunParts *parts)
 {
     printf("GUNMODEL %d %d %s\n", hand, item, name ? name : "-");
     if ((muzzle != NULL || parts != NULL) && (item == 3 || (item >= 26 && item <= 29))) return 0;   /* thrown: input.c gevrIsThrowable */
@@ -221,7 +221,8 @@ static int gunModel(int hand, int item, const char *name, const float frame[4][4
     }
     if (muzzle != NULL) printf("GUNMUZZLE %d %.1f %.1f %.1f\n", hand, muzzle[0], muzzle[1], muzzle[2]);
     if (support != NULL) printf("GUNSUPPORT %d %.1f %.1f %.1f\n", hand, support[0], support[1], support[2]);
-    if (frame != NULL || muzzle != NULL || support != NULL) return name != NULL && strcmp(name, "pack-body.bin") == 0;
+    if (grip != NULL) printf("GUNGRIP %d %.1f %.1f %.1f\n", hand, grip[0], grip[1], grip[2]);
+    if (frame != NULL || muzzle != NULL || support != NULL || grip != NULL) return name != NULL && strcmp(name, "pack-body.bin") == 0;
     return name == NULL || strncmp(name, "Gtac", 4) == 0 || strcmp(name, "pack-body.bin") == 0;
 }
 /* gun.c's gloves: pack meshes are pack-*.bin; a thrown item refuses */

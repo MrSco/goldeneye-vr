@@ -763,9 +763,9 @@ static int l_gunModel(lua_State *L)
     if (!gevrModGameSwappable(item)) {
         return luaL_argerror(L, 2, "a gun or thrown weapon with a model in this cartridge");
     }
-    float frame[4][4], muzzle[3], support[3];
+    float frame[4][4], muzzle[3], support[3], grip[3];
     const float (*fit)[4] = NULL;
-    const float *muzzlePoint = NULL, *supportPoint = NULL;
+    const float *muzzlePoint = NULL, *supportPoint = NULL, *gripPoint = NULL;
     GevrModGunParts parts = { { 0, 0 }, { { 0 } }, 1, { 0, 0, 1.0f } };
     int hasParts = 0;
     if (!lua_isnoneornil(L, 4)) {
@@ -774,6 +774,7 @@ static int l_gunModel(lua_State *L)
         if (authoredFrame(L, 4, "mod.weapon.model", frame)) fit = frame;
         if (authoredGunPoint(L, 4, "muzzle", muzzle)) muzzlePoint = muzzle;
         if (authoredGunPoint(L, 4, "support", support)) supportPoint = support;
+        if (authoredGunPoint(L, 4, "grip", grip)) gripPoint = grip;
         hasParts |= movingGroup(L, 4, "action", &parts.pictures[GEVR_MODPART_ACTION], parts.travel[GEVR_MODPART_ACTION],
                                 &parts.timing);
         hasParts |= movingGroup(L, 4, "handle", &parts.pictures[GEVR_MODPART_HANDLE], parts.travel[GEVR_MODPART_HANDLE],
@@ -787,11 +788,11 @@ static int l_gunModel(lua_State *L)
             hasParts = 1;
         }
         lua_pop(L, 1);
-        if (fit == NULL && muzzlePoint == NULL && supportPoint == NULL && !hasParts)
-            return luaL_argerror(L, 4, "a frame, muzzle, support point, action, handle or holdOpen for a pack mesh");
+        if (fit == NULL && muzzlePoint == NULL && supportPoint == NULL && gripPoint == NULL && !hasParts)
+            return luaL_argerror(L, 4, "a frame, muzzle, support or grip point, action, handle or holdOpen for a pack mesh");
     }
     needPlayer(L, "mod.weapon.model");
-    const int set = gevrModGameGunModel(hand, item, name, fit, muzzlePoint, supportPoint, hasParts ? &parts : NULL);
+    const int set = gevrModGameGunModel(hand, item, name, fit, muzzlePoint, supportPoint, gripPoint, hasParts ? &parts : NULL);
     if (set && name != NULL) gunBodyTold(L, hand);   /* a pack body is told to the others as the hand draws it */
     lua_pushboolean(L, set);
     return 1;

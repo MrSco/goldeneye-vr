@@ -72,6 +72,17 @@ static s32 gevrModGunSupport(s32 hand, coord3d *out)
     *out = packPoint;
     return 1;
 }
+/* gun.c's fitted grip point for a pack body, and the shipped default fit (vr_settings_defaults.c) */
+#include "gevr_modgrip.h"
+static const coord3d packGrip = {{12, -40, 90}};
+static int packGripHand = -1;
+static s32 gevrModGunGrip(s32 hand, coord3d *out)
+{
+    if (hand != packGripHand) return 0;
+    *out = packGrip;
+    return 1;
+}
+const float VrGunOffDefault[3] = { 2.74f, 1.94f, -12.35f };
 
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
@@ -491,8 +502,36 @@ static void testGrab(int gun, int leftHanded)
     release();
 }
 
+/* A pack grip point through the production gun matrix: in the controller's
+ * grip at the default fit, either hand and handedness; the player's trim moves it by the trim. */
+static void testPackGrip(void)
+{
+    for (int gun = 0; gun < 2; gun++) for (int lh = 0; lh < 2; lh++)
+    {
+        setup(gun, lh, ITEM_AK47);
+        VrGunOffX = VrGunOffDefault[0]; VrGunOffY = VrGunOffDefault[1]; VrGunOffZ = VrGunOffDefault[2];
+        packGripHand = gun;
+        for (int trimmed = 0; trimmed < 2; trimmed++)
+        {
+            Mtxf m;
+            float pos[3], r[3], u[3], b[3];
+            const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+            VrGunOffY = VrGunOffDefault[1] + 2.0f * trimmed;   /* the player raised the gun 2 cm */
+            assert(gevrStereoGunMatrix(gun, &m));
+            assert(gevrGripAxes(gun == GUNRIGHT ? 1 : 0, pos, r, u, b));
+            for (int i = 0; i < 3; i++)
+            {
+                const float at = m.m[3][i] + packGrip.f[0] * m.m[0][i] + packGrip.f[1] * m.m[1][i] + packGrip.f[2] * m.m[2][i];
+                near(at, pos[i] + 2.0f * trimmed * u[i] * cm);
+            }
+        }
+        packGripHand = -1;
+    }
+}
+
 int main(void)
 {
+    testPackGrip();
     for (int gun = 0; gun < 2; gun++) for (int lh = 0; lh < 2; lh++) testGrab(gun, lh);
     for (int gun = 0; gun < 2; gun++) for (int lh = 0; lh < 2; lh++)
     {

@@ -31,7 +31,7 @@ int main(void)
     player.hand_item[0] = ITEM_TEST;
     assert(!gevrModGunSupport(0, &point)); /* stock: caller keeps its hold */
     assert(point.f[0] == 10 && point.f[1] == 20 && point.f[2] == 30);
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, support, NULL);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, support, NULL, NULL);
     s_gevrModGunShown[0][0].owner = owner;
     s_gevrModGunShown[0][0].mesh = &mesh;
     strcpy(s_gevrModGunShown[0][0].name, "previous.bin");
@@ -39,9 +39,9 @@ int main(void)
     strcpy(s_gevrModGunShown[0][0].name, "pack.bin");
     assert(gevrModGunSupport(0, &point));
     assert(point.f[0] == -2 && point.f[1] == 15 && point.f[2] == 140);
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, NULL, NULL);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, NULL, NULL, NULL);
     assert(!gevrModGunSupport(0, &point)); /* the same body drops its override */
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, support, NULL);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, support, NULL, NULL);
     assert(gevrModGunSupport(0, &point));
     gevrModGunModelReset();
     assert(!gevrModGunSupport(0, &point)); /* stage reset */
