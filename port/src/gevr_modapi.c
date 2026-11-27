@@ -2599,8 +2599,14 @@ static int l_attachAction(lua_State *L)
         if (timed && handle) return luaL_argerror(L, 2, "a handle moves only with the rack, so it has no timing");
         moves = 1;
     }
-    lua_pushboolean(L, at >= 0 && gevrModGameAttachAction(s_attachOwners[at].id, moves ? travel : NULL, handle,
-                                                          timed ? &timing : NULL));
+    if (at >= 0 && gevrModGameAttachAction(s_attachOwners[at].id, moves ? travel : NULL, handle, timed ? &timing : NULL)) {
+        /* the others' copies move it too (#335) */
+        gevrAttachNetAction(s_attachOwners[at].id, moves, handle, travel, timed ? timing.open : 0, timed ? timing.close : 0,
+                            timed ? timing.ease : 0.0f);
+        lua_pushboolean(L, 1);
+    } else {
+        lua_pushboolean(L, 0);
+    }
     return 1;
 }
 
@@ -3511,19 +3517,36 @@ static void attachApply(const char *mod, int from, const unsigned char *data, in
                 if (r[i].on == GEVR_ATTNET_GUN && !r[i].like[0]) {
                     gevrModGameAttachRemoteOptic(from, r[i].id, r[i].optic ? r[i].housing : NULL, r[i].mode, r[i].folded);
                 }
+                /* its action, moved by the shots its copy fires here */
+                if (r[i].on == GEVR_ATTNET_GUN) {
+                    const GevrModActionTiming timing = { r[i].open, r[i].close, r[i].ease };
+
+                    gevrModGameAttachRemoteAction(from, r[i].id, r[i].moves ? r[i].travel : NULL, r[i].handle,
+                                                  r[i].timed ? &timing : NULL);
+                }
             }
         } else if (r[i].op == GEVR_ATTNET_GUNBODY) {
             float fit[4][4];
+            GevrModGunParts parts;
 
             for (j = 0; j < 4; j++) {
                 memcpy(fit[j], r[i].frame[j], sizeof(r[i].frame[j]));
                 fit[j][3] = j == 3 ? 1.0f : 0.0f;
             }
+            /* its moving parts as the owner's mod.weapon.model gave them (no
+             * timing: GoldenEye's, as there) */
+            memset(&parts, 0, sizeof(parts));
+            memcpy(parts.pictures, r[i].pictures, sizeof(parts.pictures));
+            memcpy(parts.travel, r[i].partTravel, sizeof(parts.travel));
+            parts.holdOpen = r[i].holdOpen;
+            parts.timing.open = r[i].open;
+            parts.timing.close = r[i].close;
+            parts.timing.ease = r[i].open ? r[i].ease : 1.0f;
             /* a gun this cartridge has, else the record's left alone */
             if (r[i].item == 0 || gevrModGameSwappable(r[i].item)) {
                 if (gevrModGameAttachRemoteBody(from, r[i].where, r[i].item, r[i].item ? r[i].model : NULL,
                                                 r[i].fitted ? (const float (*)[4])fit : NULL,
-                                                r[i].muzzled ? r[i].muzzle : NULL) && r[i].item) {
+                                                r[i].muzzled ? r[i].muzzle : NULL, r[i].parts ? &parts : NULL) && r[i].item) {
                     s_rigsDrawn |= 1u << from;
                 }
             }
@@ -3569,15 +3592,26 @@ static void attachNetFrame(void)
          * hand's own, a gun swap, all told as they happen */
         for (i = 0; i < 2; i++) {
             GevrAttachRecord r;
+            GevrModGunParts parts;
             float fit[4][4];
             int j;
 
             memset(&r, 0, sizeof(r));
             if (s_gunBodyMod[i][0] && gevrModScriptOn(s_gunBodyMod[i])
-                && gevrModGameGunBody(i, r.model, sizeof(r.model), &r.item, fit, &r.fitted, r.muzzle, &r.muzzled)) {
+                && gevrModGameGunBody(i, r.model, sizeof(r.model), &r.item, fit, &r.fitted, r.muzzle, &r.muzzled, &parts,
+                                      &r.parts)) {
                 for (j = 0; j < 4; j++) memcpy(r.frame[j], fit[j], sizeof(r.frame[j]));
                 if (!r.fitted) memset(r.frame, 0, sizeof(r.frame));
                 if (!r.muzzled) memset(r.muzzle, 0, sizeof(r.muzzle));
+                if (r.parts) {
+                    /* its moving parts, for the copies' to move as its own (gevr_modaction.h) */
+                    memcpy(r.pictures, parts.pictures, sizeof(r.pictures));
+                    memcpy(r.partTravel, parts.travel, sizeof(r.partTravel));
+                    r.holdOpen = parts.holdOpen;
+                    r.open = parts.timing.open > 0 && parts.timing.close > 0 ? parts.timing.open : 0;
+                    r.close = r.open ? parts.timing.close : 0;
+                    r.ease = r.open ? parts.timing.ease : 0.0f;
+                }
                 if (!gevrAttachNetGunBody(s_gunBodyMod[i], i, &r)) gevrAttachNetGunBody(NULL, i, NULL);
             } else {
                 gevrAttachNetGunBody(NULL, i, NULL);

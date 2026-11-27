@@ -167,8 +167,9 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 }
 int gevrModGameLook(int hand) { return s_look[hand]; }
 /* gun.c's pack body as each hand draws it (#335): pack-body.bin, for its item */
-static struct { int item, fitted, muzzled; char name[64]; float fit[4][4], muzzle[3]; } s_gunBody[2];
-static int gunModelSet(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], int ok)
+static struct { int item, fitted, muzzled, hasParts; char name[64]; float fit[4][4], muzzle[3]; GevrModGunParts parts; } s_gunBody[2];
+static int gunModelSet(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3],
+                       const GevrModGunParts *parts, int ok)
 {
     if (ok && hand >= 0 && hand <= 1) {
         if (name != NULL && !strcmp(name, "pack-body.bin")) {
@@ -178,13 +179,16 @@ static int gunModelSet(int hand, int item, const char *name, const float frame[4
             if (frame != NULL) memcpy(s_gunBody[hand].fit, frame, sizeof(s_gunBody[hand].fit));
             s_gunBody[hand].muzzled = muzzle != NULL;
             if (muzzle != NULL) memcpy(s_gunBody[hand].muzzle, muzzle, sizeof(s_gunBody[hand].muzzle));
+            s_gunBody[hand].hasParts = parts != NULL;
+            if (parts != NULL) s_gunBody[hand].parts = *parts;
         } else if (s_gunBody[hand].item == item) {
             memset(&s_gunBody[hand], 0, sizeof(s_gunBody[hand]));
         }
     }
     return ok;
 }
-int gevrModGameGunBody(int hand, char *name, int cap, int *item, float fit[4][4], int *fitted, float muzzle[3], int *muzzled)
+int gevrModGameGunBody(int hand, char *name, int cap, int *item, float fit[4][4], int *fitted, float muzzle[3], int *muzzled,
+                       GevrModGunParts *parts, int *hasParts)
 {
     if (hand < 0 || hand > 1 || !s_gunBody[hand].name[0] || s_held[hand] != s_gunBody[hand].item) return 0;
     snprintf(name, (size_t)cap, "%s", s_gunBody[hand].name);
@@ -193,6 +197,8 @@ int gevrModGameGunBody(int hand, char *name, int cap, int *item, float fit[4][4]
     if (*fitted) memcpy(fit, s_gunBody[hand].fit, sizeof(s_gunBody[hand].fit));
     *muzzled = s_gunBody[hand].muzzled;
     if (*muzzled) memcpy(muzzle, s_gunBody[hand].muzzle, sizeof(s_gunBody[hand].muzzle));
+    *hasParts = s_gunBody[hand].hasParts;
+    if (*hasParts) *parts = s_gunBody[hand].parts;
     return 1;
 }
 /* gun.c's per-hand models: a mod's files are the names starting Gtac */
@@ -201,7 +207,7 @@ static int gunModel(int hand, int item, const char *name, const float frame[4][4
 int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
                         const GevrModGunParts *parts)
 {
-    return gunModelSet(hand, item, name, frame, muzzle, gunModel(hand, item, name, frame, muzzle, support, parts));
+    return gunModelSet(hand, item, name, frame, muzzle, parts, gunModel(hand, item, name, frame, muzzle, support, parts));
 }
 static int gunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
                     const GevrModGunParts *parts)
@@ -339,17 +345,33 @@ int gevrModGameAttachRemote(int slot, int id, const GevrModAttach *a, int shown,
     return strncmp(a->model, "Gno", 3) != 0;
 }
 void gevrModGameAttachRemoteGone(int slot, int id) { printf("REMOTEGONE %d %d\n", slot, id); }
+/* its action (mod.attach.action), as told */
+int gevrModGameAttachRemoteAction(int slot, int id, const float travel[3], int handle, const GevrModActionTiming *timing)
+{
+    if (travel == NULL) printf("RACTION %d %d -\n", slot, id);
+    else if (timing == NULL) printf("RACTION %d %d %.0f %.0f %.0f %d\n", slot, id, travel[0], travel[1], travel[2], handle);
+    else printf("RACTION %d %d %.0f %.0f %.0f %d %d %d %.2f\n", slot, id, travel[0], travel[1], travel[2], handle,
+                timing->open, timing->close, timing->ease);
+    return 1;
+}
 /* its optic housing and its pack gun bodies (#335): Gno files refused */
 int gevrModGameAttachRemoteOptic(int slot, int id, const char *housing, int mode, int folded)
 {
     printf("ROPTIC %d %d %s %d %d\n", slot, id, housing ? housing : "-", mode, folded);
     return housing == NULL || strncmp(housing, "Gno", 3) != 0;
 }
-int gevrModGameAttachRemoteBody(int slot, int hand, int item, const char *model, const float fit[4][4], const float muzzle[3])
+int gevrModGameAttachRemoteBody(int slot, int hand, int item, const char *model, const float fit[4][4], const float muzzle[3],
+                                const GevrModGunParts *parts)
 {
     printf("RBODY %d %d %d %s", slot, hand, item, model ? model : "-");
     if (fit != NULL) printf(" fit %.0f %.0f %.0f %.0f", fit[0][0], fit[3][0], fit[3][1], fit[3][2]);
     if (muzzle != NULL) printf(" muzzle %.0f %.0f %.0f", muzzle[0], muzzle[1], muzzle[2]);
+    if (parts != NULL) {
+        printf(" parts %x %.0f %.0f %.0f %x %.0f %.0f %.0f %d %d %d %.2f", parts->pictures[GEVR_MODPART_ACTION],
+               parts->travel[0][0], parts->travel[0][1], parts->travel[0][2], parts->pictures[GEVR_MODPART_HANDLE],
+               parts->travel[1][0], parts->travel[1][1], parts->travel[1][2], parts->holdOpen, parts->timing.open,
+               parts->timing.close, parts->timing.ease);
+    }
     printf("\n");
     return model == NULL || strncmp(model, "Gno", 3) != 0;
 }

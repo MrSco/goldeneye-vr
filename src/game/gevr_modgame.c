@@ -163,20 +163,22 @@ void gevrModGameGunModelReset(void)
     gevrModGunModelReset();
 }
 
-int gevrModGameGunBody(int hand, char *name, int cap, int *item, float fit[4][4], int *fitted, float muzzle[3], int *muzzled)
+int gevrModGameGunBody(int hand, char *name, int cap, int *item, float fit[4][4], int *fitted, float muzzle[3], int *muzzled,
+                       GevrModGunParts *parts, int *hasParts)
 {
     extern s32 gevrModGunBodyNow(s32 hand, char *name, s32 cap, s32 *item, f32 fit[4][4], s32 *fitted, f32 muzzle[3],
-                                 s32 *muzzled);   /* gun.c */
-    s32 was, at = 0, hasFit = 0, hasMuzzle = 0;
+                                 s32 *muzzled, GevrModGunParts *parts, s32 *hasParts);   /* gun.c */
+    s32 was, at = 0, hasFit = 0, hasMuzzle = 0, moving = 0;
     int ok;
 
     if (!gevrModGamePlayerReady() || hand < 0 || hand > 1) return 0;
     localHand(hand, &was);
-    ok = gevrModGunBodyNow(hand, name, cap, &at, fit, &hasFit, muzzle, &hasMuzzle);
+    ok = gevrModGunBodyNow(hand, name, cap, &at, fit, &hasFit, muzzle, &hasMuzzle, parts, &moving);
     set_cur_player(was);
     *item = at;
     *fitted = hasFit;
     *muzzled = hasMuzzle;
+    *hasParts = moving;
     return ok;
 }
 

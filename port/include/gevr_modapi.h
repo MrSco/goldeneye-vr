@@ -489,9 +489,10 @@ int gevrModGameGunModel(int hand, int item, const char *name, const float frame[
 /* every hand's own models back (a mod stopped, a new mission) */
 void gevrModGameGunModelReset(void);
 /* The pack gun body the local player's hand draws now (#335, told to the
- * others): its file (cap bytes), the item, its fit and authored muzzle when
- * set; 0 when the hand draws a cartridge model */
-int gevrModGameGunBody(int hand, char *name, int cap, int *item, float fit[4][4], int *fitted, float muzzle[3], int *muzzled);
+ * others): its file (cap bytes), the item, its fit, authored muzzle and
+ * moving parts when set; 0 when the hand draws a cartridge model */
+int gevrModGameGunBody(int hand, char *name, int cap, int *item, float fit[4][4], int *fitted, float muzzle[3], int *muzzled,
+                       GevrModGunParts *parts, int *hasParts);
 
 /* mod.attach (src/game/gevr_modattach.c): a pack's model on the local
  * player's gun, a hand or the body, placed each rendered frame */
@@ -551,13 +552,20 @@ void gevrModGameAttachRemoteGone(int slot, int id);   /* id 0: its pack gun bodi
  * gun: the folded housing's file (NULL none), the selected mode and whether
  * it folds the housing; never a lens. 1 set, 0 not (no such, no room) */
 int gevrModGameAttachRemoteOptic(int slot, int id, const char *housing, int mode, int folded);
+/* Its action (mod.attach.action) on another player's part on the gun: its
+ * travel (NULL it stays put), handle, its own timing (NULL the body's); it
+ * moves with the shots that player's copy fires here. 1 set, 0 no such */
+int gevrModGameAttachRemoteAction(int slot, int id, const float travel[3], int handle, const GevrModActionTiming *timing);
 /* This player's attachment's optic as the others are told it: 1 bound,
  * with its mode, whether that folds the housing, and the housing's file */
 int gevrModGameAttachOpticState(int id, int *mode, int *folded, char *housing, int cap);
 /* Another player's pack gun body in a hand, drawn on its copy's held gun for
- * item in place of the item's model; item 0 the item's own again. fit and
- * muzzle NULL when not set. 1 set, 0 not (not a pack mesh, no room) */
-int gevrModGameAttachRemoteBody(int slot, int hand, int item, const char *model, const float fit[4][4], const float muzzle[3]);
+ * item in place of the item's model; item 0 the item's own again. fit,
+ * muzzle and parts (its moving pictures, mod.weapon.model's action and
+ * handle) NULL when not set. 1 set, 0 not (not a pack mesh, no room); parts
+ * naming a picture the mesh hasn't: the body without them */
+int gevrModGameAttachRemoteBody(int slot, int hand, int item, const char *model, const float fit[4][4], const float muzzle[3],
+                                const GevrModGunParts *parts);
 /* This player's body anchor's centre from the eye, cm (below, to the right,
  * ahead), from its own fit (gevr_bodyslots.c): what the others place it by */
 int gevrModGameAttachBodyAt(int where, float out[3]);

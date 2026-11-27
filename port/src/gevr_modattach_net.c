@@ -61,6 +61,26 @@ static int limit(float v, float most)
     return isfinite(v) && v >= -most && v <= most;
 }
 
+/* an action's own timing: open and close 1 to GEVR_ATTNET_TICKS with an
+ * ease from 0 to 1, or none (all 0) */
+static int timingOk(int open, int close, float ease)
+{
+    if (open == 0 && close == 0) return ease == 0.0f;
+    return open >= 1 && open <= GEVR_ATTNET_TICKS && close >= 1 && close <= GEVR_ATTNET_TICKS
+        && isfinite(ease) && ease >= 0.0f && ease <= 1.0f;
+}
+
+/* a travel within the limits, zero where nothing moves */
+static int travelOk(const float t[3], int moves)
+{
+    int k;
+
+    for (k = 0; k < 3; k++) {
+        if (!limit(t[k], GEVR_ATTNET_ORIGIN) || (!moves && t[k] != 0.0f)) return 0;
+    }
+    return 1;
+}
+
 /* a SET's fields within the limits */
 static int setOk(const GevrAttachRecord *r)
 {
@@ -84,6 +104,10 @@ static int setOk(const GevrAttachRecord *r)
     if (r->mode < 0 || r->mode >= GEVR_ATTNET_MODES || (!r->optic && (r->mode || r->housing[0]))) return 0;
     if (r->folded && !r->housing[0]) return 0;
     if (r->housing[0] && !gevrAttachNetNameOk(r->housing)) return 0;
+    /* an action only on the gun; a handle or a timing only with one, not both */
+    if ((r->moves != 0 && r->moves != 1) || (r->handle != 0 && r->handle != 1) || (r->timed != 0 && r->timed != 1)) return 0;
+    if ((r->moves && r->on != GEVR_ATTNET_GUN) || (!r->moves && (r->handle || r->timed)) || (r->handle && r->timed)) return 0;
+    if (!travelOk(r->travel, r->moves) || !timingOk(r->open, r->close, r->ease) || r->timed != (r->open != 0)) return 0;
     return gevrAttachNetNameOk(r->model) && (!r->like[0] || gevrAttachNetNameOk(r->like));
 }
 
@@ -102,7 +126,16 @@ static int gunBodyOk(const GevrAttachRecord *r)
     for (i = 0; i < 3; i++) {
         if (!limit(r->muzzle[i], GEVR_ATTNET_ORIGIN)) return 0;
     }
-    if (r->item == 0) return !r->fitted && !r->muzzled && !r->model[0];
+    /* its moving parts: the groups' pictures apart, a travel only for a
+     * group with pictures, a timing only for the action's; all zero without */
+    if ((r->parts != 0 && r->parts != 1) || (r->holdOpen != 0 && r->holdOpen != 1)) return 0;
+    if (!r->parts && (r->holdOpen || r->pictures[0] || r->pictures[1])) return 0;
+    if (r->pictures[0] & r->pictures[1]) return 0;
+    for (i = 0; i < 2; i++) {
+        if (!travelOk(r->partTravel[i], r->pictures[i] != 0)) return 0;
+    }
+    if (!timingOk(r->open, r->close, r->ease) || (r->open && !r->pictures[0])) return 0;
+    if (r->item == 0) return !r->fitted && !r->muzzled && !r->parts && !r->model[0];
     return gevrAttachNetNameOk(r->model);
 }
 
@@ -188,11 +221,16 @@ int gevrAttachNetEncode(unsigned char *out, int cap, int stage, const GevrAttach
             *p++ = (unsigned char)r[i].on;
             *p++ = (unsigned char)r[i].where;
             *p++ = (unsigned char)r[i].node;
-            *p++ = (unsigned char)((r[i].shown ? 1 : 0) | (r[i].optic ? 2 : 0) | (r[i].folded ? 4 : 0));
+            *p++ = (unsigned char)((r[i].shown ? 1 : 0) | (r[i].optic ? 2 : 0) | (r[i].folded ? 4 : 0)
+                                   | (r[i].moves ? 8 : 0) | (r[i].handle ? 16 : 0) | (r[i].timed ? 32 : 0));
             for (j = 0; j < 4; j++) {
                 for (k = 0; k < 3; k++) p = putFloat(p, r[i].frame[j][k]);
             }
             for (k = 0; k < 3; k++) p = putFloat(p, r[i].body[k]);
+            for (k = 0; k < 3; k++) p = putFloat(p, r[i].travel[k]);
+            *p++ = (unsigned char)r[i].open;
+            *p++ = (unsigned char)r[i].close;
+            p = putFloat(p, r[i].ease);
             *p++ = (unsigned char)r[i].mode;
             p = putName(p, r[i].model);
             p = putName(p, r[i].like);
@@ -201,11 +239,19 @@ int gevrAttachNetEncode(unsigned char *out, int cap, int stage, const GevrAttach
         case GEVR_ATTNET_GUNBODY:
             *p++ = (unsigned char)r[i].where;
             *p++ = (unsigned char)r[i].item;
-            *p++ = (unsigned char)((r[i].fitted ? 1 : 0) | (r[i].muzzled ? 2 : 0));
+            *p++ = (unsigned char)((r[i].fitted ? 1 : 0) | (r[i].muzzled ? 2 : 0) | (r[i].parts ? 4 : 0)
+                                   | (r[i].holdOpen ? 8 : 0));
             for (j = 0; j < 4; j++) {
                 for (k = 0; k < 3; k++) p = putFloat(p, r[i].frame[j][k]);
             }
             for (k = 0; k < 3; k++) p = putFloat(p, r[i].muzzle[k]);
+            for (j = 0; j < 2; j++) p = put32(p, r[i].pictures[j]);
+            for (j = 0; j < 2; j++) {
+                for (k = 0; k < 3; k++) p = putFloat(p, r[i].partTravel[j][k]);
+            }
+            *p++ = (unsigned char)r[i].open;
+            *p++ = (unsigned char)r[i].close;
+            p = putFloat(p, r[i].ease);
             p = putName(p, r[i].model);
             break;
         case GEVR_ATTNET_REMOVE:
@@ -266,15 +312,23 @@ int gevrAttachNetDecode(const unsigned char *data, int len, int *stage, GevrAtta
             r->on = p[0];
             r->where = p[1];
             r->node = p[2];
-            if (p[3] > 7) return -1;
+            if (p[3] > 63) return -1;
             r->shown = p[3] & 1;
             r->optic = (p[3] >> 1) & 1;
             r->folded = (p[3] >> 2) & 1;
+            r->moves = (p[3] >> 3) & 1;
+            r->handle = (p[3] >> 4) & 1;
+            r->timed = (p[3] >> 5) & 1;
             p += 4;
             for (j = 0; j < 4; j++) {
                 for (k = 0; k < 3; k++, p += 4) r->frame[j][k] = getFloat(p);
             }
             for (k = 0; k < 3; k++, p += 4) r->body[k] = getFloat(p);
+            for (k = 0; k < 3; k++, p += 4) r->travel[k] = getFloat(p);
+            r->open = *p++;
+            r->close = *p++;
+            r->ease = getFloat(p);
+            p += 4;
             r->mode = *p++;
             if (!getName(&p, end, r->model) || !getName(&p, end, r->like) || !getName(&p, end, r->housing)
                 || !setOk(r)) return -1;
@@ -283,14 +337,24 @@ int gevrAttachNetDecode(const unsigned char *data, int len, int *stage, GevrAtta
             if (end - p < GEVR_ATTNET_GUNBODY_BYTES - 2) return -1;   /* less the op and the name's length */
             r->where = p[0];
             r->item = p[1];
-            if (p[2] > 3) return -1;
+            if (p[2] > 15) return -1;
             r->fitted = p[2] & 1;
             r->muzzled = (p[2] >> 1) & 1;
+            r->parts = (p[2] >> 2) & 1;
+            r->holdOpen = (p[2] >> 3) & 1;
             p += 3;
             for (j = 0; j < 4; j++) {
                 for (k = 0; k < 3; k++, p += 4) r->frame[j][k] = getFloat(p);
             }
             for (k = 0; k < 3; k++, p += 4) r->muzzle[k] = getFloat(p);
+            for (j = 0; j < 2; j++, p += 4) r->pictures[j] = get32(p);
+            for (j = 0; j < 2; j++) {
+                for (k = 0; k < 3; k++, p += 4) r->partTravel[j][k] = getFloat(p);
+            }
+            r->open = *p++;
+            r->close = *p++;
+            r->ease = getFloat(p);
+            p += 4;
             if (!getName(&p, end, r->model) || !gunBodyOk(r)) return -1;
             break;
         case GEVR_ATTNET_REMOVE:
@@ -388,6 +452,29 @@ int gevrAttachNetPlace(int id, const float frame[4][3])
     return 1;
 }
 
+int gevrAttachNetAction(int id, int moves, int handle, const float travel[3], int open, int close, float ease)
+{
+    Owned *o = owned(id);
+    GevrAttachRecord s;
+
+    if (o == NULL || o->gone) return 0;
+    s = o->r;
+    memset(s.travel, 0, sizeof(s.travel));
+    s.moves = moves != 0 && travel != NULL;
+    s.handle = s.moves && handle != 0;
+    s.timed = s.moves && !s.handle && open > 0;
+    s.open = s.timed ? open : 0;
+    s.close = s.timed ? close : 0;
+    s.ease = s.timed ? ease : 0.0f;
+    if (s.moves) memcpy(s.travel, travel, sizeof(s.travel));
+    if (recordBytes(&s) < 0) return 0;
+    if (memcmp(&s, &o->r, sizeof(s))) {
+        o->r = s;
+        changed(o);
+    }
+    return 1;
+}
+
 void gevrAttachNetRemove(int id)
 {
     Owned *o = owned(id);
@@ -442,6 +529,18 @@ int gevrAttachNetGunBody(const char *mod, int hand, const GevrAttachRecord *r)
         s.muzzled = r->muzzled != 0;
         if (s.fitted) memcpy(s.frame, r->frame, sizeof(s.frame));
         if (s.muzzled) memcpy(s.muzzle, r->muzzle, sizeof(s.muzzle));
+        s.parts = r->parts != 0;
+        if (s.parts) {
+            /* its moving parts, as mod.weapon.model gave them; a timing only with one */
+            s.holdOpen = r->holdOpen != 0;
+            memcpy(s.pictures, r->pictures, sizeof(s.pictures));
+            memcpy(s.partTravel, r->partTravel, sizeof(s.partTravel));
+            if (r->open > 0) {
+                s.open = r->open;
+                s.close = r->close;
+                s.ease = r->ease;
+            }
+        }
         if (strlen(r->model) > GEVR_ATTNET_NAME) return 0;
         strcpy(s.model, r->model);
         if (s.item < 1 || recordBytes(&s) < 0) return 0;

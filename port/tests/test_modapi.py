@@ -1691,8 +1691,10 @@ def attach_placement():
     check("node = ((Mtxf *) gun->render_pos)[a->node];" in drawgun and "a->node < gun->obj->numMatrices" in drawgun
           and "attachLocal()" in drawgun, "the gun model's matrix it rides as drawn, none past the model's; local")
     check("attachDraw(gdl, templ, a, &node, &offset, &a->drawnPose, FALSE);" in drawgun and "Mtxf offset = a->offset;" in drawgun
-          and mine.count("&a->offset, NULL, ") == 4,
-          "a gun part's own offset, moved by its action (mod.attach.action); a guard's and the body's as placed")
+          and mine.count("&a->offset, NULL, ") == 3
+          and "attachDraw(gdl, templ, a, &node, &offset, NULL, TRUE);" in function(mine, "Gfx *gevrModAttachDrawPlayerGun("),
+          "a gun part's own offset, moved by its action (mod.attach.action), another player's too; a guard's and the "
+          "body's as placed")
     drawbody = function(mine, "Gfx *gevrModAttachDrawBody(Gfx *gdl)")
     check("g_gevrExtraPass" in drawbody and "0x565F0000 | (u32) (a->on == GEVR_MODATTACH_HAND ? (a->where == GUNRIGHT ? 2 : 1) : 3)" in drawbody
           and drawbody.count("matrix_4x4_7F058C64();") == 1,
@@ -1906,13 +1908,17 @@ end)
 
 
 def attach_record(op, id=0, on=0, where=0, node=0, shown=1, origin=(0, 0, 0), body=(0, 0, 0), model="", like="", slot=0,
-                  optic=0, mode=0, folded=0, housing="", item=0, fitted=0, muzzled=0, muzzle=(0, 0, 0)):
+                  optic=0, mode=0, folded=0, housing="", item=0, fitted=0, muzzled=0, muzzle=(0, 0, 0),
+                  moves=0, handle=0, travel=(0, 0, 0), timing=(0, 0, 0), parts=0, hold=0, pictures=(0, 0),
+                  travels=((0, 0, 0), (0, 0, 0))):
     """one record of a NET_MOD_ATTACH message (gevr_modattach_net.h)"""
     import struct
     b = bytes([op])
     if op == 1:
         frame = [1, 0, 0, 0, 1, 0, 0, 0, 1, *origin]
-        b += struct.pack("<IBBBB", id, on, where, node, shown | optic << 1 | folded << 2) + struct.pack("<15f", *frame, *body)
+        flags = shown | optic << 1 | folded << 2 | moves << 3 | handle << 4 | (timing[0] != 0) << 5
+        b += struct.pack("<IBBBB", id, on, where, node, flags) + struct.pack("<15f", *frame, *body)
+        b += struct.pack("<3fBBf", *travel, *timing)
         b += bytes([mode, len(model)]) + model.encode() + bytes([len(like)]) + like.encode()
         b += bytes([len(housing)]) + housing.encode()
     elif op == 2:
@@ -1921,7 +1927,9 @@ def attach_record(op, id=0, on=0, where=0, node=0, shown=1, origin=(0, 0, 0), bo
         b += bytes([slot])
     elif op == 5:
         fit = [2, 0, 0, 0, 2, 0, 0, 0, 2, *origin] if fitted else [0] * 12
-        b += bytes([where, item, fitted | muzzled << 1]) + struct.pack("<15f", *fit, *(muzzle if muzzled else (0, 0, 0)))
+        b += bytes([where, item, fitted | muzzled << 1 | parts << 2 | hold << 3])
+        b += struct.pack("<15f", *fit, *(muzzle if muzzled else (0, 0, 0)))
+        b += struct.pack("<II6fBBf", *pictures, *travels[0], *travels[1], *timing)
         b += bytes([len(model)]) + model.encode()
     return b
 
@@ -1947,6 +1955,8 @@ def attach_sent(out):
                 p += 8
                 v = struct.unpack_from("<15f", data, p)
                 p += 60
+                travel = struct.unpack_from("<3fBBf", data, p)
+                p += 18
                 mode = data[p]
                 p += 1
                 model = data[p + 1:p + 1 + data[p]].decode()
@@ -1959,15 +1969,25 @@ def attach_sent(out):
                        tuple(round(x) for x in v[12:15]), model, like)
                 if flags & 6 or mode or housing:
                     rec += (("optic", flags >> 1 & 1, mode, flags >> 2 & 1, housing),)
+                if flags & 0x38 or any(travel):
+                    rec += (("action", flags >> 3 & 1, flags >> 4 & 1, flags >> 5 & 1, tuple(round(x) for x in travel[:3]),
+                             travel[3], travel[4], round(travel[5], 2)),)
                 recs.append(rec)
             elif op == 5:
                 hand, item, flags = data[p], data[p + 1], data[p + 2]
                 v = struct.unpack_from("<15f", data, p + 3)
                 p += 63
+                moving = struct.unpack_from("<II6fBBf", data, p)
+                p += 38
                 model = data[p + 1:p + 1 + data[p]].decode()
                 p += 1 + data[p]
-                recs.append(("body", hand, item, flags, tuple(round(x) for x in v[9:12]), tuple(round(x) for x in v[12:15]),
-                             model))
+                rec = ("body", hand, item, flags & 3, tuple(round(x) for x in v[9:12]), tuple(round(x) for x in v[12:15]),
+                       model)
+                if flags & 12 or any(moving):
+                    rec += (("parts", flags >> 2 & 1, flags >> 3 & 1, moving[0], moving[1],
+                             tuple(round(x) for x in moving[2:5]), tuple(round(x) for x in moving[5:8]),
+                             moving[8], moving[9], round(moving[10], 2)),)
+                recs.append(rec)
             elif op == 2:
                 recs.append(("remove", struct.unpack_from("<I", data, p)[0]))
                 p += 4
@@ -2164,6 +2184,106 @@ end)
           "this cartridge doesn't have left alone; a third hand, a bad name, a named own, an optic on a cartridge "
           "part, a mode past twelve and a fold without an optic refused whole; a clear takes all: "
           + str(answers(out, "ROPTIC", "RBODY", "REMOTEGONE")))
+    check(out.count("a malformed attachments message from player 1 dropped") == 1, "the malformed logged, once a mission")
+
+
+def attach_network_actions(exe, temp):
+    """#335 with #353: a pack body's moving parts (mod.weapon.model's action, handle, holdOpen and timing) ride its
+    GUNBODY, and a gun part's mod.attach.action its SET, each told as it changes; theirs reach the game here, and a
+    record outside the limits refuses its whole message"""
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+local bolt
+mod.on("mission_start", function()
+  bolt = mod.attach.add({ model = "pack-part.bin", on = "gun", hand = "right" })
+  mod.weapon.model("right", "wppk", "pack-body.bin", { action = { pictures = { 1, 2 }, travel = { 0, 0, -44 }, open = 1,
+    close = 5, ease = 0.4 }, handle = { pictures = { 0 }, travel = { -3, 0, -55 } }, holdOpen = false })
+end)
+local n = 0
+mod.on("tick", function()
+  n = n + 1
+  if n == 1 then mod.attach.action(bolt, { travel = { 0, 0, -30 } }) end
+  if n == 2 then mod.attach.action(bolt, { travel = { 0, 0, -30 } }) end
+  if n == 3 then mod.attach.action(bolt, { travel = { 0, 0, -30 }, open = 2, close = 6, ease = 0.5 }) end
+  if n == 4 then mod.attach.action(bolt, nil) end
+  if n == 5 then mod.weapon.model("right", "wppk", "pack-body.bin", { holdOpen = true }) end
+  if n == 7 then error("stop") end
+end)
+"""
+    out = run(exe, temp, "attachaction", lua, "online", 1, 0, 0, 2, *play, *(["frame"] * 8))
+    part = ("set", 1, 0, 0, 0, 1, (0, 0, 0), (0, 0, 0), "pack-part.bin", "")
+    body = ("body", 0, 4, 0, (0, 0, 0), (0, 0, 0), "pack-body.bin")
+    sent = attach_sent(out)
+    check(sent == [
+        (255, "tactical", 9, [body + (("parts", 1, 0, 6, 1, (0, 0, -44), (-3, 0, -55), 1, 5, 0.4),), part]),
+        (255, "tactical", 9, [part + (("action", 1, 0, 0, (0, 0, -30), 0, 0, 0.0),)]),
+        (255, "tactical", 9, [part + (("action", 1, 0, 1, (0, 0, -30), 2, 6, 0.5),)]),
+        (255, "tactical", 9, [part]),
+        (255, "tactical", 9, [body + (("parts", 1, 1, 0, 0, (0, 0, 0), (0, 0, 0), 0, 0, 0.0),)]),
+        (255, "tactical", 9, [("clear",)])],
+          "the body's groups, travels and timing with it; a part's action, the same again unsent, its own timing, "
+          "taken off; a body that only holds open; then a stop's clear: " + str(sent))
+    out = run(exe, temp, "attachactionjoin", lua.replace("n == 4", "n == 99").replace("n == 5", "n == 99"),
+              "online", 1, 1, 0, 0, *play, *(["frame"] * 5), "peerready", 3, "frame")
+    joined = [s for s in attach_sent(out) if s[0] == 3]
+    check(joined == [(3, "tactical", 9, [body + (("parts", 1, 0, 6, 1, (0, 0, -44), (-3, 0, -55), 1, 5, 0.4),),
+                                         part + (("action", 1, 0, 1, (0, 0, -30), 2, 6, 0.5),)])],
+          "a joining player: the body's parts and the part's action as they are now: " + str(joined))
+
+    # another player's: an action with its part, the parts with its body; anything outside the limits refused whole
+    def part_record(id_, **kw):
+        return attach_record(1, id_, 0, kw.pop("where", 0), 0, 1, (0, 0, 0), (0, 0, 0), "pack-part.bin", "", **kw)
+
+    def body_record(**kw):
+        return attach_record(5, where=0, item=kw.pop("item", 8), model="pack-body.bin", **kw)
+
+    good = [
+        part_record(7, moves=1, travel=(0, 0, -30)),
+        part_record(8, where=1, moves=1, travel=(0, 0, -20), timing=(1, 5, 0.5)),
+        part_record(9, moves=1, handle=1, travel=(-3, 0, 0)),
+        body_record(parts=1, hold=1, pictures=(6, 1), travels=((0, 0, -44), (-3, 0, -55)), timing=(1, 5, 0.4)),
+        body_record(parts=1, hold=1),
+    ]
+    bad = [
+        part_record(10, moves=1, handle=1, travel=(0, 0, -1), timing=(1, 5, 0.5)),   # a handle with a timing
+        attach_record(1, 11, 1, 0, 0, 1, (0, 0, 0), (0, 0, 0), "pack-part.bin", "", moves=1, travel=(0, 0, -1)),   # a hand's
+        part_record(12, travel=(0, 0, -1)),                                          # a travel that doesn't move
+        part_record(13, moves=1, timing=(1, 0, 0.5)),                                # half a timing
+        part_record(14, moves=1, timing=(31, 5, 0.5)),                               # past 30 ticks
+        part_record(15, moves=1, timing=(1, 5, 1.5)),                                # a steep ease
+        part_record(16, moves=1, timing=(0, 0, 0.5)),                                # an ease without a timing
+        part_record(17, moves=1, travel=(float("nan"), 0, 0)),                       # not finite
+        part_record(18, moves=1, travel=(0, 0, 5000)),                               # too far
+        body_record(parts=1, pictures=(3, 1), travels=((0, 0, -1), (0, 0, -1))),     # a picture in both groups
+        body_record(parts=1, pictures=(2, 0), travels=((0, 0, -1), (0, 0, -1))),     # a travel for no pictures
+        body_record(parts=1, pictures=(0, 1), travels=((0, 0, 0), (0, 0, -1)), timing=(1, 5, 0.4)),   # the handle timed
+        body_record(parts=0, pictures=(1, 0), travels=((0, 0, -1), (0, 0, 0))),     # parts without the flag
+        body_record(hold=1),                                                         # hold open without parts
+        body_record(item=0, parts=1),                                                # the hand's own with parts
+        body_record(parts=1, pictures=(1, 0), travels=((0, 0, float("inf")), (0, 0, 0))),   # not finite
+    ]
+    cmds = []
+    for r in good:
+        cmds += ["netattach", "tactical", 1, attach_message(9, r)]
+    cmds.append("frame")
+    for r in bad:
+        cmds += ["netattach", "tactical", 1, attach_message(9, good[0], r)]
+    cmds.append("frame")
+    cmds += ["netattach", "tactical", 1, attach_message(9, part_record(7))]
+    cmds.append("frame")
+    out = run(exe, temp, "attachactionrecv", 'mod.on("tick", function() end)', "online", 1, 0, 0, 2, *play, *cmds)
+    check(answers(out, "RACTION", "RBODY") == [
+        "RACTION 1 7 0 0 -30 0",
+        "RACTION 1 8 0 0 -20 0 1 5 0.50",
+        "RACTION 1 9 -3 0 0 1",
+        "RBODY 1 0 8 pack-body.bin parts 6 0 0 -44 1 -3 0 -55 1 1 5 0.40",
+        "RBODY 1 0 8 pack-body.bin parts 0 0 0 0 0 0 0 0 1 0 0 1.00",
+        "RACTION 1 7 -"],
+          "another player's part actions (its own timing, a handle) and its body's parts reach the game; a handle "
+          "timed, a hand's action, a still travel, half a timing, 31 ticks, a steep ease, an untimed ease, a "
+          "travel not finite or too far, a shared picture, a travel without pictures, a timed handle, parts "
+          "without the flag, hold open without parts, the hand's own with parts refused whole; then taken off: "
+          + str(answers(out, "RACTION", "RBODY")))
     check(out.count("a malformed attachments message from player 1 dropped") == 1, "the malformed logged, once a mission")
 
 
@@ -2470,6 +2590,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         attach_loadout(exe, temp)
         attach_network(exe, temp)
         attach_network_optics_bodies(exe, temp)
+        attach_network_actions(exe, temp)
         guards_told(temp)
 
     if FAILS:

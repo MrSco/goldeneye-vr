@@ -34,4 +34,7 @@ const GevrModGunParts *gevrModGunParts(s32 hand, f32 offset[GEVR_MODPART_GROUPS]
 f32 gevrModGunActionShare(s32 hand, s32 handle);
 /* gun.c, each tick after the body's action: gun parts with their own timing step theirs */
 void gevrModAttachActionTick(s32 hand, s32 item, s32 shot, f32 ticks, s32 loaded, s32 holdOpen, s32 interval);
+/* gun.c, each of another player's copy's ticks (#335): its hand's action and
+ * its gun parts' step on the shot its copy fired here (shot), by its timing */
+void gevrModAttachRemoteActionTick(s32 slot, s32 hand, s32 item, s32 shot, f32 ticks, s32 interval);
 #endif

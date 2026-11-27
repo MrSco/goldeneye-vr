@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <math.h>
 #include "../../src/game/gevr_modattach.c"
 
 static struct player player;
@@ -33,6 +34,21 @@ static const GevrModMesh *meshDrawn;
 static int meshLoads;
 static int meshFile;   /* what a new pack mesh file loads as */
 Gfx *gevrModMeshDraw(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh) { meshPose = *pose; meshDrawn = mesh; return gdl + room; }
+/* gevr_modmesh.c's split body (#353): what it was asked to draw, and whether a split builds */
+static int splitOk = 1, splits, partsDraws;
+static unsigned partsPictures[GEVR_MODPART_GROUPS];
+static f32 partsOffset[GEVR_MODPART_GROUPS][3];
+int gevrModMeshSplit(const GevrModMesh *mesh, const unsigned pictures[GEVR_MODPART_GROUPS]) { splits++; return splitOk; }
+Gfx *gevrModMeshDrawParts(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh,
+                          const unsigned pictures[GEVR_MODPART_GROUPS], const f32 offset[GEVR_MODPART_GROUPS][3])
+{
+    meshPose = *pose;
+    meshDrawn = mesh;
+    memcpy(partsPictures, pictures, sizeof(partsPictures));
+    memcpy(partsOffset, offset, sizeof(partsOffset));
+    partsDraws++;
+    return gdl + room;
+}
 void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3])
 {
     for (int axis = 0; axis < 3; ++axis)
@@ -307,7 +323,7 @@ int main(void)
             s_files[3].mesh = (const GevrModMesh *)&bodyMesh;
             /* none set: the item's own */
             assert(gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced) == list && !replaced);
-            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", fit, muzzle));
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", fit, muzzle, NULL));
             handDraws = flashDraws = 0;
             rd.flags = 1;   /* the solid pass: the mesh on the root and its fit, at the level's scale */
             end = gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced);
@@ -324,24 +340,24 @@ int main(void)
             assert(!gevrModAttachPlayerMuzzle(&chr, GUNRIGHT, ITEM_AK47, at));
             assert(gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNLEFT, ITEM_WPPKSIL, &copy, &replaced) == list && !replaced);
             /* no fit and no muzzle: on the root, no flash */
-            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", NULL, NULL));
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", NULL, NULL, NULL));
             end = gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced);
             assert(replaced && end == list + 1 && meshPose.m[3][0] == 2 * 0.5f && meshPose.m[0][0] == 0.5f && flashDraws == 2);
             assert(!gevrModAttachPlayerMuzzle(&chr, GUNRIGHT, ITEM_WPPKSIL, at));
             /* reset to the hand's own */
-            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, 0, NULL, NULL, NULL));
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, 0, NULL, NULL, NULL, NULL));
             assert(gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced) == list && !replaced);
             /* a file that isn't a pack mesh: refused, and the old body gone with it */
-            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", fit, muzzle));
-            assert(!gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "box.bin", fit, muzzle));
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", fit, muzzle, NULL));
+            assert(!gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "box.bin", fit, muzzle, NULL));
             gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced);
             assert(!replaced);
             /* never this player's own slot, nor a hand or item out of range */
-            assert(!gevrModGameAttachRemoteBody(0, GUNRIGHT, ITEM_WPPKSIL, "body.bin", fit, muzzle));
-            assert(!gevrModGameAttachRemoteBody(2, 2, ITEM_WPPKSIL, "body.bin", fit, muzzle));
-            assert(!gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_IDS_MAX, "body.bin", fit, muzzle));
+            assert(!gevrModGameAttachRemoteBody(0, GUNRIGHT, ITEM_WPPKSIL, "body.bin", fit, muzzle, NULL));
+            assert(!gevrModGameAttachRemoteBody(2, 2, ITEM_WPPKSIL, "body.bin", fit, muzzle, NULL));
+            assert(!gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_IDS_MAX, "body.bin", fit, muzzle, NULL));
             /* not online, an extra pass: the item's own */
-            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", fit, muzzle));
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", fit, muzzle, NULL));
             online = 0;
             gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced);
             assert(!replaced);
@@ -364,14 +380,176 @@ int main(void)
             }
             meshLoads = 0;
             logged = 0;
-            assert(!gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "new.bin", fit, muzzle) && meshLoads == 0);
-            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "f4.bin", fit, muzzle));   /* one loaded already */
+            assert(!gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "new.bin", fit, muzzle, NULL) && meshLoads == 0);
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "f4.bin", fit, muzzle, NULL));   /* one loaded already */
             strcpy(a.model, "own.bin");
             assert(gevrModGameAttach(&a) > 0 && meshLoads == 1);
             /* a mission's reset: none kept */
             gevrModGameAttachReset();
             gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced);
             assert(!replaced);
+        }
+
+        /* another player's moving parts (#353): its pack body's groups and its
+         * gun parts' actions follow the shots its copy fires here, tick by
+         * tick on gevr_modaction.h's rule with the owner's timing and the
+         * fast-gun cut, never held open; drawn at their offsets as the
+         * owner's are; gone with a swap, its player, a reset */
+        {
+            static int bodyMesh;
+            static const GevrModGunParts parts = { { 6, 1 }, { { 0, 0, -44 }, { 0, 3, -55 } }, TRUE, { 1, 5, 0.4f } };
+            static const float travel[3] = { 0, 0, -10 };
+            const GevrModActionTiming own = { 2, 6, 1.0f };
+            GevrModAction ref = { 0 }, refPart = { 0 };
+            Model copy = {0};
+            s32 replaced, k;
+            Attachment *bolt = NULL, *follow = NULL;
+            int open, close;
+
+#define NEAR(a, b) (fabsf((a) - (b)) < 1e-5f)
+            nodes[0] = identity;
+            copy.obj = &header;
+            copy.render_pos = (RenderPosView *)nodes;
+            strcpy(s_files[3].model, "body.bin");
+            s_files[3].ok = TRUE;
+            s_files[3].mesh = (const GevrModMesh *)&bodyMesh;
+            strcpy(s_files[0].model, "part.bin");
+            s_files[0].ok = TRUE;
+            s_files[0].mesh = (const GevrModMesh *)&file;
+            D_80032310[0] = 65536.0f;
+            rd.flags = 1;
+            /* the parts with the body, split as the owner's; drawn through the split draw at rest */
+            splits = partsDraws = 0;
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", NULL, NULL, &parts) && splits == 1);
+            assert(gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced) == list + 1
+                   && replaced && partsDraws == 1 && partsPictures[0] == 6 && partsPictures[1] == 1
+                   && partsOffset[0][2] == 0.0f && partsOffset[1][1] == 0.0f);
+            /* a gun part following the hand's action, and one with its own timing */
+            a.on = GEVR_MODATTACH_GUN;
+            a.where = GUNRIGHT;
+            a.node = 0;
+            strcpy(a.model, "part.bin");
+            a.like[0] = '\0';
+            memset(a.offset, 0, sizeof(a.offset));
+            for (i = 0; i < 4; i++) a.offset[i][i] = 1;
+            assert(gevrModGameAttachRemote(2, 50, &a, TRUE, body) && gevrModGameAttachRemote(2, 51, &a, TRUE, body));
+            assert(gevrModGameAttachRemoteAction(2, 50, travel, FALSE, NULL));
+            assert(gevrModGameAttachRemoteAction(2, 51, travel, FALSE, &own));
+            for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
+                if (s_attach[i].id < 0 && s_attach[i].owner == 2) {
+                    if (s_attach[i].ownerId == 51) bolt = &s_attach[i];
+                    if (s_attach[i].ownerId == 50) follow = &s_attach[i];
+                }
+            assert(bolt != NULL && bolt->moves && bolt->timed && bolt->timing.open == 2);
+            assert(follow != NULL && follow->moves && !follow->timed && !follow->handle && follow->travel[2] == -10.0f);
+            /* tick by tick against the rule itself: shots, a frame of two ticks, the closing */
+            {
+                static const int shots[] = { 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+                for (k = 0; k < (s32)(sizeof(shots) / sizeof(shots[0])); k++) {
+                    const f32 ticks = k == 6 ? 2.0f : 1.0f;
+                    f32 share, partShare;
+
+                    gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, shots[k], ticks, 0);
+                    if (shots[k]) gevrModActionShot(&ref, ITEM_WPPKSIL);
+                    gevrModActionTicks(&parts.timing, 0, &open, &close);
+                    gevrModActionStep(&ref, ITEM_WPPKSIL, ticks, 1, FALSE, open, close);
+                    if (shots[k]) gevrModActionShot(&refPart, ITEM_WPPKSIL);
+                    gevrModActionTicks(&own, 0, &open, &close);
+                    gevrModActionStep(&refPart, ITEM_WPPKSIL, ticks, 1, FALSE, open, close);
+                    share = gevrModActionShare(&ref, 0.0f, FALSE, &parts.timing);
+                    partShare = gevrModActionShare(&refPart, 0.0f, FALSE, &own);
+                    assert(gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced) == list + 1);
+                    assert(NEAR(partsOffset[0][2], share * -44.0f) && partsOffset[1][1] == 0.0f && partsOffset[1][2] == 0.0f);
+                    /* the gun parts: the one along the body's action, the other its own */
+                    assert(NEAR(attachRemoteShare(follow), share) && NEAR(attachRemoteShare(bolt), partShare));
+                    if (k == 0) assert(NEAR(share, 1.0f) && NEAR(partShare, 0.5f));   /* the shot's own tick: 1 and 2 ticks to open */
+                }
+                assert(NEAR(gevrModActionShare(&ref, 0.0f, FALSE, &parts.timing), 0.0f));
+            }
+            /* the owner's body holds open, but a copy never does: the owner's magazine isn't known here */
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+            for (k = 0; k < 6; k++) gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 0, 1.0f, 0);
+            gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced);
+            assert(partsOffset[0][2] == 0.0f);
+            /* an automatic firing every 4 ticks: the close is cut to 3 so a cycle fits, as the owner's */
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 4);
+            for (k = 1; k <= 4; k++) {
+                const f32 o = k < 3 ? 1.0f - k / 3.0f : 0.0f;
+
+                gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 0, 1.0f, 4);
+                gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced);
+                assert(NEAR(partsOffset[0][2], o * (0.4f + 0.6f * o) * -44.0f));
+            }
+            /* the gun part's draw: along its travel in the anchor's frame where its action is */
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+            assert(gevrModAttachDrawPlayerGun(list, &rd, &chr, GUNRIGHT, gun) == list + 2);
+            assert(gevrModGameAttachRemote(2, 50, &a, FALSE, body) && follow->moves);   /* hidden: its action kept */
+            assert(gevrModAttachDrawPlayerGun(list, &rd, &chr, GUNRIGHT, gun) == list + 1);
+            assert(NEAR(meshPose.m[3][2], 0.5f * -10.0f) && meshPose.m[3][0] == 0.0f);   /* the timed one, half open */
+            assert(gevrModGameAttachRemote(2, 50, &a, TRUE, body));
+            assert(gevrModGameAttachRemoteAction(2, 51, NULL, FALSE, NULL));
+            assert(gevrModAttachDrawPlayerGun(list, &rd, &chr, GUNRIGHT, gun) == list + 2
+                   && meshPose.m[3][2] == 0.0f);   /* the last, the other one put still, at its place */
+            assert(gevrModGameAttachRemoteAction(2, 51, travel, FALSE, &own));
+            /* a handle stays home: the rack's pull isn't known here */
+            assert(gevrModGameAttachRemoteAction(2, 51, travel, TRUE, NULL) && !bolt->timed && bolt->handle);
+            assert(attachRemoteShare(bolt) == 0.0f);
+            /* a change starts it closed; still: no travel; a hand's part or one never told: none */
+            assert(gevrModGameAttachRemoteAction(2, 51, travel, FALSE, &own) && bolt->action.open == 0.0f);
+            assert(gevrModGameAttachRemoteAction(2, 51, NULL, FALSE, NULL) && !bolt->moves);
+            assert(!gevrModGameAttachRemoteAction(2, 99, travel, FALSE, NULL));
+            a.on = GEVR_MODATTACH_HAND;
+            assert(gevrModGameAttachRemote(2, 52, &a, TRUE, body) && !gevrModGameAttachRemoteAction(2, 52, travel, FALSE, NULL));
+            a.on = GEVR_MODATTACH_GUN;
+            /* another gun in the copy's hand: closed, and the body's parts not for it */
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_AK47, 0, 1.0f, 0);
+            assert(s_remoteAction[2][GUNRIGHT].item == ITEM_AK47 && s_remoteAction[2][GUNRIGHT].open == 0.0f);
+            gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced);
+            assert(replaced && partsOffset[0][2] == 0.0f);
+            /* the other hand, the other player: apart */
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+            assert(s_remoteAction[2][GUNLEFT].open == 0.0f && s_remoteAction[3][GUNRIGHT].open == 0.0f);
+            /* a new body for the gun starts closed */
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_AK47, "body.bin", NULL, NULL, &parts)
+                   && s_remoteAction[2][GUNRIGHT].open == 0.0f);
+            /* pictures the mesh hasn't: the body still drawn, without its parts (the whole mesh) */
+            splitOk = 0;
+            logged = 0;
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", NULL, NULL, &parts) && logged == 1);
+            partsDraws = 0;
+            assert(gevrModAttachDrawPlayerBody(list, &rd, &chr, GUNRIGHT, ITEM_WPPKSIL, &copy, &replaced) == list + 1
+                   && replaced && partsDraws == 0 && meshDrawn == (const GevrModMesh *)&bodyMesh);
+            splitOk = 1;
+            /* parts that only hold open: nothing to split, the hand's timing GoldenEye's */
+            {
+                GevrModGunParts hold = { { 0, 0 }, { { 0 } }, TRUE, { 0, 0, 1.0f } };
+
+                splits = 0;
+                assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", NULL, NULL, &hold) && splits == 0);
+                assert(attachRemoteTiming(2, GUNRIGHT, ITEM_WPPKSIL) == &s_remoteBody[2][GUNRIGHT].parts.timing);
+                gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+                assert(NEAR(s_remoteAction[2][GUNRIGHT].open, 0.25f));   /* a quarter a tick, as GoldenEye's */
+            }
+            /* its player gone: the actions with it */
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", NULL, NULL, &parts));
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+            assert(s_remoteAction[2][GUNRIGHT].open == 1.0f);
+            gevrModGameAttachRemoteGone(2, 0);
+            assert(s_remoteAction[2][GUNRIGHT].open == 0.0f && s_remoteAction[2][GUNRIGHT].item == 0);
+            /* a reset (a mission, a mod stopped): none kept, and no tick works on what isn't there */
+            strcpy(s_files[3].model, "body.bin");
+            assert(gevrModGameAttachRemoteBody(2, GUNRIGHT, ITEM_WPPKSIL, "body.bin", NULL, NULL, &parts));
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+            gevrModGameAttachReset();
+            assert(s_remoteAction[2][GUNRIGHT].open == 0.0f && !s_remoteBody[2][GUNRIGHT].hasParts);
+            gevrModAttachRemoteActionTick(2, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+            assert(s_remoteAction[2][GUNRIGHT].open == 0.0f);   /* none of another player's placed: nothing stepped */
+            gevrModAttachRemoteActionTick(-1, GUNRIGHT, ITEM_WPPKSIL, 1, 1.0f, 0);
+            gevrModAttachRemoteActionTick(MAX_PLAYER_COUNT, 2, ITEM_WPPKSIL, 1, 1.0f, 0);
+            D_80032310[0] = 65536.0f * 0.5f;   /* the level's scale the checks below take */
+#undef NEAR
         }
 
         /* a guard's pack mesh (#335 review): in the body's passes, so once, in

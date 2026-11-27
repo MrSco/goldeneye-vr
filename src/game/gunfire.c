@@ -7218,6 +7218,10 @@ void gunTickGameplay(s32 triggerOn)
                 int rate = bondwalkItemGetAutomaticFiringRate(item);
                 next_fire[slot] = g_GlobalTimer + (rate > 0 ? rate : 6);
                 left->weapon_firing_status = left->field_87D = 1;
+                {
+                    extern void gevrModGunActionShot(s32 hand);   /* gun.c: its pack parts' shot (#335) */
+                    gevrModGunActionShot(GUNLEFT);
+                }
                 if (bondwalkItemGetSound(item)) gevrPlaceRemoteGunSound(sndPlaySfx(g_musicSfxBufferPtr, bondwalkItemGetSound(item), NULL), GUNLEFT);
             }
         } else {

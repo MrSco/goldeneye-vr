@@ -44,6 +44,7 @@ production = "\n".join([tables, action] + [function(gun, name) for name in (
     "static const GevrModActionTiming *gevrModGunTiming(",
     "void gevrModGunActionShot(",
     "static void gevrModGunActionTick(",
+    "static void gevrModGunCopyActionTick(",
     "f32 gevrModGunActionShare(",
     "const GevrModGunParts *gevrModGunParts(",
     "void gevrModGunModelSet(",
