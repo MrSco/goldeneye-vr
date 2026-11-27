@@ -62,6 +62,15 @@ void gevrExplosionClearBlood(void);   /* explosion.c */
 #define BLOOD_DECALS        96
 #define BLOOD_CHRS          512        /* gevr_ragdoll.c keeps 512 chrs too */
 #define BLOOD_BODIES        GEVR_BLOOD_BODIES
+#define BLOOD_POOLS         6          /* splatTickChr's puddles */
+#define BLOOD_POOL_TRIES    12         /* a body with no floor below (a crate, a ledge) stops looking */
+
+/* Cosmetic: the dedicated server draws nothing, so it makes none. */
+#ifdef GEVR_HEADLESS
+#define BLOOD_ON 0
+#else
+#define BLOOD_ON VrBloodPatch
+#endif
 
 enum { SPLAT_HIT, SPLAT_PUDDLE, SPLAT_DROP };
 
@@ -80,6 +89,8 @@ typedef struct BloodChr {
     Model *model;   /* Horde reuses a slot's chrnum for the next guard */
     s16 chrnum;
     u8 bulletstaken, deaddrops, droppedhere, wounded;
+    u8 deadtries;   /* pool attempts, found a floor or not (BLOOD_POOL_TRIES) */
+    u8 died;        /* seen dying: alive again is the slot's next guard */
     s32 tickssincesplat;
     coord3d lastdroppos;
 } BloodChr;
@@ -87,7 +98,7 @@ typedef struct BloodChr {
 typedef struct BloodBody {
     unsigned serial;
     s32 ticks;
-    u8 pools;
+    u8 pools, tries;
 } BloodBody;
 
 static BloodDecal s_decals[BLOOD_DECALS];
@@ -231,17 +242,21 @@ static void bloodDecalCreate(const float pos[3], const float normal[3], int room
     if (room <= 0 || room >= MAXROOMCOUNT || roomscale <= 0.0f || !roompos) return;
     bloodSurfaceAxes(normal, (float)(bloodRandom() % 360), across, up);
 
+    for (k = 0; k < 3; k++) {
+        const float reach = fabsf(pos[k] * roomscale - roompos->f[k])
+                          + (fabsf(across[k] * w) + fabsf(up[k] * h)) * roomscale;
+        if (reach > most) most = reach;
+    }
+    /* too far from the room's origin for a vertex: leave the slot's splat be */
+    if (most > 32000.0f) return;
     memset(d, 0, sizeof(*d));
     for (k = 0; k < 3; k++) {
         d->centre[k] = pos[k] * roomscale - roompos->f[k];
         d->across[k] = across[k] * w * roomscale;
         d->up[k] = up[k] * h * roomscale;
-        const float reach = fabsf(d->centre[k]) + fabsf(d->across[k]) + fabsf(d->up[k]);
-        if (reach > most) most = reach;
     }
     /* the corners in eighths of a room unit, as a bullet hole's (explosion.c, #269) */
     while (fine > 1 && most * fine > 32000.0f) fine >>= 1;
-    if (most > 32000.0f) return;
     d->fine = (s16)fine;
     d->room = (s16)room;
     d->timermax = timermax;
@@ -612,7 +627,7 @@ void gevrBloodChrHit(ChrRecord *chr, const coord3d *hitpos, const coord3d *shotd
     float dir[3], len;
     int i, qty, made = 0;
 
-    if (!VrBloodPatch || !bloodChrBleeds(chr) || !hitpos || !shotdir) return;
+    if (!BLOOD_ON || !bloodChrBleeds(chr) || !hitpos || !shotdir) return;
     if (chr->prop->type != PROP_TYPE_CHR && chr->prop->type != PROP_TYPE_VIEWER) return;
     len = sqrtf(shotdir->x * shotdir->x + shotdir->y * shotdir->y + shotdir->z * shotdir->z);
     if (len <= 0.0f) return;
@@ -642,9 +657,20 @@ static void bloodChrTick(ChrRecord *chr, int ticks)
     BloodChr *s = bloodChrState(chr, dying);
 
     if (!s) return;
+    if (!dying && s->died) {
+        /* dead before, up now: Horde's next guard in the slot, maybe on the
+         * same chrnum and Model, starts unwounded */
+        memset(s, 0, sizeof(*s));
+        s->chr = chr;
+        s->chrnum = chr->chrnum;
+        s->model = chr->model;
+    }
     if (dying) {
+        s->died = 1;
         if (gevrRagdollSuppress(chr)) return;   /* the ragdoll body bleeds instead */
-        if (bloodChrDownEnough(chr) && s->tickssincesplat > 30 && s->deaddrops < 6) {
+        if (bloodChrDownEnough(chr) && s->tickssincesplat > 30 && s->deaddrops < BLOOD_POOLS
+            && s->deadtries < BLOOD_POOL_TRIES) {
+            s->deadtries++;
             if (bloodDrip(chr, SPLAT_PUDDLE)) s->deaddrops++;
             s->tickssincesplat = 0;   /* no floor below: try again in half a second */
         }
@@ -686,12 +712,13 @@ static void bloodBodyTick(int body, int ticks)
         memset(s, 0, sizeof(*s));
         s->serial = serial;
     }
-    if (!serial || !resting || s->pools >= 6) return;
+    if (!serial || !resting || s->pools >= BLOOD_POOLS || s->tries >= BLOOD_POOL_TRIES) return;
     s->ticks += ticks;
     if (s->ticks > 30) {
         StandTile *tile;
         coord3d from = root;
         from.y += SPLAT_DROP_HEIGHT;
+        s->tries++;
         tile = stanFindTileBelowPos(&from, NULL, NULL);
         if (tile && bloodSplat(&from, down, getTileRoom(tile), SPLAT_PUDDLE)) s->pools++;
         s->ticks = 0;
@@ -702,7 +729,7 @@ void gevrBloodTick(int ticks)
 {
     int i;
 
-    if (!VrBloodPatch) {
+    if (!BLOOD_ON) {
         if (s_live || s_onobjects) {
             gevrBloodReset();
             gevrExplosionClearBlood();
@@ -739,7 +766,7 @@ void gevrBloodReset(void)
     s_next = s_live = 0;
 }
 
-int gevrBloodDecals(void) { return VrBloodPatch ? BLOOD_DECALS : 0; }
+int gevrBloodDecals(void) { return BLOOD_ON ? BLOOD_DECALS : 0; }
 
 const Vtx *gevrBloodDecal(int i, s32 *room)
 {

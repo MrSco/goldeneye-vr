@@ -50,6 +50,13 @@ def main():
     assert "randomGetNext" not in blood, "cosmetic: never the game's random sequence"
     assert "sub_GAME_7F04E9BC(prop, &shot);" in blood, \
         "a shot's splats test objects as the shot does (PD's objTestHit pass)"
+    assert blood.count("BLOOD_POOL_TRIES") >= 3, \
+        "a body with no floor below stops looking (no endless traces on the Quest)"
+    assert "#ifdef GEVR_HEADLESS\n#define BLOOD_ON 0" in blood and "VrBloodPatch)" not in blood, \
+        "the dedicated server makes no splats"
+    create = blood[blood.index("static void bloodDecalCreate("):]
+    assert create.index("if (most > 32000.0f) return;") < create.index("memset(d, 0"), \
+        "a splat too far for a vertex leaves the slot's live one be"
     assert "void gevrExplosionCreateDecalOnProp(" in explosion, \
         "object splats go in the bullet holes' ring, on the object's matrix"
     print("blood splat checks passed")
