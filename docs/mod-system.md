@@ -679,8 +679,9 @@ in-game screen). We maintain the adapters, not the mods.
     above, never shortened. `handle` has no timing (it moves only with the
     pull) and refuses one; so does a timing with one of open or close, a
     value outside its range, or ticks that aren't whole.
-    Legacy models and thrown weapons refuse moving parts, and only the
-    local player's hands show them, as with the rest of the pack body.
+    Legacy models and thrown weapons refuse moving parts. In co-op the
+    other players see them move on this player's copy, with the same rule
+    and timing (see "On the other players").
 
     The flash follows the muzzle. Replacing the gun body hides the
     carrier's flash, since at the carrier's point it would show inside or
@@ -1123,16 +1124,28 @@ in-game screen). We maintain the adapters, not the mods.
       file and its `like` (flat model file names as `mod.attach.add` takes
       them), and its optic (`mod.attach.optic`): bound or not, the selected
       mode (0 to 11), whether that mode folds the housing, and the folded
-      housing's file ("" none). An optic only on a pack mesh on the gun, a
-      fold only with a housing, a mode or housing only with an optic.
+      housing's file ("" none), and its action (`mod.attach.action`):
+      whether it moves, only with the rack's pull (a handle), with timing
+      of its own, its travel (3 floats within 4000; zero when it doesn't
+      move), and that timing (open and close, 1 to 30 ticks, and an ease
+      from 0 to 1; all 0 without). An optic only on a pack mesh on the
+      gun, a fold only with a housing, a mode or housing only with an
+      optic; an action only on the gun, a handle or a timing only with
+      one, never both.
       `REMOVE`: the id. `CLEAR`: all of the sender's of that mod, its gun
       bodies too. `ASK`: a slot (the host's alone: send what you wear to
       that player). `GUNBODY`: a hand (0 right, 1 left), the gun it stands
       in for (an item, 1 to 255; 0 the hand's own model again), whether a
       fit and a muzzle are set, the fit (12 floats: axes within 100, origin
-      within 4000), the muzzle (3 floats within 4000), and the pack mesh's
-      file (a flat name; "" with item 0). Nothing else of the body: no
-      support point, no textures, no lens.
+      within 4000), the muzzle (3 floats within 4000), its moving parts
+      (`mod.weapon.model`'s `action`, `handle` and `holdOpen`): whether it
+      has any and holds open, the action's and the handle's pictures (a
+      bit a picture, none in both), their travels (3 floats each within
+      4000, zero for a group without pictures) and the action's timing as
+      a `SET`'s (only with the action's pictures), and the pack mesh's
+      file (a flat name; "" with item 0, which has no parts). Nothing else
+      of the body: no support point, no textures, no lens. The receiver
+      checks the pictures against its mesh as it splits it.
     - Anyone's, to everyone or to one, routed and rate-limited as
       `NET_MOD_DATA` is (the host checks the sender by its peer and relays at
       most 64 a second of each player's, everything `NET_MSG_MOD` together).
@@ -1143,8 +1156,9 @@ in-game screen). We maintain the adapters, not the mods.
     - The owner sends on change, never each frame: a record when one is
       attached, shown or hidden, placed or removed, when its optic is
       bound, unbound (a gun swap retires it) or flips mode (the stick's
-      click or `opticMode`; zoom isn't sent), when a hand's pack gun body
-      is set, changes fit, goes back to the hand's own (`nil`, or a gun
+      click or `opticMode`; zoom isn't sent), when a part's action is set,
+      changed or taken off, when a hand's pack gun body is set, changes
+      fit or moving parts, goes back to the hand's own (`nil`, or a gun
       with none in the hand) or follows a gun swap, and when a body
       anchor's centre (the player's own fit) moves more than half a cm;
       the same state again sends nothing. A hand's own model is told only
@@ -1319,7 +1333,8 @@ in-game screen). We maintain the adapters, not the mods.
     its own, as a body's `action` takes them; it then runs its own state on
     the same shots, ticks and hold-open as the body's, and without them it
     follows the body's action (or GoldenEye's rule when the hand draws no
-    pack body). A `handle` part refuses a timing.
+    pack body). A `handle` part refuses a timing. In co-op the part moves
+    on this player's copy too (see "On the other players").
   - Built over a prop (P) file, a model's parts are laid out by its own
     nodes, as a prop's are. A gun (G) file's joints are posed only by the
     gun's animation, so a model built over one is drawn rigid at its root,
@@ -1358,6 +1373,30 @@ in-game screen). We maintain the adapters, not the mods.
       on the gun then sit on the body as they do on the owner's headset. A
       body built over the cartridge's model (not a pack mesh) isn't sent:
       the copy shows the item's own model.
+    - Moving parts (#353): a pack body's `action` and `handle` pictures
+      and a gun part's `mod.attach.action` move on the copy as on the
+      owner's hand. The copy's pack body is split into the same groups
+      (`gevrModMeshSplit()`; a picture its mesh hasn't is logged and the
+      body drawn still) and drawn through the same split draw
+      (`gevrModMeshDrawParts()`), each group at its offset; a gun part
+      along its travel in its anchor's frame, as the owner's. How far
+      along they are is the same rule (`gevr_modaction.h`), run on the
+      copy for each other player's hand (`gevr_modattach.c`
+      `gevrModAttachRemoteActionTick()`, from `gun.c` each of the copy's
+      ticks), with the owner's timing as told (open, close, ease; a part's
+      own, else the body's, else GoldenEye's) and the same fast-gun cut
+      from the gun's interval between shots. No shot is sent for it: the
+      copy's gun already fires on this headset as its owner's trigger says
+      (`gunfire.c`, `netRemoteTrigger()`, the same shots at the gun's own
+      rate that show its flash and play its sound), and each of those
+      shots (`sub_GAME_7F05E808`, or the low-memory left hand's own shot)
+      opens the copy's action. A swap starts the new gun's closed, and a
+      player leaving, a `CLEAR`, a mission or a mod stopped takes them
+      with the bodies. What the network doesn't carry is left out: the
+      owner's magazine (co-op refills a copy's, and no ammo or reload state
+      is sent), so a copy's action never holds open on an empty magazine
+      and closes after the last shot; and the hand rack's pull, so a
+      `handle` stays home on the copy and an action shows only the shots.
     - An optic (`mod.attach.optic`): its housing's state alone. The copy
       draws the folded housing while the owner's selected mode folds it,
       the attachment's own model otherwise; the lens, its magnified view
