@@ -24,6 +24,7 @@
 #include "net_coop.h"
 #include "gevr_ragdoll.h"
 #include "gevr_volumetric.h"
+#include "gevr_blood.h"
 #endif
 #include "random.h"
 #include "snd.h"
@@ -222,6 +223,7 @@ Vtx g_SmokeRenderPartDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0x0 };
 Vtx g_ScorchDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0xDC };
 #ifdef GEVR
 #define GEVR_IMPACT_FINE_MAX 8   /* a hole's corners in eighths of a unit (explosionCreateBulletImpact) */
+#define GEVR_IMPACT_BLOOD 0x4244   /* BulletImpact.unk4E: a Blood patch splat (gevrExplosionCreateDecalOnProp) */
 #endif
 Vtx g_BulletImpactDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0xDC };
 
@@ -2539,6 +2541,14 @@ void explosionSetBulletImpactAlpha(s32 arg0)
     for (i = 0; i < SMOKE_PARTS_LEN; i++)
     {
         val = (u32) (((f32) i / 10.0f) * 255.0f);
+#ifdef GEVR
+        /* a blood splat fades from its own alpha (glass's is low), never up to the ramp */
+        if (g_BulletImpactBuffer[arg0].unk4E == GEVR_IMPACT_BLOOD)
+        {
+            const u32 own = g_BulletImpactBuffer[arg0].vertex_list[0].v.cn[3];
+            if (own < val) val = own;
+        }
+#endif
 
         g_BulletImpactBuffer[arg0].vertex_list[3].v.cn[3] = val; // alpha
         g_BulletImpactBuffer[arg0].vertex_list[2].v.cn[3] = val; // alpha
@@ -2678,6 +2688,9 @@ void explosionCreateBulletImpact(struct coord3d *pos, struct coord3d *arg1, s16 
     g_BulletImpactBuffer[g_NumImpactEntries].room_clear_flag = room_clear_flag;
     g_BulletImpactBuffer[g_NumImpactEntries].room = room;
     g_BulletImpactBuffer[g_NumImpactEntries].impact_type = impact_type;
+#ifdef GEVR
+    g_BulletImpactBuffer[g_NumImpactEntries].unk4E = 0;   /* not the Blood patch's (GEVR_IMPACT_BLOOD) */
+#endif
 
     g_BulletImpactBuffer[g_NumImpactEntries].vertex_list[0] = spE0;
     g_BulletImpactBuffer[g_NumImpactEntries].vertex_list[1] = spE0;
@@ -2819,6 +2832,97 @@ void explosionCreateBulletImpact(struct coord3d *pos, struct coord3d *arg1, s16 
     g_BulletImpactBuffer[g_NumImpactEntries].room = -1;
 }
 
+#ifdef GEVR
+/*
+ * Mods: the Blood patch's splat on an object, door or gun (gevr_blood.c), as
+ * a hole on one goes above: in the ring with the holes, on the prop's model
+ * matrix mtxindex, in that matrix's own units. The caller lays the quad: its
+ * centre and half sides (already divided by the matrix's scale, as the sizes
+ * above are) and its colour; the corners and their eighths are these.
+ */
+void gevrExplosionCreateDecalOnProp(PropRecord *prop, s8 mtxindex, s16 impact_type, const f32 centre[3],
+                                    const f32 across[3], const f32 up[3], const u8 rgba[4], s8 room_clear_flag)
+{
+    static const f32 sa[4] = { -1.0f, -1.0f, 1.0f, 1.0f };
+    static const f32 su[4] = { -1.0f, 1.0f, 1.0f, -1.0f };
+    struct BulletImpact *b = &g_BulletImpactBuffer[g_NumImpactEntries];
+    const s_impacttype *type = &g_ImpactTypes[impact_type];
+    f32 corners[4][3], most = 0.0f;
+    s32 fine = GEVR_IMPACT_FINE_MAX;
+    s32 j, k;
+
+    for (j = 0; j < 4; j++)
+    {
+        for (k = 0; k < 3; k++)
+        {
+            corners[j][k] = centre[k] + sa[j] * across[k] + su[j] * up[k];
+            if (fabsf(corners[j][k]) > most) most = fabsf(corners[j][k]);
+        }
+    }
+    if (most > 32000.0f)
+    {
+        return;
+    }
+    while (fine > 1 && most * fine > 32000.0f)
+    {
+        fine >>= 1;
+    }
+
+    b->prop = prop;
+    b->model_render_pos_index = mtxindex;
+    b->room_clear_flag = room_clear_flag;
+    b->room = 1;
+    b->impact_type = impact_type;
+    b->unk4E = GEVR_IMPACT_BLOOD;
+    for (j = 0; j < 4; j++)
+    {
+        b->vertex_list[j] = g_BulletImpactDefaultVertex;
+        for (k = 0; k < 3; k++)
+        {
+            b->vertex_list[j].v.ob[k] = explosionRoundFloat(corners[j][k] * fine);
+        }
+        b->vertex_list[j].v.flag = fine;
+        b->vertex_list[j].v.tc[0] = sa[j] > 0.0f ? impactimages[impact_type].width << 5 : 0;
+        b->vertex_list[j].v.tc[1] = (j == 0 || j == 3) ? impactimages[impact_type].height << 5 : 0;
+        for (k = 0; k < 4; k++)
+        {
+            b->vertex_list[j].v.cn[k] = rgba[k];
+        }
+    }
+    if ((type->unk2 < 2) && (type->unk1 == 2))
+    {
+        prop->obj->state |= PROPSTATE_2;
+    }
+    else
+    {
+        prop->obj->state |= PROPSTATE_DAMAGED;
+    }
+
+    g_NumImpactEntries++;
+    if (g_NumImpactEntries >= BULLET_IMPACT_BUFFER_LEN)
+    {
+        g_NumImpactEntries = 0;
+    }
+    explosionSetBulletImpactAlpha(g_NumImpactEntries);
+    g_BulletImpactBuffer[g_NumImpactEntries].room = -1;
+}
+
+/* The Blood patch turned off: its splats on objects go with it (gevr_blood.c). */
+void gevrExplosionClearBlood(void)
+{
+    s32 i;
+
+    for (i = 0; i < BULLET_IMPACT_BUFFER_LEN; i++)
+    {
+        if (g_BulletImpactBuffer[i].unk4E == GEVR_IMPACT_BLOOD)
+        {
+            g_BulletImpactBuffer[i].room = -1;
+            g_BulletImpactBuffer[i].unk4E = 0;
+        }
+    }
+}
+#endif
+
 
 
 
@@ -2958,6 +3062,47 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
     }
 
 #ifdef GEVR
+    /*
+     * Mods: the Blood patch's splats (gevr_blood.c), on the level only, so
+     * with the rooms' pass. They are wall hits of their own ring, drawn as
+     * the ones above: the room's matrix, the corners' fine scale, the
+     * Paintball splat's picture.
+     */
+    if (arg1 == NULL && arg2 == 0)
+    {
+        const s32 count = gevrBloodDecals();
+        s32 lastroom = -1, lastfine = 0, selected = 0;
+
+        for (i = 0; i < count; i++)
+        {
+            s32 room;
+            const Vtx *vtx = gevrBloodDecal(i, &room);
+            s32 fine;
+
+            if (vtx == NULL || !getROOMID_isRendered(room))
+            {
+                continue;
+            }
+            fine = vtx[0].v.flag > 1 ? vtx[0].v.flag : 1;
+            if (room != lastroom || fine != lastfine)
+            {
+                gdl = applyRoomMatrixToDisplayList(gdl, room);
+                if (fine > 1)
+                {
+                    gSPMatrix(gdl++, osVirtualToPhysical(gevrImpactFineMtx(fine)), G_MTX_NOPUSH | G_MTX_MUL | G_MTX_MODELVIEW);
+                }
+                lastroom = room;
+                lastfine = fine;
+            }
+            if (!selected)
+            {
+                texSelect(&gdl, &impactimages[GEVR_BLOOD_IMPACT_TYPE], g_ImpactTypes[GEVR_BLOOD_IMPACT_TYPE].unk1, g_ImpactTypes[GEVR_BLOOD_IMPACT_TYPE].unk2, 2U);
+                selected = 1;
+            }
+            gSPVertex(gdl++, osVirtualToPhysical(vtx), 4, 0);
+            gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
+        }
+    }
     gDPNoOpTag(gdl++, 0x56610001);   /* VR_IMPACT_DL_END */
 #endif
     gDPSetColorDither(gdl++, G_CD_BAYER);

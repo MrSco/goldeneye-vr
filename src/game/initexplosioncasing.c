@@ -63,6 +63,9 @@ void alloc_explosion_smoke_casing_scorch_impact_buffers(void)
     for (i=0; i<BULLET_IMPACT_BUFFER_LEN; i++)
     {
         g_BulletImpactBuffer[i].room = -1;
+#ifdef GEVR
+        g_BulletImpactBuffer[i].unk4E = 0;   /* no Blood patch splat (explosion.c GEVR_IMPACT_BLOOD) */
+#endif
     }
 
 #ifdef GEVR

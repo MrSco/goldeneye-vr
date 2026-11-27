@@ -1164,7 +1164,7 @@ static const Row s_rows[] = {
     { .label = "Gun size", .headset = 1, .tooltip = "Tiny or big guns, as the cheat.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_CHEATS), .where = GEVR_SET_BOTH, .ivar = &VrGunSizeCheat,
       .ivalues = s_three, .names = s_gunSizeNames, .count = 3, .def = NAN },
-    { .label = "Blood patch", .tooltip = "Shot guards spray the red blood sparks Rare left in the game (by Wreck).",
+    { .label = "Blood patch", .tooltip = "Shot guards spray the red blood sparks Rare left in the game (by Wreck), and leave blood on the walls and pools on the floor.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrBloodPatch, .def = NAN },
     { .label = "Oddjob's hat", .tooltip = "Oddjob's hat in place of the throwing knife.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrOddjobHat, .def = NAN, .blocked = blockedHat },
