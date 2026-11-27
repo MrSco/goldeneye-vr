@@ -5802,7 +5802,9 @@ s32 gevrModGunSupport(s32 hand, coord3d *out)
  * by its rule each tick, with the hand rack's pull (bondview2.c).
  */
 static GevrModAction s_gevrModAction[MAX_PLAYER_COUNT][2];
+static u8 s_gevrModShot[MAX_PLAYER_COUNT][2];   /* a shot this tick, for gun parts with their own timing */
 extern f32 gevrRackPullShare(s32 hand);   /* bondview2.c */
+extern s32 gevrModGameShotInterval(s32 item);   /* gevr_modgame.c */
 
 static GevrModAction *gevrModGunAction(s32 hand)
 {
@@ -5810,10 +5812,21 @@ static GevrModAction *gevrModGunAction(s32 hand)
     return p >= 0 && p < MAX_PLAYER_COUNT && hand >= 0 && hand <= 1 ? &s_gevrModAction[p][hand] : NULL;
 }
 
+/* the body's own timing, NULL for GoldenEye's */
+static const GevrModActionTiming *gevrModGunTiming(s32 hand)
+{
+    const s32 item = gevrModGunFittedItem(hand);
+    return item >= 0 && s_gevrModGunHasParts[hand][item] ? &s_gevrModGunPartsFor[hand][item].timing : NULL;
+}
+
 void gevrModGunActionShot(s32 hand)
 {
     GevrModAction *a = gevrModGunAction(hand);
-    if (a != NULL) gevrModActionShot(a, g_CurrentPlayer->hand_item[hand]);
+    if (a != NULL)
+    {
+        gevrModActionShot(a, g_CurrentPlayer->hand_item[hand]);
+        s_gevrModShot[get_cur_playernum()][hand] = TRUE;
+    }
 }
 
 static void gevrModGunActionTick(s32 hand)
@@ -5821,16 +5834,23 @@ static void gevrModGunActionTick(s32 hand)
     GevrModAction *a = gevrModGunAction(hand);
     const s32 item = gevrModGunFittedItem(hand);
     const s32 holdOpen = item < 0 || !s_gevrModGunHasParts[hand][item] || s_gevrModGunPartsFor[hand][item].holdOpen;
+    const s32 held = g_CurrentPlayer->hand_item[hand];
+    const s32 interval = gevrModGameShotInterval(held);
+    const s32 loaded = g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine;
+    int open, close;
     if (a == NULL) return;
-    gevrModActionStep(a, g_CurrentPlayer->hand_item[hand], g_GlobalTimerDelta,
-                      g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine, holdOpen);
+    gevrModActionTicks(gevrModGunTiming(hand), interval, &open, &close);
+    gevrModActionStep(a, held, g_GlobalTimerDelta, loaded, holdOpen, open, close);
+    /* gun parts with timing of their own step beside it (gevr_modattach.c) */
+    gevrModAttachActionTick(hand, held, s_gevrModShot[get_cur_playernum()][hand], g_GlobalTimerDelta, loaded, holdOpen, interval);
+    s_gevrModShot[get_cur_playernum()][hand] = FALSE;
 }
 
 f32 gevrModGunActionShare(s32 hand, s32 handle)
 {
     const GevrModAction *a = gevrModGunAction(hand);
     if (a == NULL || a->item != g_CurrentPlayer->hand_item[hand]) a = NULL;
-    return gevrModActionShare(a, gevrRackPullShare(hand), handle);
+    return gevrModActionShare(a, gevrRackPullShare(hand), handle, gevrModGunTiming(hand));
 }
 
 const GevrModGunParts *gevrModGunParts(s32 hand, f32 offset[GEVR_MODPART_GROUPS][3])

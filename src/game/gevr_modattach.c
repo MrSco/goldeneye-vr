@@ -124,6 +124,9 @@ typedef struct
     s32 moves;                   /* on the gun: it moves with the action (mod.attach.action) */
     s32 handle;                  /* only with the rack's pull, not each shot */
     f32 travel[3];               /* fully back, in the anchor's frame */
+    s32 timed;                   /* with an action timing of its own, else the body's */
+    GevrModActionTiming timing;
+    GevrModAction action;        /* and its own state, stepped with the hand's (gun.c) */
     Mtxf drawnPose;
     u32 drawnFrame;
     ITEM_IDS drawnItem;
@@ -463,7 +466,7 @@ int gevrModGameAttachPlace(int id, const float offset[4][4])
     return a != NULL;
 }
 
-int gevrModGameAttachAction(int id, const float travel[3], int handle)
+int gevrModGameAttachAction(int id, const float travel[3], int handle, const GevrModActionTiming *timing)
 {
     Attachment *a = attachFind(id);
     s32 i;
@@ -474,11 +477,58 @@ int gevrModGameAttachAction(int id, const float travel[3], int handle)
     }
     a->moves = travel != NULL;
     a->handle = travel != NULL && handle;
+    a->timed = travel != NULL && timing != NULL;
+    if (a->timed)
+    {
+        a->timing = *timing;
+        memset(&a->action, 0, sizeof(a->action));
+    }
     for (i = 0; i < 3; i++)
     {
         a->travel[i] = travel != NULL ? travel[i] : 0.0f;
     }
     return 1;
+}
+
+/* gun.c, each tick after the hand's own action: a gun part with timing of
+ * its own runs the same rule on it, opened by the same shot */
+void gevrModAttachActionTick(s32 hand, s32 item, s32 shot, f32 ticks, s32 loaded, s32 holdOpen, s32 interval)
+{
+    s32 i;
+
+    if (!attachLocal())
+    {
+        return;
+    }
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
+    {
+        Attachment *a = &s_attach[i];
+        int open, close;
+
+        if (a->id <= 0 || a->on != GEVR_MODATTACH_GUN || a->where != hand || !a->moves || !a->timed)
+        {
+            continue;
+        }
+        if (shot)
+        {
+            gevrModActionShot(&a->action, item);
+        }
+        gevrModActionTicks(&a->timing, interval, &open, &close);
+        gevrModActionStep(&a->action, item, ticks, loaded, holdOpen, open, close);
+    }
+}
+
+/* how far along its travel a gun part is now: its own action, else the body's */
+static f32 attachActionShare(Attachment *a, s32 hand)
+{
+    extern f32 gevrRackPullShare(s32 hand);   /* bondview2.c */
+
+    if (!a->timed)
+    {
+        return gevrModGunActionShare(hand, a->handle);
+    }
+    return gevrModActionShare(a->action.item == g_CurrentPlayer->hand_item[hand] ? &a->action : NULL,
+                              gevrRackPullShare(hand), a->handle, &a->timing);
 }
 
 int gevrModGameAttachShow(int id, int shown)
@@ -882,7 +932,7 @@ Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun
             if (a->moves)
             {
                 /* where the action is now (gevr_modaction.h), along its travel in the anchor's frame */
-                const f32 share = gevrModGunActionShare(hand, a->handle);
+                const f32 share = attachActionShare(a, hand);
                 s32 k;
 
                 for (k = 0; k < 3; k++)

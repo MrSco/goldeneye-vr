@@ -1596,11 +1596,22 @@ mod.on("mission_start", function()
   print("far", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -4001}}})))
   print("hold kind", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {holdOpen=1})))
   print("thrown", mod.weapon.model("right", "grenade", "pack-body.bin", {action={pictures={0}, travel={0, 0, -1}}}))
+  print("timed", mod.weapon.model("right", "sniperrifle", "pack-body.bin",
+    {action={pictures={1}, travel={0, 0, -44}, open=1, close=5, ease=0.4}, holdOpen=false}))
+  print("linear", mod.weapon.model("right", "sniperrifle", "pack-body.bin", {action={pictures={1}, travel={0, 0, -44}, open=2, close=30}}))
+  print("half timing", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=1}})))
+  print("slow", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=1, close=31}})))
+  print("instant", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=0, close=5}})))
+  print("fraction", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=1.5, close=5}})))
+  print("steep", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=1, close=5, ease=1.5}})))
+  print("handle timing", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {handle={pictures={1}, travel={0, 0, -1}, open=1, close=5}})))
   local bolt = mod.attach.add({ model = "pack-part.bin", on = "gun", hand = "right" })
   local glove = mod.attach.add({ model = "pack-part.bin", on = "hand", hand = "left" })
   print("part", mod.attach.action(bolt, {travel={0, 0, -44}}))
   print("handle part", mod.attach.action(bolt, {travel={-3, 0, -55}, handle=true}))
   print("hand part", mod.attach.action(glove, {travel={0, 0, -1}}))
+  print("timed part", mod.attach.action(bolt, {travel={0, 0, -44}, open=1, close=6, ease=0.4}))
+  print("timed handle", (pcall(mod.attach.action, bolt, {travel={0, 0, -44}, handle=true, open=1, close=6})))
   print("still", mod.attach.action(bolt, nil))
   print("bad part", (pcall(mod.attach.action, bolt, {travel={0, 0}})))
   print("not ours", mod.attach.action(99, {travel={0, 0, -1}}))
@@ -1609,14 +1620,20 @@ end)
     out = run(exe, temp, "gunmodel_parts", lua, "start", "prepare", 9, "begin", 9)
     check(logs(out) == ["bolt true", "both true", "hold only true", "shared false", "repeat false", "range false", "empty false",
                         "no travel false", "far false", "hold kind false", "thrown false",
-                        "part true", "handle part true", "hand part false", "still true", "bad part false", "not ours false"],
+                        "timed true", "linear true", "half timing false", "slow false", "instant false", "fraction false",
+                        "steep false", "handle timing false",
+                        "part true", "handle part true", "hand part false", "timed part true", "timed handle false",
+                        "still true", "bad part false", "not ours false"],
           "moving parts' answers and refusals: " + str(logs(out)))
-    check(answers(out, "GUNPARTS") == ["GUNPARTS 0 2 0.0 0.0 -44.0 0 0.0 0.0 0.0 0",
-                                       "GUNPARTS 1 180 0.0 0.0 -30.0 1 0.0 0.0 -55.0 1",
-                                       "GUNPARTS 0 0 0.0 0.0 0.0 0 0.0 0.0 0.0 1"],
+    check(answers(out, "GUNPARTS") == ["GUNPARTS 0 2 0.0 0.0 -44.0 0 0.0 0.0 0.0 0 0 0 1.00",
+                                       "GUNPARTS 1 180 0.0 0.0 -30.0 1 0.0 0.0 -55.0 1 0 0 1.00",
+                                       "GUNPARTS 0 0 0.0 0.0 0.0 0 0.0 0.0 0.0 1 0 0 1.00",
+                                       "GUNPARTS 0 2 0.0 0.0 -44.0 0 0.0 0.0 0.0 0 1 5 0.40",
+                                       "GUNPARTS 0 2 0.0 0.0 -44.0 0 0.0 0.0 0.0 1 2 30 1.00"],
           "only well-formed groups reach the game, as picture bits and travel: " + str(answers(out, "GUNPARTS")))
     check(answers(out, "ATTACHACTION") == ["ATTACHACTION 1 0 0 -44 0", "ATTACHACTION 1 -3 0 -55 1",
-                                           "ATTACHACTION 2 0 0 -1 0", "ATTACHACTION 1 -"],
+                                           "ATTACHACTION 2 0 0 -1 0", "ATTACHACTION 1 0 0 -44 0 1 6 0.40",
+                                           "ATTACHACTION 1 -"],
           "a part's travel, its handle flag and clearing reach the game: " + str(answers(out, "ATTACHACTION")))
 
 

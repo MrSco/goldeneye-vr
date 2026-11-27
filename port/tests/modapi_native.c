@@ -209,10 +209,10 @@ static int gunModel(int hand, int item, const char *name, const float frame[4][4
     printf("GUNMODEL %d %d %s\n", hand, item, name ? name : "-");
     if ((muzzle != NULL || parts != NULL) && (item == 3 || (item >= 26 && item <= 29))) return 0;   /* thrown: input.c gevrIsThrowable */
     if (parts != NULL) {
-        printf("GUNPARTS %d %x %.1f %.1f %.1f %x %.1f %.1f %.1f %d\n", hand,
+        printf("GUNPARTS %d %x %.1f %.1f %.1f %x %.1f %.1f %.1f %d %d %d %.2f\n", hand,
                parts->pictures[GEVR_MODPART_ACTION], parts->travel[0][0], parts->travel[0][1], parts->travel[0][2],
                parts->pictures[GEVR_MODPART_HANDLE], parts->travel[1][0], parts->travel[1][1], parts->travel[1][2],
-               parts->holdOpen);
+               parts->holdOpen, parts->timing.open, parts->timing.close, parts->timing.ease);
         return name != NULL && strcmp(name, "pack-body.bin") == 0;
     }
     if (frame != NULL) {
@@ -260,10 +260,12 @@ int gevrModGameAttach(const GevrModAttach *a)
 }
 int gevrModGameDetach(int id) { printf("DETACH %d\n", id); s_attached--; return 1; }
 int gevrModGameAttachShow(int id, int shown) { printf("ATTACHSHOW %d %d\n", id, shown); return 1; }
-int gevrModGameAttachAction(int id, const float travel[3], int handle)
+int gevrModGameAttachAction(int id, const float travel[3], int handle, const GevrModActionTiming *timing)
 {
     if (travel == NULL) printf("ATTACHACTION %d -\n", id);
-    else printf("ATTACHACTION %d %.0f %.0f %.0f %d\n", id, travel[0], travel[1], travel[2], handle);
+    else if (timing == NULL) printf("ATTACHACTION %d %.0f %.0f %.0f %d\n", id, travel[0], travel[1], travel[2], handle);
+    else printf("ATTACHACTION %d %.0f %.0f %.0f %d %d %d %.2f\n", id, travel[0], travel[1], travel[2], handle,
+                timing->open, timing->close, timing->ease);
     return id != 2;   /* the second is on a hand */
 }
 /* gevr_modoptic.c: profiles named Gno won't load; two modes, the second folded */

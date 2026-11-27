@@ -245,6 +245,21 @@ s32 gevrModThrowGuideLook(s32 item, f32 *length, f32 *width, u8 rgb[3], s32 *fad
 
 /* gunfire.c: the firing switch's case for the item: an automatic's (the
  * AK47's) or a shot a press (the PP7's) when a mod chose, else as */
+/* gun.c (gevr_modaction.h): the ticks between an automatic's shots as
+ * gunfire.c fires it (its AutomaticFiringRate, or a mod's fireRate), 0 for a
+ * gun that fires a shot a press */
+s32 gevrModGameShotInterval(s32 item)
+{
+    const WeaponStats *st;
+    s32 automatic;
+
+    if (item <= ITEM_UNARMED || item >= ITEM_IDS_MAX) return 0;
+    automatic = s_modFireMode[item] ? s_modFireMode[item] == 1 : nativeAutomatic(item);
+    st = get_ptr_item_statistics((ITEM_IDS)item);
+    if (!automatic || st == NULL || st->AutomaticFiringRate == 0xFF || st->AutomaticFiringRate == 0) return 0;
+    return st->AutomaticFiringRate;
+}
+
 s32 gevrModFireAs(s32 item, s32 as)
 {
     if (item < 0 || item >= ITEM_IDS_MAX || s_modFireMode[item] == 0) return as;

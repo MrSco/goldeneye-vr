@@ -8,6 +8,8 @@
 #ifndef GEVR_MODAPI_H
 #define GEVR_MODAPI_H
 
+#include "gevr_modaction.h"   /* GevrModActionTiming */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -476,6 +478,7 @@ typedef struct GevrModGunParts {
     unsigned pictures[GEVR_MODPART_GROUPS];   /* bit n: picture n; 0 no such group */
     float travel[GEVR_MODPART_GROUPS][3];
     int holdOpen;                             /* back on an empty magazine, as GoldenEye's slide */
+    GevrModActionTiming timing;               /* the action's own open, close and ease; 0 GoldenEye's */
 } GevrModGunParts;
 /* A mod's model for the gun a hand draws (gun.c gevrModGunModelSet): the
  * run's mod's assets/models/<name> for item in that hand, or name NULL the
@@ -521,8 +524,9 @@ int gevrModGameAttach(const GevrModAttach *a);
 int gevrModGameDetach(int id);
 int gevrModGameAttachShow(int id, int shown);
 int gevrModGameAttachPlace(int id, const float offset[4][4]);   /* a new offset, from the next frame */
-/* a gun attachment's travel with the action (NULL: it stays put); handle: the rack's pull only. 0 not on a gun */
-int gevrModGameAttachAction(int id, const float travel[3], int handle);
+/* a gun attachment's travel with the action (NULL: it stays put); handle: the rack's pull only; timing
+ * NULL follows the gun's body (or GoldenEye's), else the part's own. 0 not on a gun */
+int gevrModGameAttachAction(int id, const float travel[3], int handle, const GevrModActionTiming *timing);
 void gevrModGameAttachReset(void);   /* none attached (a new mission, a mod stopped) */
 /* mod.attach.optic (gevr_modoptic.c): a pack optic profile on an attachment
  * (NULL unbinds), with its folded housing (a pack mesh, or NULL); 1 when bound */

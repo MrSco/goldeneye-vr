@@ -41,6 +41,7 @@ production = "\n".join([tables, action] + [function(gun, name) for name in (
     "static s32 gevrModGunShownOk(",
     "static s32 gevrModGunFittedItem(",
     "static GevrModAction *gevrModGunAction(",
+    "static const GevrModActionTiming *gevrModGunTiming(",
     "void gevrModGunActionShot(",
     "static void gevrModGunActionTick(",
     "f32 gevrModGunActionShare(",
@@ -53,7 +54,7 @@ production = "\n".join([tables, action] + [function(gun, name) for name in (
 fixture = (ROOT / "port/tests/pack_action_native.c").read_text(encoding="utf-8")
 with tempfile.TemporaryDirectory(prefix="gevr-pack-action-") as temp:
     source, exe = Path(temp) / "pack_action_native.c", Path(temp) / "pack_action_native.exe"
-    source.write_text(fixture.replace("/* PRODUCTION */", '#include "gevr_modaction.h"\n' + production), encoding="utf-8")
+    source.write_text(fixture.replace("/* PRODUCTION */", production), encoding="utf-8")
     subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O2", "-Wall", "-Werror", "-Wno-unused-function",
                     "-DGEVR=1", "-I", str(ROOT / "port/include"), str(source), "-o", str(exe), "-lm"], check=True)
     subprocess.run([str(exe)], check=True)
@@ -70,8 +71,19 @@ check("gevrModMeshDrawParts(renderdata.gdl" in fire and "gevrModGunParts(handnum
       "the held body draws its groups where the action is")
 attach = (ROOT / "src/game/gevr_modattach.c").read_bytes().decode().replace("\r\n", "\n")
 drawGun = function(attach, "Gfx *gevrModAttachDrawGun(")
-check("gevrModGunActionShare(hand, a->handle)" in drawGun and "offset.m[3][k] += share * a->travel[k];" in drawGun,
+check("attachActionShare(a, hand)" in drawGun and "offset.m[3][k] += share * a->travel[k];" in drawGun,
       "a gun part moves along its travel in its anchor's frame")
+share = function(attach, "static f32 attachActionShare(")
+check("return gevrModGunActionShare(hand, a->handle);" in share and "&a->timing" in share,
+      "a part follows the body's action, or its own with its own timing")
+partTick = function(attach, "void gevrModAttachActionTick(")
+check("gevrModActionShot(&a->action, item);" in partTick and "gevrModActionTicks(&a->timing, interval, &open, &close);" in partTick
+      and "attachLocal()" in partTick, "a timed part steps its own action on the same shot and interval")
+check("gevrModAttachActionTick(hand, held," in function(gun, "static void gevrModGunActionTick("),
+      "the hand's tick steps its timed parts")
+game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+check("st->AutomaticFiringRate" in function(game, "s32 gevrModGameShotInterval(") and "nativeAutomatic(item)" in function(game, "s32 gevrModGameShotInterval("),
+      "the interval is an automatic's own firing rate, as gunfire.c fires it")
 check("a->on != GEVR_MODATTACH_GUN" in function(attach, "int gevrModGameAttachAction("),
       "only a part on a gun takes an action")
 view = (ROOT / "src/game/bondview2.c").read_bytes().decode()

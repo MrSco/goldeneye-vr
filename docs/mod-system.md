@@ -663,6 +663,22 @@ in-game screen). We maintain the adapters, not the mods.
     pull moves both groups as far along their travel as the hand has
     pulled (`gevrRackShare`), the action group at whichever is further
     back. The hand's own state starts closed for each gun it draws.
+
+    A pack may give the action its own timing in the same table:
+    `action = { pictures, travel, open = 1, close = 5, ease = 0.4 }`.
+    `open` is the ticks to open fully (1 is fully open on the shot's own
+    tick) and `close` the ticks to close, each a whole number from 1 to 30
+    and both or neither. `ease`, from 0 to 1 (1, linear, when left out),
+    shows the action this far open as `open * (ease + (1 - ease) * open)`;
+    the rack's pull is shown as pulled. With its own timing, an automatic
+    gun's close is cut so a cycle fits between its shots (its
+    `AutomaticFiringRate`, or a mod's `fireRate`, in ticks): it closes in
+    those ticks less the open, never under one. The timing moves only the
+    parts: fire rate, reloads, the rack and when the gun can fire again
+    stay the game's. Without it, the action runs GoldenEye's own rule as
+    above, never shortened. `handle` has no timing (it moves only with the
+    pull) and refuses one; so does a timing with one of open or close, a
+    value outside its range, or ticks that aren't whole.
     Legacy models and thrown weapons refuse moving parts, and only the
     local player's hands show them, as with the rest of the pack body.
 
@@ -1299,6 +1315,11 @@ in-game screen). We maintain the adapters, not the mods.
     that stays forward when the gun fires. `nil` puts it back to staying
     where it's placed. True when the mod has it and it's on a gun; a part
     on a hand, the body or a guard has no action, and answers false.
+    `open`, `close` and `ease` in the same table give the part timing of
+    its own, as a body's `action` takes them; it then runs its own state on
+    the same shots, ticks and hold-open as the body's, and without them it
+    follows the body's action (or GoldenEye's rule when the hand draws no
+    pack body). A `handle` part refuses a timing.
   - Built over a prop (P) file, a model's parts are laid out by its own
     nodes, as a prop's are. A gun (G) file's joints are posed only by the
     gun's animation, so a model built over one is drawn rigid at its root,

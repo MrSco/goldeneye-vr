@@ -32,4 +32,6 @@ s32 gevrModGunSupport(s32 hand, coord3d *out);
 const GevrModGunParts *gevrModGunParts(s32 hand, f32 offset[GEVR_MODPART_GROUPS][3]);
 /* How far a gun attachment's travel goes this frame: 0..1 (handle: rack only). */
 f32 gevrModGunActionShare(s32 hand, s32 handle);
+/* gun.c, each tick after the body's action: gun parts with their own timing step theirs */
+void gevrModAttachActionTick(s32 hand, s32 item, s32 shot, f32 ticks, s32 loaded, s32 holdOpen, s32 interval);
 #endif

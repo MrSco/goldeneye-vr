@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include "gevr_modaction.h"
 
 typedef int s32;
 typedef unsigned char u8;
@@ -16,7 +17,8 @@ typedef struct { float m[4][4]; } Mtxf;
 typedef struct { int unused; } GevrModMesh;
 enum { FALSE, TRUE, ITEM_UNARMED, ITEM_TEST, ITEM_OTHER, ITEM_IDS_MAX, MAX_PLAYER_COUNT = 4 };
 enum { GEVR_MODPART_ACTION, GEVR_MODPART_HANDLE, GEVR_MODPART_GROUPS };
-typedef struct { unsigned pictures[GEVR_MODPART_GROUPS]; float travel[GEVR_MODPART_GROUPS][3]; int holdOpen; } GevrModGunParts;
+typedef struct { unsigned pictures[GEVR_MODPART_GROUPS]; float travel[GEVR_MODPART_GROUPS][3]; int holdOpen;
+                 GevrModActionTiming timing; } GevrModGunParts;
 typedef struct { f32 BoltRecoilBack; } WeaponStats;
 struct hand { f32 field_A88; s32 field_A8C; s32 weapon_ammo_in_magazine; };
 static struct TestPlayer { int hand_item[2]; struct hand hands[2]; } player;
@@ -34,6 +36,16 @@ static const WeaponStats *get_ptr_item_statistics(int item) { (void)item; return
 f32 gevrRackPullShare(s32 hand) { return s_rack[hand]; }
 static void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3]) { (void)fit; memcpy(out, point, 3 * sizeof(float)); }
 static void gevrModGunActionShot(s32 hand);
+static s32 s_interval;   /* gevr_modgame.c: an automatic's ticks between shots */
+s32 gevrModGameShotInterval(s32 item) { (void)item; return s_interval; }
+static int s_partTicks, s_partShots, s_partInterval;   /* gevr_modattach.c: the timed parts' tick */
+void gevrModAttachActionTick(s32 hand, s32 item, s32 shot, f32 ticks, s32 loaded, s32 holdOpen, s32 interval)
+{
+    (void)hand, (void)item, (void)ticks, (void)loaded, (void)holdOpen;
+    ++s_partTicks;
+    s_partShots += shot != 0;
+    s_partInterval = interval;
+}
 
 /* PRODUCTION */
 
@@ -120,8 +132,50 @@ int main(void)
     assert(gevrModGunParts(0, offset) == NULL);
     gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, &parts);
     assert(gevrModGunParts(0, offset) != NULL);
+    /* A pack's timing (MrSco on #353): open 1, close 5, ease 0.4 is native
+     * Tactical's rifle stroke, open * (0.4 + 0.6 * open) from the shot's own
+     * tick back over five more (port/include's formula, no Tactical code). */
+    {
+        GevrModGunParts timed = parts;
+        timed.holdOpen = FALSE;
+        timed.timing = (GevrModActionTiming){ 1, 5, 0.4f };
+        gevrModGunModelSet(0, ITEM_TEST, "pack.bin", NULL, NULL, NULL, &timed);
+        player.hands[0].weapon_ammo_in_magazine = 5;
+        for (int i = 0; i < 8; ++i) tick(0, 1.0f);   /* closed */
+        s_partShots = 0;
+        for (int age = 0; age < 8; ++age) {
+            tick(age == 0, 1.0f);
+            const float o = age < 6 ? 1.0f - age / 5.0f : 0.0f;
+            near(gevrModGunActionShare(0, FALSE), o * (0.4f + 0.6f * o), "the pack's own timing and ease, tick by tick");
+        }
+        assert(s_partShots == 1 && s_partInterval == 0);   /* the parts were told the shot once */
+        /* GoldenEye's default doesn't take the ease; the pull isn't eased */
+        s_rack[0] = 0.3f;
+        near(gevrModGunActionShare(0, FALSE), 0.3f, "the rack's pull as pulled");
+        s_rack[0] = 0.0f;
+        /* an automatic firing every 4 ticks: the close is cut to 3 so a cycle fits */
+        s_interval = 4;
+        for (int age = 0; age < 5; ++age) {
+            tick(age == 0, 1.0f);
+            const float o = age < 4 ? 1.0f - age / 3.0f : 0.0f;
+            near(gevrModGunActionShare(0, FALSE), o * (0.4f + 0.6f * o), "a fast gun's close fits between its shots");
+        }
+        assert(s_partInterval == 4);
+        s_interval = 0;
+    }
+    {
+        int open, close;
+        const GevrModActionTiming none = { 0, 0, 1.0f };
+        gevrModActionTicks(&none, 3, &open, &close);
+        assert(open == 4 && close == 6);   /* GoldenEye's own is never shortened */
+        gevrModActionTicks(NULL, 0, &open, &close);
+        assert(open == 4 && close == 6);
+        const GevrModActionTiming slow = { 10, 30, 1.0f };
+        gevrModActionTicks(&slow, 5, &open, &close);
+        assert(open == 10 && close == 1);   /* never below one tick */
+    }
     gevrModGunModelReset();
     assert(gevrModGunParts(0, offset) == NULL);
-    puts("pack action: GoldenEye's slide rule on the pack's stroke, the rack's pull, hold open, and the groups' offsets");
+    puts("pack action: GoldenEye's slide rule on the pack's stroke, the rack's pull, hold open, the groups' offsets, and a pack's own timing, ease and fast-gun close");
     return 0;
 }
