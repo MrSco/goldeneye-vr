@@ -24,6 +24,7 @@ static void gevrModMeshReset(void) {}
 
 int main(void)
 {
+    (void)&s_gevrModOffGloveFit;   /* gun.c's off-hand glove table rides in the pasted tables */
     static const GevrModMesh mesh;
     static const float support[3] = {4, 5, 60};
     static const float fit[4][4] = {{-1,0,0,0}, {0,1,0,0}, {0,0,2,0}, {2,10,20,1}};

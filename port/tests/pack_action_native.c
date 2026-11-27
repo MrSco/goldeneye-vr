@@ -74,6 +74,7 @@ static void tick(int shoot, float ticks)
 
 int main(void)
 {
+    (void)&s_gevrModOffGloveFit;   /* gun.c's off-hand glove table rides in the pasted tables */
     static const GevrModMesh mesh;
     static const GevrModGunParts parts = {{2, 1}, {{0, 0, -44}, {0, 3, -55}}, TRUE};
     GevrModGunParts noHold = parts;
