@@ -200,7 +200,7 @@ extern void vrSettingsSave(void);
 extern void vrSettingsFlush(void);          /* vr_settings.cpp: the writer thread's save written */
 extern void vrSettingsAsyncSaves(int on);
 #ifdef GEVR_PCVR
-extern void vr_shutdown(void);   /* port/vr/vr_openxr.cpp */
+extern void vr_exit_teardown(void);   /* port/vr/vr_openxr.cpp */
 #endif
 
 static void cleanup(void)
@@ -216,8 +216,9 @@ static void cleanup(void)
     /* End and destroy the XR session and instance before the process goes:
      * left running, the runtime's DLL (Virtual Desktop's VDXR) was unloaded
      * with its threads still going and aborted the exit (FAST_FAIL_FATAL_APP_EXIT
-     * on closing the mirror window, 2026-11-09). */
-    vr_shutdown();
+     * on closing the mirror window, 2026-11-09). The crash marker goes
+     * first (vr_openxr.cpp vr_exit_teardown). */
+    vr_exit_teardown();
 #endif
     videoShutdown();
     crashShutdown();
