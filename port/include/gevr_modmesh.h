@@ -23,6 +23,13 @@ const GevrModMesh *gevrModGunMesh(s32 hand);
 const Mtxf *gevrModGunFrame(s32 hand);
 /* A model-local point in its fitted carrier coordinates; NULL fit is identity. */
 void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3]);
+/* A GEVRWPN2 mesh's wrist point in model units and basis (as its vertices):
+ * its centre, the direction along the forearm to the fingers and out of the
+ * back of the wrist, unit length. 0 for GEVRWPN1 or a degenerate one. */
+int gevrModMeshWrist(const GevrModMesh *mesh, float centre[3], float along[3], float normal[3]);
+/* The off hand's pack glove (mod.hands.gloves): open, or pinch while its grip
+ * is held (falls back to open), NULL for none; its fit in the hand's frame. */
+const GevrModMesh *gevrModOffGlove(s32 pinch, Mtxf *fit, s32 *fitted);
 /* Fitted muzzle in carrier coordinates, absent for stock or a pending choice. */
 s32 gevrModGunMuzzle(s32 hand, coord3d *out);
 /* Fitted off-hand hold point for the body the hand is actually drawing. */

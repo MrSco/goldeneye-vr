@@ -5732,6 +5732,10 @@ static struct
     Mtxf fit[GEVR_MODHAND_POSES];
     u8 fitted[GEVR_MODHAND_POSES];
 } s_gevrModGunHands[2][ITEM_IDS_MAX];
+/* the empty off hand's own gloves (mod.hands.gloves): open, pinch, and a fit */
+static char s_gevrModOffGlove[2][GEVR_MODGUN_NAME];
+static Mtxf s_gevrModOffGloveFit;
+static u8 s_gevrModOffGloveFitted;
 static struct
 {
     const void *owner;           /* the player it was loaded for: another stage's is stale */
@@ -5915,6 +5919,38 @@ const GevrModMesh *gevrModGunHand(s32 hand, s32 pose, Mtxf *fit, s32 *fitted)
     return mesh;
 }
 
+void gevrModOffGlovesSet(const char *open, const char *pinch, const float frame[4][4])
+{
+    snprintf(s_gevrModOffGlove[0], GEVR_MODGUN_NAME, "%s", open != NULL ? open : "");
+    snprintf(s_gevrModOffGlove[1], GEVR_MODGUN_NAME, "%s", open != NULL && pinch != NULL ? pinch : "");
+    s_gevrModOffGloveFitted = open != NULL && frame != NULL;
+    if (s_gevrModOffGloveFitted)
+    {
+        memcpy(s_gevrModOffGloveFit.m, frame, sizeof(s_gevrModOffGloveFit.m));
+    }
+}
+
+const GevrModMesh *gevrModOffGlove(s32 pinch, Mtxf *fit, s32 *fitted)
+{
+    const GevrModMesh *mesh = NULL;
+    const char *name = pinch && s_gevrModOffGlove[1][0] ? s_gevrModOffGlove[1] : s_gevrModOffGlove[0];
+
+    if (!name[0] || (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
+    {
+        return NULL;   /* none given, or another player's copy */
+    }
+    if (gevrModMeshLoad(name, &mesh) != 1)
+    {
+        return NULL;
+    }
+    *fitted = s_gevrModOffGloveFitted;
+    if (*fitted)
+    {
+        *fit = s_gevrModOffGloveFit;
+    }
+    return mesh;
+}
+
 s32 gevrModGunSupportGloveShown(s32 hand)
 {
     extern s32 gevrStereoTwoHandGrip(void);   /* bondview2.c */
@@ -6026,6 +6062,8 @@ void gevrModGunModelReset(void)
     memset(s_gevrModGunHasGrip, 0, sizeof(s_gevrModGunHasGrip));
     memset(s_gevrModGunHasParts, 0, sizeof(s_gevrModGunHasParts));
     memset(s_gevrModGunHands, 0, sizeof(s_gevrModGunHands));
+    memset(s_gevrModOffGlove, 0, sizeof(s_gevrModOffGlove));
+    s_gevrModOffGloveFitted = FALSE;
     for (p = 0; p < MAX_PLAYER_COUNT; ++p) {
         for (hand = 0; hand < 2; ++hand) {
             if (s_gevrModGunShown[p][hand].mesh != NULL) s_gevrModGunShown[p][hand].in = FALSE;

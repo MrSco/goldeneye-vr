@@ -54,9 +54,11 @@ production = "\n".join([tables] + [function(gun, name) for name in (
     "s32 gevrModGunSupportGloveShown(",
     "s32 gevrModGunTriggerHeld(",
     "s32 gevrModGunGrip(",
+    "void gevrModOffGlovesSet(",
+    "const GevrModMesh *gevrModOffGlove(",
     "void gevrModGunModelSet(",
     "void gevrModGunModelReset(",
-)] + [function(game, "int gevrModGameGunHands("), function(mesh, "void gevrModMeshPoint(")])
+)] + [function(game, "int gevrModGameGunHands("), function(game, "int gevrModGameOffGloves("), function(mesh, "void gevrModMeshPoint(")])
 fixture = (ROOT / "port/tests/pack_hands_native.c").read_text(encoding="utf-8")
 with tempfile.TemporaryDirectory(prefix="gevr-pack-hands-") as temp:
     source, exe = Path(temp) / "pack_hands_native.c", Path(temp) / "pack_hands_native.exe"
@@ -92,4 +94,20 @@ defaults = (ROOT / "port/vr/vr_settings_defaults.c").read_bytes().decode()
 own = [float(v) for v in re.findall(r"float VrGunOff[XYZ] = (-?[\d.]+)f;", defaults)]
 kept = [float(v) for v in re.search(r"VrGunOffDefault\[3\] = \{ (-?[\d.]+)f, (-?[\d.]+)f, (-?[\d.]+)f \}", defaults).groups()]
 check(own == kept == [2.74, 1.94, -12.35], "the kept default fit is the shipped one, as the fixture uses")
-print("PASS: pack gloves per pose and fit, the trigger, two-handed support, the grip point, refusals, resets and the draws")
+offhand = function(view, "Gfx *gevrModDrawOffGlove(")
+check("watch_animation_state != 0" in offhand and "left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND" in offhand
+      and "gevrModOffGlove(gevrVrOffGripHeld(), &fit, &fitted)" in offhand and "gevrModAttachHandFrame(GUNLEFT, &hand)" in offhand,
+      "the empty off hand only, not through the pause's own animation; pinch while its grip is held")
+check(offhand.index("gevrModMeshDraw(gdl, &pose, mesh)") < offhand.index("gevrModMeshWrist(mesh, centre, along, normal)")
+      < offhand.index("g_gevrGexOffWatch = TRUE;") < offhand.index("gevrRenderWatchOnWrist(gdl, templ, at, x, y)"),
+      "the glove, then GoldenEye's watch on its wrist point, noted as the watch's face")
+posed = function(view, "static Gfx *gevrRenderWatchPosed(")
+check("if (faceAt && n > 1)" in posed and "d[k] = pos[k] - matrices[1].m[3][k];" in posed
+      and posed.index("if (faceAt && n > 1)") < posed.index("gevrGexWatchFaceNote(matrices[1].m[3], y);"),
+      "the watch moved so its face sits on the wrist point before its face is noted")
+check("return gevrRenderWatchPosed(gdl, templ, pos, x, y, FALSE);" in function(view, "Gfx *gevrRenderGexWatch("),
+      "GE-X's own watch placement is unchanged")
+offblock = fire[fire.index("gdl = gevrModDrawOffGlove(gdl, &renderdata, &drawn);"):]
+check(offblock.index("gevrModDrawOffGlove") < offblock.index("gevrGexDrawOffHand(gdl, &renderdata, &drawn)")
+      < offblock.index("gevrRenderLeftWatchArm"), "the glove first, then GE-X's arm, then the watch arm")
+print("PASS: pack gloves per pose and fit, the trigger, two-handed support, the grip point, the off hand's gloves and watch, refusals, resets and the draws")

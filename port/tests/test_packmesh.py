@@ -82,6 +82,7 @@ def main():
             _ctypes.FreeLibrary(lib._handle)
         # Exercise the real loader and its draw list with generated assets.
         (Path(tmp) / "valid.bin").write_bytes(v1)
+        (Path(tmp) / "wrist.bin").write_bytes(b"GEVRWPN2" + body + struct.pack("<9f", 0, 2, 0, 0, 0, 3, .01, .02, .03))
         (Path(tmp) / "bad.bin").write_bytes(v1[:-1])
         (Path(tmp) / "legacy.bin").write_bytes(b"RAW_ROM_MODEL")
         prefix = b"GEVRWPN1" + struct.pack("<I", 2) + image * 2 + struct.pack("<I", 2)

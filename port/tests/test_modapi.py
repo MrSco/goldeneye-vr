@@ -1668,6 +1668,27 @@ end)
           + str(answers(out, "GUNHANDS")))
 
 
+def offgloves(exe, temp):
+    """The empty off hand's gloves reach the game whole; bad ones never do."""
+    lua = r"""
+mod.on("mission_start", function()
+  print("both", mod.hands.gloves({open="pack-open.bin", pinch="pack-pinch.bin", frame={{1,0,0},{0,1,0},{0,0,1},{0,0,5}}}))
+  print("open only", mod.hands.gloves({open="pack-open.bin"}))
+  print("no open", (pcall(mod.hands.gloves, {pinch="pack-pinch.bin"})))
+  print("nested", (pcall(mod.hands.gloves, {open="g/pack-open.bin"})))
+  print("bad frame", (pcall(mod.hands.gloves, {open="pack-open.bin", frame={{1,0,0}}})))
+  print("missing", mod.hands.gloves({open="GtacGloveZ"}))
+  print("clear", mod.hands.gloves(nil))
+end)
+"""
+    out = run(exe, temp, "offgloves", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["both true", "open only true", "no open false", "nested false", "bad frame false",
+                        "missing false", "clear true"], "off-hand gloves' answers and refusals: " + str(logs(out)))
+    check(answers(out, "OFFGLOVES") == ["OFFGLOVES pack-open.bin pack-pinch.bin framed", "OFFGLOVES pack-open.bin - -",
+                                        "OFFGLOVES clear"],
+          "only well-formed off-hand gloves reach the game: " + str(answers(out, "OFFGLOVES")))
+
+
 def pack_names(exe, temp):
     """The Lua binding forwards flat pack filenames and an omitted legacy header."""
     lua = r"""
@@ -2496,6 +2517,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         gunmodel_fit(exe, temp)
         gunmodel_parts(exe, temp)
         gunhands(exe, temp)
+        offgloves(exe, temp)
         attach(exe, temp)
         attach_authored_frame(exe, temp)
         pack_names(exe, temp)

@@ -494,6 +494,10 @@ enum { GEVR_MODHAND_READY, GEVR_MODHAND_TRIGGER, GEVR_MODHAND_SUPPORT, GEVR_MODH
  * mod has, or item is thrown (nothing changes) */
 int gevrModGameGunHands(int hand, int item, const char *const files[GEVR_MODHAND_POSES],
                         const float (*const frames[GEVR_MODHAND_POSES])[4]);
+/* The empty off hand's own gloves (mod.hands.gloves): open (NULL clears),
+ * pinch (NULL: open throughout), frame in the hand's frame (NULL: none). 0
+ * when a file isn't a pack mesh the mod has (nothing changes) */
+int gevrModGameOffGloves(const char *open, const char *pinch, const float frame[4][4]);
 /* every hand's own models back (a mod stopped, a new mission) */
 void gevrModGameGunModelReset(void);
 /* The pack gun body the local player's hand draws now (#335, told to the

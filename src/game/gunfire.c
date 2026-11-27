@@ -3616,8 +3616,14 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             /* GoldenEye X's left arm with the watch (gun.c), else the watch arm */
             extern Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
+            extern Gfx *gevrModDrawOffGlove(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
 
-            gdl = gevrGexDrawOffHand(gdl, &renderdata, &drawn);
+            /* a pack's own glove for the empty hand (mod.hands.gloves), else the game's */
+            gdl = gevrModDrawOffGlove(gdl, &renderdata, &drawn);
+            if (!drawn)
+            {
+                gdl = gevrGexDrawOffHand(gdl, &renderdata, &drawn);
+            }
             if (!drawn)
             {
                 gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);

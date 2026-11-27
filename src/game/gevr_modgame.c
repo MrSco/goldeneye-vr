@@ -178,6 +178,22 @@ int gevrModGameGunHands(int hand, int item, const char *const files[GEVR_MODHAND
     return 1;
 }
 
+extern void gevrModOffGlovesSet(const char *open, const char *pinch, const float frame[4][4]);   /* gun.c */
+
+int gevrModGameOffGloves(const char *open, const char *pinch, const float frame[4][4])
+{
+    const GevrModMesh *mesh;
+    const char *files[2] = { open, pinch };
+    int i;
+
+    for (i = 0; open != NULL && i < 2; ++i) {
+        if (files[i] == NULL) continue;
+        if (!gevrModAssetHasModel(files[i]) || gevrModMeshLoad(files[i], &mesh) != 1) return 0;
+    }
+    gevrModOffGlovesSet(open, pinch, frame);
+    return 1;
+}
+
 void gevrModGameGunModelReset(void)
 {
     gevrModGunModelReset();

@@ -7,6 +7,7 @@
 #include "system.h"
 #include <PR/gu.h>
 #include <assert.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -143,6 +144,17 @@ int main(void)
     assert(gevrModMeshLoad("valid.bin", &mesh) == 1 && mesh != NULL);
     assert(gevrModMeshLoad("valid.bin", &other) == 1 && other == mesh);
     assert(gevrModMeshLoad("bad.bin", &other) == -1 && other == NULL);
+    {
+        float centre[3], along[3], normal[3];
+        assert(!gevrModMeshWrist(mesh, centre, along, normal));   /* GEVRWPN1: none */
+        assert(gevrModMeshLoad("wrist.bin", &other) == 1 && other != NULL);
+        assert(gevrModMeshWrist(other, centre, along, normal));
+        /* along (0,2,0) ahead, normal (0,0,3) up, centre (0.01,0.02,0.03) m:
+         * unit vectors and mm in X left, Y up, Z ahead */
+        assert(along[0] == 0 && along[1] == 0 && along[2] == 1);
+        assert(normal[0] == 0 && normal[1] == 1 && normal[2] == 0);
+        assert(fabsf(centre[0] + 10) < 1e-3f && fabsf(centre[1] - 30) < 1e-3f && fabsf(centre[2] - 20) < 1e-3f);
+    }
     assert(gevrModMeshLoad("legacy.bin", &other) == 0 && other == NULL);
 
     s_allocated = 0;

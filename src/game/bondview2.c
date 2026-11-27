@@ -2954,7 +2954,24 @@ Gfx *gevrRenderWatchFace(Gfx *gdl, const f32 centre[3], const f32 up[3], const f
     return gevrRenderWatchStatusAt(gdl, &transform);
 }
 
+static Gfx *gevrRenderWatchPosed(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3], const f32 y[3],
+                                 s32 faceAt);
+
 Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3], const f32 y[3])
+{
+    return gevrRenderWatchPosed(gdl, templ, pos, x, y, FALSE);
+}
+
+/* GoldenEye's own watch with its face's centre at pos (a pack glove's wrist
+ * point, gevrModDrawOffGlove), in the same wrist frame */
+static Gfx *gevrRenderWatchOnWrist(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3], const f32 y[3])
+{
+    return gevrRenderWatchPosed(gdl, templ, pos, x, y, TRUE);
+}
+
+/* pos is the watch model's root, or with faceAt its face's centre (matrix 1) */
+static Gfx *gevrRenderWatchPosed(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3], const f32 y[3],
+                                 s32 faceAt)
 {
     ModelRenderData renderdata;
     Mtxf want, inv, corr;
@@ -2996,6 +3013,24 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
     for (i = 0; i < n; i++)
     {
         gevrMtxMul(&matrices[i], &corr, &matrices[i]);
+    }
+    if (faceAt && n > 1)
+    {
+        /* the whole watch moved so its face sits on the point */
+        f32 d[3];
+        s32 k;
+
+        for (k = 0; k < 3; k++)
+        {
+            d[k] = pos[k] - matrices[1].m[3][k];
+        }
+        for (i = 0; i < n; i++)
+        {
+            for (k = 0; k < 3; k++)
+            {
+                matrices[i].m[3][k] += d[k];
+            }
+        }
     }
     gevrWatchArmHands(matrices, FALSE);
     {
@@ -3043,6 +3078,93 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
     s_gevrWatchHandDl->Data->DisplayList.Secondary = saved[1];
     gdl = gevrRenderWatchStatus(gdl, &matrices[0]);
     bondviewTransformManyPosToViewMatrix(s_gevrWatchModel.render_pos, n);
+    return gdl;
+}
+
+/*
+ * gunfire.c, the empty off hand: the pack's own glove (mod.hands.gloves) on
+ * its controller in place of GE-X's arm or the watch arm, open, or pinch
+ * while its grip is held; a GEVRWPN2 glove wears GoldenEye's watch with its
+ * face on the glove's wrist point, and that face is the watch's for the watch
+ * items and the look at the wrist (gevrGexWatchFaceNote). The pause's own
+ * animation and a hand holding something keep the game's arm.
+ */
+Gfx *gevrModDrawOffGlove(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+{
+    extern s32 g_gevrGexOffWatch;   /* gun.c */
+    extern int gevrVrOffGripHeld(void);   /* input.c */
+    const GevrModMesh *mesh;
+    Mtxf hand, fit, pose;
+    f32 centre[3], along[3], normal[3];
+    s32 fitted = FALSE, left, i;
+
+    *drawn = FALSE;
+    if (!g_gevrStereo || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state != 0)
+    {
+        return gdl;
+    }
+    left = get_item_in_hand_or_watch_menu(GUNLEFT);
+    if ((left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND)
+        || (mesh = gevrModOffGlove(gevrVrOffGripHeld(), &fit, &fitted)) == NULL
+        || !gevrModAttachHandFrame(GUNLEFT, &hand))
+    {
+        return gdl;
+    }
+    if (VrLeftHandedMode)
+    {
+        /* the off hand is then the right: a left glove mirrored, as the guns are */
+        for (i = 0; i < 3; i++)
+        {
+            hand.m[0][i] = -hand.m[0][i];
+        }
+    }
+    if (fitted)
+    {
+        matrix_4x4_multiply(&hand, &fit, &pose);
+    }
+    else
+    {
+        pose = hand;
+    }
+    matrix_4x4_7F058C64();
+    gdl = gevrModMeshDraw(gdl, &pose, mesh);
+    if (gevrModMeshWrist(mesh, centre, along, normal))
+    {
+        f32 at[3], x[3], y[3], lx = 0.0f, ly = 0.0f, dot = 0.0f;
+
+        gevrModMeshPoint(&pose, centre, at);
+        for (i = 0; i < 3; i++)
+        {
+            x[i] = along[0] * pose.m[0][i] + along[1] * pose.m[1][i] + along[2] * pose.m[2][i];
+            y[i] = normal[0] * pose.m[0][i] + normal[1] * pose.m[1][i] + normal[2] * pose.m[2][i];
+            lx += x[i] * x[i];
+        }
+        lx = sqrtf(lx);
+        for (i = 0; i < 3 && lx > 1e-6f; i++)
+        {
+            x[i] /= lx;
+            dot += x[i] * y[i];
+        }
+        for (i = 0; i < 3; i++)
+        {
+            y[i] -= dot * x[i];
+            ly += y[i] * y[i];
+        }
+        ly = sqrtf(ly);
+        if (lx > 1e-6f && ly > 1e-6f)
+        {
+            for (i = 0; i < 3; i++)
+            {
+                y[i] /= ly;
+            }
+            g_gevrGexOffWatch = TRUE;
+            gdl = gevrRenderWatchOnWrist(gdl, templ, at, x, y);
+            g_gevrGexOffWatch = FALSE;
+        }
+    }
+    matrix_4x4_7F058C88();
+    *drawn = TRUE;
     return gdl;
 }
 

@@ -691,9 +691,24 @@ in-game screen). We maintain the adapters, not the mods.
     loading, the stock hand stays. `nil` clears the hand's gloves for item;
     they also clear with the rest at a mission's start. A thrown item, a
     missing file or one that isn't a pack mesh answers false and changes
-    nothing. Not yet: gloves for the empty off hand (open, and pinch while
-    gripping), the watch on a glove's wrist point (`GEVRWPN2`), and gloves
-    on the other players' copies.
+    nothing.
+
+    The empty off hand's own gloves (VR): `mod.hands.gloves({ open =
+    "open.bin", pinch = "pinch.bin", frame = ... })`. While the off hand
+    holds nothing, `open` is drawn on its controller (the frame
+    `mod.attach` gives a hand, then `frame`) in place of GoldenEye X's arm,
+    the watch arm or the fallback arm; `pinch` while that hand's grip is
+    held (`open` without one). In left-handed mode the off hand is the
+    right, so the glove is mirrored as the guns are. A `GEVRWPN2` glove
+    wears GoldenEye's own watch with its face's centre on the file's wrist
+    point, its forearm along `along` and its face out along `normal`, and
+    that face is the watch's: the watch items fire from it and the look at
+    the wrist that pauses the game looks for it there, as GoldenEye X's
+    arm's does. A `GEVRWPN1` glove has no watch on it. The pause's own
+    animation still plays on the game's arm. `nil` clears; the gloves also
+    clear at a mission's start. A missing file or one that isn't a pack
+    mesh answers false and changes nothing. Not yet: gloves on the other
+    players' copies.
 
     A pack may give the action its own timing in the same table:
     `action = { pictures, travel, open = 1, close = 5, ease = 0.4 }`.

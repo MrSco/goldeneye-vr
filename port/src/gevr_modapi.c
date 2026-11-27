@@ -2736,7 +2736,41 @@ static const luaL_Reg s_uiFuncs[] = {
     { NULL, NULL },
 };
 
+/*
+ * gloves({ open = file, pinch = file, frame } | nil): the empty off hand's own
+ * gloves (VR), on its controller in place of the game's arm: open, pinch
+ * while its grip is held. A GEVRWPN2 glove wears the watch on its wrist point.
+ */
+static int l_handGloves(lua_State *L)
+{
+    const char *files[2] = { NULL, NULL };
+    static const char *const keys[2] = { "open", "pinch" };
+    float frame[4][4];
+    const float (*fit)[4] = NULL;
+
+    if (!lua_isnoneornil(L, 1)) {
+        luaL_checktype(L, 1, LUA_TTABLE);
+        for (int k = 0; k < 2; ++k) {
+            size_t n;
+            if (lua_getfield(L, 1, keys[k]) != LUA_TNIL) {
+                const char *name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &n) : NULL;
+                if (name == NULL || !modelNameOk(name, n)) {
+                    return luaL_error(L, "mod.hands.gloves: %s needs a flat model file name", keys[k]);
+                }
+                files[k] = name;
+            }
+            lua_pop(L, 1);   /* the name stays in the table */
+        }
+        if (files[0] == NULL) return luaL_argerror(L, 1, "an open glove");
+        if (authoredFrame(L, 1, "mod.hands.gloves", frame)) fit = frame;
+    }
+    needPlayer(L, "mod.hands.gloves");
+    lua_pushboolean(L, gevrModGameOffGloves(files[0], files[1], fit));
+    return 1;
+}
+
 static const luaL_Reg s_handFuncs[] = {
+    { "gloves", l_handGloves },
     { "position", l_handPosition },
     { "anchor", l_handAnchor },
     { "haptic", l_haptic },

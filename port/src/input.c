@@ -340,6 +340,12 @@ extern void netVoiceToggleMuted(void);
 #endif
 
 int gevrVrTriggerDown[2];   /* by gun hand (0 right, 1 left); gunfire.c gunTickGameplay */
+
+/* bondview2.c gevrModDrawOffGlove: the off hand's grip is held (its pinch) */
+int gevrVrOffGripHeld(void)
+{
+    return get_button_state(0, "grip") ? 1 : 0;
+}
 static GevrReloadInput s_gevrReloadInput;
 int gevrVrReloadPressedMask(void) { return s_gevrReloadInput.pending; }
 int gevrVrReloadHeldMask(void) { return s_gevrReloadInput.held; }

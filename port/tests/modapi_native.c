@@ -239,6 +239,14 @@ int gevrModGameGunHands(int hand, int item, const char *const files[GEVR_MODHAND
     printf("\n");
     return 1;
 }
+/* gun.c's off-hand gloves: pack meshes are pack-*.bin */
+int gevrModGameOffGloves(const char *open, const char *pinch, const float frame[4][4])
+{
+    if (open == NULL) { printf("OFFGLOVES clear\n"); return 1; }
+    if (strncmp(open, "pack-", 5) || (pinch != NULL && strncmp(pinch, "pack-", 5))) return 0;
+    printf("OFFGLOVES %s %s %s\n", open, pinch ? pinch : "-", frame ? "framed" : "-");
+    return 1;
+}
 void gevrModGameGunModelReset(void) { printf("GUNMODEL reset\n"); memset(s_gunBody, 0, sizeof(s_gunBody)); }
 /* gevr_modattach.c: models starting Gno won't load, nor a file past the
  * mission's GEVR_MODAPI_ATTACH_MODELS; the offset printed whole (-0 as 0) */

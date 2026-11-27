@@ -25,8 +25,9 @@ typedef struct { unsigned pictures[GEVR_MODPART_GROUPS]; float travel[GEVR_MODPA
 static struct TestPlayer { int hand_item[2]; } player;
 static void *owner = &player;
 static struct TestPlayer *g_CurrentPlayer = &player;
-static int netIsActive(void) { return FALSE; }
-static int get_cur_playernum(void) { return 0; }
+static int s_net;   /* a co-op session in which the current player is another's copy */
+static int netIsActive(void) { return s_net; }
+static int get_cur_playernum(void) { return s_net ? 1 : 0; }
 static int netGetLocalSlot(void) { return 0; }
 static void gevrModMeshReset(void) {}
 void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3]);   /* gevr_modmesh.c, pasted in */
@@ -170,6 +171,30 @@ int main(void)
                 assert(fabsf(at[i] - (pos[i] + trim)) < 1e-3f);
             }
         }
+    }
+    /* the empty off hand's gloves: open, pinch while gripped (else open), its
+     * own frame, refusals that change nothing, another player's copy, a reset */
+    {
+        static const float offFit[4][4] = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,5,1}};
+        assert(gevrModOffGlove(0, &fit, &fitted) == NULL);
+        assert(gevrModGameOffGloves("pack-open.bin", "pack-pinch.bin", offFit));
+        const GevrModMesh *open = gevrModOffGlove(0, &fit, &fitted);
+        assert(open != NULL && fitted);
+        sameFit(&fit, offFit);
+        assert(gevrModOffGlove(1, &fit, &fitted) != open && gevrModOffGlove(1, &fit, &fitted) != NULL);
+        assert(!gevrModGameOffGloves("pack-open.bin", "bad-pinch.bin", NULL));
+        assert(!gevrModGameOffGloves("GlegacyZ", NULL, NULL));
+        assert(gevrModOffGlove(1, &fit, &fitted) != open);   /* unchanged by the refusals */
+        assert(gevrModGameOffGloves("pack-open.bin", NULL, NULL));
+        assert(gevrModOffGlove(1, &fit, &fitted) == open && !fitted);   /* no pinch: open throughout */
+        s_net = TRUE;
+        assert(gevrModOffGlove(0, &fit, &fitted) == NULL);   /* another player's copy */
+        s_net = FALSE;
+        assert(gevrModGameOffGloves(NULL, NULL, NULL));
+        assert(gevrModOffGlove(0, &fit, &fitted) == NULL);
+        assert(gevrModGameOffGloves("pack-open.bin", NULL, NULL));
+        gevrModGunModelReset();
+        assert(gevrModOffGlove(0, &fit, &fitted) == NULL);
     }
     gevrModGunModelReset();
     assert(gevrModGunHand(GUNRIGHT, GEVR_MODHAND_READY, &fit, &fitted) == NULL);

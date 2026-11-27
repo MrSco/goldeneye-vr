@@ -407,6 +407,27 @@ Gfx *gevrModMeshDrawParts(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh,
     return gdl;
 }
 
+int gevrModMeshWrist(const GevrModMesh *mesh, float centre[3], float along[3], float normal[3])
+{
+    const float *w = mesh->view.watchMount;
+    float a[3], n[3], la = 0.0f, ln = 0.0f;
+    int k;
+
+    if (!mesh->view.hasWatchMount) return 0;
+    /* X right/Y ahead/Z up -> X left/Y up/Z ahead, as the vertices are */
+    a[0] = -w[0]; a[1] = w[2]; a[2] = w[1];
+    n[0] = -w[3]; n[1] = w[5]; n[2] = w[4];
+    for (k = 0; k < 3; ++k) { la += a[k] * a[k]; ln += n[k] * n[k]; }
+    if (la < 1e-12f || ln < 1e-12f) return 0;
+    la = sqrtf(la);
+    ln = sqrtf(ln);
+    for (k = 0; k < 3; ++k) { along[k] = a[k] / la; normal[k] = n[k] / ln; }
+    centre[0] = -w[6] * 1000.f;
+    centre[1] = w[8] * 1000.f;
+    centre[2] = w[7] * 1000.f;
+    return 1;
+}
+
 void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3])
 {
     for (int axis = 0; axis < 3; ++axis) {
