@@ -15,6 +15,11 @@ typedef unsigned u32;
 #define sysLogPrintf(...) ((void)0)
 /* DEFINITIONS */
 typedef struct { float m[4][4]; } Mtxf;
+/* bondview2.c's gun matrix asks for a pack body's grip point (gevr_modgrip.h); none here */
+typedef union { float f[3]; } coord3d;
+#include "gevr_modgrip.h"
+static int gevrModGunGrip(int hand, coord3d *out) { (void)hand; (void)out; return 0; }
+static const float VrGunOffDefault[3] = { 2.74f, 1.94f, -12.35f };
 struct coord3d { union { struct { float x, y, z; }; float f[3]; }; };
 struct hand { int weapon, weapon_current_animation, weapon_ammo_in_magazine, numvisibleshells; Mtxf gunmtx_camspace; };
 struct Player { int bonddead, watch_animation_state, mpmenuon, cur_item_weapon_getname, ammoheldarr[2]; struct hand hands[2]; } player;
