@@ -41,6 +41,15 @@ gevr_level.txt. Asked the #356 reporter what confused them in the controls.
 **Next:** the mod system (`mod-system`, #292), host rule against teleporting,
 bolts that move on the meshes, the iCloud dev profiles remade (INVALID since
 Push).
+**Unreleased (t3/check-report-duplicate, reports #47 / 33ea72b8):** PC VR
+over Virtual Desktop offered a crash after a launcher-only run: the session
+went VISIBLE (VD's menu or the headset off), then the process was gone with
+no log. The launcher runs before main.c's cleanup is registered, so its
+exits skipped vr_shutdown, which VDXR aborts (c0000409, 9a371078). Now every
+PC VR exit ends the session (atexit hooked at instance creation, the marker
+cleared first, "exit: ending the XR session" in gevr.log), and the crash
+marker follows the headset's focus as on Quest (onPause) and Klepton. Built
+on Windows; not tried on a headset (needs VD connected).
 **Unreleased (PR #363, #342 blood on the floor):** the
 Blood patch also leaves Perfect Dark's splats, ported from Dab's Mod
 (splat.c/wallhit.c): 0-2 per wound on the level within 180 units behind it,

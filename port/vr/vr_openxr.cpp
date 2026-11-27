@@ -167,6 +167,7 @@ do { \
 VRState g_vrState = {};
 static bool g_vrInitialized = false;
 extern "C" void vr_shutdown();
+extern "C" void vr_exit_teardown(void);
 
 // ============================================================================
 // GLOBAL STATE - others
@@ -193,6 +194,10 @@ static HGLRC g_xr_hglrc = nullptr;
 static HDC   g_xr_hdc   = nullptr;
 #endif
 extern SDL_Window *wnd;
+#ifndef GEVR_VISIONOS
+extern "C" void pcReportForeground(int active);   // port/pc/pc_reports.cpp
+void pcReportCleanExit(void);                      // port/pc/pc_reports.cpp
+#endif
 extern SDL_GLContext ctx;
 #endif
 #if defined(ANDROID) || defined(GEVR_VISIONOS)
@@ -829,6 +834,19 @@ static bool vr_create_instance(const std::vector<const char*>& extensions)
     }
 
     LOGI("OpenXR instance created successfully");
+#if !defined(ANDROID) && !defined(GEVR_VISIONOS)
+    {
+        // PC VR: every exit() ends the session first, also the launcher's (its
+        // window close, Quit, the runtime closing the game), which runs before
+        // main.c registers cleanup. Registered after the crash reporter, so it
+        // runs before the reporter's own atexit.
+        static bool s_exitHooked = false;
+        if (!s_exitHooked) {
+            s_exitHooked = true;
+            atexit(vr_exit_teardown);
+        }
+    }
+#endif
     // Android too: the Steam Frame's APK runs on SteamVR, with its quirks (below)
     vr_detect_runtime();
 
@@ -6167,6 +6185,18 @@ extern "C" void vr_poll_events(void)
                         (const XrEventDataSessionStateChanged*)baseEvent;
                 if (ssEvent->session != g_vrState.session) break;
                 LOGI("Session state changed: %d", (int)ssEvent->state);
+#if !defined(ANDROID) && !defined(GEVR_VISIONOS)
+                // PC VR: the crash-report foreground marker follows the headset's
+                // focus, as the Quest's onResume/onPause (MainActivity) and
+                // Klepton's below. Out of focus (the runtime's menu, the headset
+                // off) a run ended from outside is no crash (report 33ea72b8: the
+                // launcher left over Virtual Desktop, VISIBLE, then gone). A real
+                // crash still writes its own record (pcCrashRecord).
+                {
+                    const bool focused = ssEvent->state == XR_SESSION_STATE_FOCUSED;
+                    if (focused != g_sessionFocused) pcReportForeground(focused ? 1 : 0);
+                }
+#endif
                 g_sessionFocused = ssEvent->state == XR_SESSION_STATE_FOCUSED;
                 if (!g_sessionFocused) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
 #if defined(ANDROID) && defined(GEVR_NATIVE_SERVICES)
@@ -7227,6 +7257,21 @@ extern "C" void vr_shutdown()
     g_frameStarted = false;
 
     LOGI("========== VR SHUTDOWN COMPLETE ==========");
+}
+
+// PC VR: an intentional exit (main.c cleanup, or the atexit hooked at the
+// instance's creation for the launcher's exits). The run ended cleanly, so the
+// crash marker goes first: Virtual Desktop's runtime has aborted exits it was
+// still running in (c0000409, 9a371078), before the reporter's own atexit could
+// clear it (report 33ea72b8). Then the session ends, which keeps that abort away.
+extern "C" void vr_exit_teardown(void)
+{
+    if (g_vrState.instance == XR_NULL_HANDLE && g_vrState.session == XR_NULL_HANDLE) return;
+#if !defined(ANDROID) && !defined(GEVR_VISIONOS)
+    pcReportCleanExit();
+#endif
+    sysLogPrintf(0, "exit: ending the XR session before the process goes");
+    vr_shutdown();
 }
 
 // ============================================================================
