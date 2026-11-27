@@ -34,6 +34,7 @@
 #include "gevr_romlayout.h"   /* the campaign: the content check and co-op in a hack (gevrCampaignCoop) */
 #include "gevr_modpack.h"     /* a mod campaign: the content check's mod part (gevrModPlay) */
 #include "gevr_modapi.h"      /* mods' messages and peer_ready (gevr_modapi.c) */
+#include "gevr_modattach_net.h" /* NET_MOD_ATTACH's limit (GEVR_ATTNET_BYTES) */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -1694,6 +1695,7 @@ _Static_assert(NET_MOD_PAYLOAD_MAX == GEVR_MODAPI_NET_PAYLOAD && NET_MOD_CHANNEL
                && (int)NET_MOD_DATA == (int)GEVR_MODNET_DATA && (int)NET_MOD_OFF == (int)GEVR_MODNET_OFF
                && (int)NET_MOD_DROP == (int)GEVR_MODNET_DROP && (int)NET_MOD_CLAIM == (int)GEVR_MODNET_CLAIM
                && (int)NET_MOD_GRANT == (int)GEVR_MODNET_GRANT && (int)NET_MOD_GONE == (int)GEVR_MODNET_GONE
+               && (int)NET_MOD_ATTACH == (int)GEVR_MODNET_ATTACH && NET_MOD_ATTACH_BYTES == GEVR_ATTNET_BYTES
                && NET_MOD_DROP_BYTES == GEVR_MODAPI_NET_DROP_BYTES && NET_MOD_PICKUP_BYTES == GEVR_MODAPI_NET_PICKUP_BYTES,
                "mod.net's limits as the wire's");
 
@@ -1719,12 +1721,14 @@ int netSendModMessage(int kind, int to, const char *mod, const char *channel, co
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
 
     if (s_state != NET_STATE_INGAME || !s_host || !mod || !mod[0] || strlen(mod) > GEVR_MOD_ID_MAX) return 0;
-    if (kind < NET_MOD_DATA || kind > NET_MOD_GONE) return 0;
+    if (kind < NET_MOD_DATA || kind > NET_MOD_ATTACH) return 0;
     if (kind == NET_MOD_DATA && (!channel || !channel[0] || strlen(channel) > NET_MOD_CHANNEL_MAX || len < 0 ||
                                  len > NET_MOD_PAYLOAD_MAX || (len > 0 && !data))) return 0;
+    /* attachments' records (gevr_modattach_net.c): anyone's, to everyone or one */
+    if (kind == NET_MOD_ATTACH && (!data || len < 2 || len > NET_MOD_ATTACH_BYTES)) return 0;
     /* a shared pickup's: its fixed bytes; a drop and an award the host's, to
      * everyone; a claim a player's, to the host */
-    if (kind >= NET_MOD_DROP
+    if (kind >= NET_MOD_DROP && kind <= NET_MOD_GONE
         && (!data || len != (kind == NET_MOD_DROP ? NET_MOD_DROP_BYTES : NET_MOD_PICKUP_BYTES)
             || ((kind == NET_MOD_DROP || kind == NET_MOD_GRANT) && (!netIsHost() || to != 0xFF))
             || (kind == NET_MOD_CLAIM && (netIsHost() || to != s_host_slot)))) return 0;
@@ -1738,6 +1742,9 @@ int netSendModMessage(int kind, int to, const char *mod, const char *channel, co
         netbufWriteStr(&buf, channel);
         netbufWriteU16(&buf, (uint16_t)len);
         if (len > 0) netbufWriteData(&buf, data, (u32)len);
+    } else if (kind == NET_MOD_ATTACH) {
+        netbufWriteU16(&buf, (uint16_t)len);
+        netbufWriteData(&buf, data, (u32)len);
     } else if (kind >= NET_MOD_DROP) {
         netbufWriteData(&buf, data, (u32)len);
     }
@@ -1769,12 +1776,17 @@ static void netReceiveMod(ENetPeer *peer, uint8_t slot_id, const uint8_t *data, 
     if (s_state != NET_STATE_INGAME) return;
     kind = netbufReadU8(buf);
     to = netbufReadU8(buf);
-    if (buf->error || kind > NET_MOD_GONE || !netReadModName(buf, mod, sizeof(mod))) return;
+    if (buf->error || kind > NET_MOD_ATTACH || !netReadModName(buf, mod, sizeof(mod))) return;
     channel[0] = '\0';
     if (kind == NET_MOD_DATA) {
         if (!netReadModName(buf, channel, sizeof(channel))) return;
         len = netbufReadU16(buf);
         if (buf->error || len > NET_MOD_PAYLOAD_MAX || netbufReadLeft(buf) != len) return;
+        payload = buf->data + buf->rp;
+    } else if (kind == NET_MOD_ATTACH) {
+        /* attachments' records: their bytes are checked whole where they're read */
+        len = netbufReadU16(buf);
+        if (buf->error || len < 2 || len > NET_MOD_ATTACH_BYTES || netbufReadLeft(buf) != len) return;
         payload = buf->data + buf->rp;
     } else if (kind >= NET_MOD_DROP) {
         /* a shared pickup's, its fixed bytes: a drop or an award only the host's
@@ -1814,6 +1826,7 @@ static void netReceiveMod(ENetPeer *peer, uint8_t slot_id, const uint8_t *data, 
     }
     if (kind == NET_MOD_DATA) gevrModNetReceive(mod, slot_id < GEVR_MAX_PLAYERS ? slot_id : -1, channel, payload, len);
     else if (kind == NET_MOD_OFF) gevrModNetStopped(mod, slot_id < GEVR_MAX_PLAYERS ? slot_id : -1);
+    else if (kind == NET_MOD_ATTACH) gevrModNetAttach(mod, slot_id < GEVR_MAX_PLAYERS ? slot_id : -1, payload, len);
     else gevrModNetPickup(mod, slot_id < GEVR_MAX_PLAYERS ? slot_id : -1, kind, payload, len);
 }
 
@@ -1858,6 +1871,31 @@ static void netModRefusalText(char *out, size_t n) {
     s_refusal_mod_known = false;
 }
 
+/* A joiner's play mode against the host's mod campaign (docs/mod-system.md,
+ * Play modes): the refusal, or 0. Its class says how it plays (NET_INPUT_VR
+ * in VR, the others flat); an unknown one (a headless client) is let in. */
+static uint32_t netModPlayRefusal(uint8_t input) {
+    const gevrModInfo *mod = gevrModPlay();
+    const unsigned mode = input == NET_INPUT_VR ? GEVR_MOD_PLAY_VR : netInputIsFlat(input) ? GEVR_MOD_PLAY_FLAT : 0;
+    if (!mod || !gevrModPlayModeRefusal(mod->m.playModes, mode)) return 0;
+    return NET_DISCONNECT_MOD_PLAY | (mod->m.playModes & GEVR_MOD_PLAY_ALL);
+}
+
+/* Why the party's mod turned this joiner away for its play mode */
+static void netModPlayRefusalText(char *out, size_t n, unsigned modes) {
+    const gevrModInfo *mine = gevrModPlay();
+    const char *title = s_refusal_mod_known && s_refusal_mod_title[0] ? s_refusal_mod_title
+                      : mine ? mine->m.title : "";
+    const bool vr = (modes & GEVR_MOD_PLAY_VR) != 0;
+    /* this build can switch to it (a headset), or the mod is for another device */
+    const bool here = (modes & gevrModBuildPlayModes()) != 0;
+    snprintf(out, n, "Cannot join: this party's mod%s%s is for %s only. %s", title[0] ? " " : "", title,
+             vr ? "VR" : "flat screen",
+             here ? (vr ? "Set Play mode to Stereo VR to join." : "Set Play mode to Flat screen to join.")
+                  : (vr ? "Join from a headset." : "Join from a flat screen."));
+    s_refusal_mod_known = false;
+}
+
 static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
     if (!peer || netIsHost() || peer != s_server_peer) return false;
     if (reason == NET_DISCONNECT_VR_ONLY) {
@@ -1873,6 +1911,8 @@ static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
                  netCampaignName((int)(reason & 0xFFu)));
     } else if (reason == (NET_DISCONNECT_CONTENT | NET_CONTENT_MOD)) {
         netModRefusalText(s_join_refusal, sizeof(s_join_refusal));
+    } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_MOD_PLAY && (reason & GEVR_MOD_PLAY_ALL)) {
+        netModPlayRefusalText(s_join_refusal, sizeof(s_join_refusal), reason & GEVR_MOD_PLAY_ALL);
     } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_CONTENT) {
         snprintf(s_join_refusal, sizeof(s_join_refusal),
                  "Cannot join: this game's %s is not the same as yours.", netContentPartName(reason & 0xFFu));
@@ -4919,6 +4959,14 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     enet_peer_disconnect(peer, NET_DISCONNECT_VR_ONLY);
                     break;
                 }
+                /* the host's mod made for some play modes: which mod goes first, as for a missing mod */
+                const uint32_t modPlay = netModPlayRefusal(input);
+                if (modPlay) {
+                    NET_ERR("Turning %s away: the mod %s doesn't run with %s", clean, gevrModPlay()->m.id, netInputClassName(input));
+                    netSendModRequired(peer);
+                    enet_peer_disconnect_later(peer, modPlay);
+                    break;
+                }
                 /* how it reloads: an older build sends nothing, and is let in */
                 const uint8_t reload = described && netbufReadLeft(&buf) >= 1 ? netbufReadU8(&buf) : NET_RELOAD_UNKNOWN;
                 joiner_reload = reload <= NET_RELOAD_HAND ? reload : NET_RELOAD_UNKNOWN;
@@ -4960,6 +5008,15 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     seat_input[1 + e] = gi <= NET_INPUT_TOUCH ? gi : NET_INPUT_PAD;
                     if (VrMpVrOnly && seat_input[1 + e] != NET_INPUT_UNKNOWN && seat_input[1 + e] != NET_INPUT_VR) {
                         enet_peer_disconnect(peer, NET_DISCONNECT_VR_ONLY);
+                        bad = true;
+                        break;
+                    }
+                    const uint32_t guestModPlay = netModPlayRefusal(seat_input[1 + e]);
+                    if (guestModPlay) {
+                        NET_ERR("Turning %s away: the mod %s doesn't run with its guest's %s", clean, gevrModPlay()->m.id,
+                                netInputClassName(seat_input[1 + e]));
+                        netSendModRequired(peer);
+                        enet_peer_disconnect_later(peer, guestModPlay);
                         bad = true;
                         break;
                     }

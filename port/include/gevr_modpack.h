@@ -36,6 +36,8 @@ extern "C" {
 
 enum { GEVR_MOD_CAMPAIGN = 1, GEVR_MOD_OVERLAY = 2 };
 enum { GEVR_MOD_MODE_COOP = 1, GEVR_MOD_MODE_DEATHMATCH = 2, GEVR_MOD_MODE_HORDE = 4 };
+/* How a session plays (manifest "playModes"; docs/mod-system.md, Play modes) */
+enum { GEVR_MOD_PLAY_VR = 1, GEVR_MOD_PLAY_FLAT = 2, GEVR_MOD_PLAY_ALL = 3 };
 
 typedef struct gevrModManifest {
     int format;
@@ -45,6 +47,7 @@ typedef struct gevrModManifest {
     int coop;
     int affectsPlay;
     unsigned modes;    /* GEVR_MOD_MODE_* */
+    unsigned playModes; /* GEVR_MOD_PLAY_*: where it runs; GEVR_MOD_PLAY_ALL when the manifest says nothing */
     char id[GEVR_MOD_ID_MAX + 1];
     char title[GEVR_MOD_TITLE_MAX + 1];
     char by[GEVR_MOD_TITLE_MAX + 1];
@@ -74,6 +77,33 @@ int gevrModList(char (*ids)[GEVR_MOD_ID_MAX + 1], int max);
 int gevrModIdValid(const char *id);
 /* "ge", "gf", "tnd", "mirror", "mario" -> GEVR_CAMPAIGN_*, or -1 */
 int gevrModBaseCampaign(const char *base);
+/* How this session plays: GEVR_MOD_PLAY_VR in stereo VR (a headset's or PC
+ * VR's Play mode), GEVR_MOD_PLAY_FLAT on a screen (a flat build, or a
+ * headset's flat screen); 0 with no player of its own (the dedicated server).
+ * The same split as net_core.c's input class (NET_INPUT_VR or not). */
+unsigned gevrModSessionPlayMode(void);
+/* The play modes this build can switch to (a headset: both; a flat build: flat). */
+static inline unsigned gevrModBuildPlayModes(void)
+{
+#if defined(GEVR_HEADLESS) || (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)
+    return GEVR_MOD_PLAY_ALL;
+#else
+    return GEVR_MOD_PLAY_FLAT;
+#endif
+}
+/* NULL when a mod of playModes (a manifest's; 0 reads as both) runs in mode
+ * (0: no player, anything runs), else why not: "This mod is for VR" or
+ * "This mod is for flat screen". Inline, so the launcher and net_core.c share
+ * it without the installer. */
+static inline const char *gevrModPlayModeRefusal(unsigned playModes, unsigned mode)
+{
+    const unsigned modes = playModes ? playModes : GEVR_MOD_PLAY_ALL;
+
+    if (!mode || (modes & mode)) {
+        return NULL;
+    }
+    return (modes & GEVR_MOD_PLAY_VR) ? "This mod is for VR" : "This mod is for flat screen";
+}
 /* $S/texture-packs/mods, resolved at boot (gevrModBoot) */
 const char *gevrModsRoot(void);
 
@@ -83,8 +113,8 @@ const char *gevrModsRoot(void);
 void gevrModStartup(void);
 /* romdataInit (gevr_romload.c), first: tidies the mods folder and, when
  * VrCampaignMod names a campaign mod, checks it and sets VrCampaign to its
- * cartridge. A mod that can't run is off for this run, with the launcher's
- * note (GEVR_CAMPAIGN_FAILED_FILE). */
+ * cartridge. A mod that can't run, or not in this session's play mode, is
+ * off for this run, with the launcher's note (GEVR_CAMPAIGN_FAILED_FILE). */
 void gevrModBoot(void);
 /* romdataInit, when the cartridge did not load: the mod is off too. */
 void gevrModBaseFailed(const char *campaignName);

@@ -5869,6 +5869,24 @@ static void gevrModGunReconcile(s32 hand)
     }
 }
 
+/* the pack gun body the current player's hand draws now (#335: the others
+ * draw it on this player's copy): its file, the item, its fit and its
+ * authored muzzle; FALSE when the hand draws a cartridge model */
+s32 gevrModGunBodyNow(s32 hand, char *name, s32 cap, s32 *item, f32 fit[4][4], s32 *fitted, f32 muzzle[3], s32 *muzzled)
+{
+    const s32 p = get_cur_playernum();
+    const s32 at = gevrModGunFittedItem(hand);
+
+    if (at < 0 || cap <= 0) return FALSE;
+    snprintf(name, (size_t)cap, "%s", s_gevrModGunShown[p][hand].name);
+    *item = at;
+    *fitted = s_gevrModGunHasFit[hand][at];
+    if (*fitted) memcpy(fit, s_gevrModGunFit[hand][at].m, sizeof(s_gevrModGunFit[hand][at].m));
+    *muzzled = s_gevrModGunHasMuzzle[hand][at];
+    if (*muzzled) memcpy(muzzle, s_gevrModGunMuzzle[hand][at], sizeof(s_gevrModGunMuzzle[hand][at]));
+    return TRUE;
+}
+
 void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
                         const GevrModGunParts *parts)
 {

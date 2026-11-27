@@ -93,6 +93,9 @@ void gevrModNetPickup(const char *mod,int from,int kind,const void *data,int len
     char line[96];(void)data;snprintf(line,sizeof(line),"pickup %s %d %d %d;",mod,from,kind,len);modNote(line);
 }
 void gevrModApiPeerReady(int slot) { char line[32];snprintf(line,sizeof(line),"ready %d;",slot);modNote(line); }
+void gevrModNetAttach(const char *mod,int from,const void *data,int len) {
+    char line[96];snprintf(line,sizeof(line),"attach %s %d %d %02x;",mod,from,len,len>0?((const u8*)data)[len-1]:0);modNote(line);
+}
 int enet_address_get_ip(const ENetAddress *address,char *buffer,size_t size) { (void)address;snprintf(buffer,size,"127.0.0.1");return 0; }
 static ENetPeer *disconnected_peer;
 static uint32_t disconnect_reason;
@@ -932,6 +935,78 @@ EXPORT int test_core_mod_messages(void) {
     s_server_peer=NULL;
     return 0;
 }
+/* NET_MOD_ATTACH (mod.attach on the other players, #335): the mod's id, u16 n, n bytes
+ * (badlen says more than there is) */
+static size_t attachPacket(u8 *raw,size_t cap,uint8_t from,uint8_t to,const u8 *bytes,int len,int badlen) {
+    struct netbuf w={.data=raw,.size=(u32)cap};
+    netbufStartWrite(&w);
+    netbufWriteU32(&w,GEVR_NET_MAGIC);netbufWriteU16(&w,GEVR_NET_VERSION);netbufWriteU8(&w,NET_MSG_MOD);netbufWriteU8(&w,from);
+    netbufWriteU8(&w,NET_MOD_ATTACH);netbufWriteU8(&w,to);netbufWriteStr(&w,"tactical");
+    netbufWriteU16(&w,(u16)(len+badlen));netbufWriteData(&w,bytes,(u32)len);
+    return w.wp;
+}
+/* A player's attachments: anyone's, to everyone (delivered here and relayed
+ * to the others, not back) or to one (forwarded alone); its length checked
+ * (2 to NET_MOD_ATTACH_BYTES, exactly what's there), under the host's relay
+ * rate; the bytes themselves are gevr_modapi.c's to check */
+EXPORT int test_core_mod_attach(void) {
+    static u8 raw[1200],bytes[1100];
+    static ENetHost mod_host;
+    size_t n;
+    fixture(NET_SCENARIO_4V4);
+    clock_us+=5000000;
+    s_state=NET_STATE_INGAME;s_host=&mod_host;
+    for(int i=1;i<4;i++) {s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);s_lobby_state.slots[i].connected=1;}
+    for(int i=0;i<(int)sizeof(bytes);i++) bytes[i]=(u8)i;
+    /* the host: a player's to everyone, here and to the other two */
+    mod_got[0]=0;send_count=0;
+    n=attachPacket(raw,sizeof(raw),1,0xFF,bytes,80,0);modArrives(&hit_peers[1],raw,n);
+    CHECK(!strcmp(mod_got,"attach tactical 1 80 4f;") && send_count==2 && sent_peer!=&hit_peers[1]);
+    /* to one (an answer to a player who joined): forwarded to it alone */
+    mod_got[0]=0;send_count=0;
+    n=attachPacket(raw,sizeof(raw),1,3,bytes,40,0);modArrives(&hit_peers[1],raw,n);
+    CHECK(!mod_got[0] && send_count==1 && sent_peer==&hit_peers[3]);
+    /* another seat claimed, the wrong length, too few or too many bytes: dropped, not relayed */
+    send_count=0;
+    n=attachPacket(raw,sizeof(raw),2,0xFF,bytes,80,0);modArrives(&hit_peers[1],raw,n);
+    n=attachPacket(raw,sizeof(raw),1,0xFF,bytes,80,1);modArrives(&hit_peers[1],raw,n);
+    n=attachPacket(raw,sizeof(raw),1,0xFF,bytes,1,0);modArrives(&hit_peers[1],raw,n);
+    n=attachPacket(raw,sizeof(raw),1,0xFF,bytes,NET_MOD_ATTACH_BYTES+1,0);modArrives(&hit_peers[1],raw,n);
+    n=attachPacket(raw,sizeof(raw),1,0xFF,bytes,80,0);raw[n++]=0;modArrives(&hit_peers[1],raw,n);   /* a byte past n */
+    CHECK(!mod_got[0] && !send_count);
+    n=attachPacket(raw,sizeof(raw),1,0xFF,bytes,NET_MOD_ATTACH_BYTES,0);modArrives(&hit_peers[1],raw,n);
+    CHECK(!strcmp(mod_got,"attach tactical 1 1024 ff;") && send_count==2);   /* the most there may be */
+    /* under the relay's rate, with mod.net's own */
+    mod_got[0]=0;clock_us+=2000000;
+    n=attachPacket(raw,sizeof(raw),2,0xFF,bytes,8,0);
+    for(int i=0;i<70;i++) modArrives(&hit_peers[2],raw,n);
+    {
+        int got=0;for(const char *p=mod_got;(p=strstr(p,"attach"))!=NULL;p++) got++;
+        CHECK(got==NET_MOD_HOST_RELAY_A_SECOND);
+    }
+    /* the host sends: to everyone or one; its length checked */
+    clock_us+=2000000;send_count=0;
+    CHECK(netSendModMessage(NET_MOD_ATTACH,0xFF,"tactical",NULL,bytes,300) && send_count==3);
+    CHECK(sent_data[6]==NET_MSG_MOD && sent_data[8]==NET_MOD_ATTACH && sent_data[9]==0xFF);
+    send_count=0;CHECK(netSendModMessage(NET_MOD_ATTACH,2,"tactical",NULL,bytes,3) && send_count==1 && sent_peer==&hit_peers[2]);
+    send_count=0;
+    CHECK(!netSendModMessage(NET_MOD_ATTACH,0xFF,"tactical",NULL,bytes,1) && !netSendModMessage(NET_MOD_ATTACH,0xFF,"tactical",NULL,NULL,4));
+    CHECK(!netSendModMessage(NET_MOD_ATTACH,0xFF,"tactical",NULL,bytes,NET_MOD_ATTACH_BYTES+1) && !send_count);
+    CHECK(!netSendModMessage(7,0xFF,"tactical",NULL,bytes,4) && !send_count);   /* no kind past it */
+    /* a player (slot 2): to the host; the host's or a relayed one, from the host's peer alone */
+    s_local_slot=2;s_host_slot=0;s_server_peer=&hit_peers[0];
+    for(int i=1;i<4;i++) s_client_peers[i]=NULL;
+    send_count=0;CHECK(netSendModMessage(NET_MOD_ATTACH,0xFF,"tactical",NULL,bytes,5) && send_count==1 && sent_peer==&hit_peers[0]);
+    send_count=0;CHECK(netSendModMessage(NET_MOD_ATTACH,3,"tactical",NULL,bytes,5) && send_count==1 && sent_peer==&hit_peers[0]);
+    mod_got[0]=0;
+    n=attachPacket(raw,sizeof(raw),0,0xFF,bytes,4,0);modArrives(&hit_peers[0],raw,n);
+    n=attachPacket(raw,sizeof(raw),3,2,bytes,4,0);modArrives(&hit_peers[0],raw,n);
+    n=attachPacket(raw,sizeof(raw),3,1,bytes,4,0);modArrives(&hit_peers[0],raw,n);   /* for someone else */
+    n=attachPacket(raw,sizeof(raw),1,0xFF,bytes,4,0);modArrives(&hit_peers[1],raw,n);   /* not the host's peer */
+    CHECK(!strcmp(mod_got,"attach tactical 0 4 03;attach tactical 3 4 03;"));
+    s_server_peer=NULL;
+    return 0;
+}
 /* A shared pickup's NET_MSG_MOD: the mod's id, then its fixed bytes */
 static size_t pickupPacket(u8 *raw,size_t cap,uint8_t from,uint8_t kind,uint8_t to,const u8 *bytes,int len) {
     struct netbuf w={.data=raw,.size=(u32)cap};
@@ -1086,6 +1161,70 @@ EXPORT int test_core_content_mod(void) {
         CHECK(strcmp(s_refusal_mod_title, "Ta?ctical") == 0 && !s_refusal_mod_known);
     }
     fixture_mod_on = 0;
+    return 0;
+}
+/* A mod made for some play modes (docs/mod-system.md, Play modes): the host
+ * turns away a joiner whose HELLO class it doesn't run with, naming the mod
+ * first, and the joiner reads which mode it needs. */
+EXPORT int test_core_mod_play_modes(void) {
+    u8 sent[256];
+    size_t sentSize;
+    const char *why;
+    fixture(0);
+    fixture_mod_on = 0;
+    memset(&fixture_mod, 0, sizeof(fixture_mod));
+    strcpy(fixture_mod.m.id, "tactical");strcpy(fixture_mod.m.title, "Tactical");strcpy(fixture_mod.m.version, "1.0.0");
+    fixture_mod.m.kind = GEVR_MOD_CAMPAIGN;fixture_mod.m.coop = 1;
+    /* no mod, or one without "playModes" (both, and 0 reads as both): everyone joins */
+    for (int c = 0; c <= NET_INPUT_TOUCH; c++) CHECK(netModPlayRefusal((uint8_t)c) == 0);
+    fixture_mod_on = 1;
+    for (int c = 0; c <= NET_INPUT_TOUCH; c++) CHECK(netModPlayRefusal((uint8_t)c) == 0);
+    fixture_mod.m.playModes = GEVR_MOD_PLAY_ALL;
+    for (int c = 0; c <= NET_INPUT_TOUCH; c++) CHECK(netModPlayRefusal((uint8_t)c) == 0);
+    /* VR only: keyboard and mouse, a pad (a headset's flat screen too) and touch are turned away */
+    fixture_mod.m.playModes = GEVR_MOD_PLAY_VR;
+    CHECK(netModPlayRefusal(NET_INPUT_VR) == 0 && netModPlayRefusal(NET_INPUT_UNKNOWN) == 0);
+    CHECK(netModPlayRefusal(NET_INPUT_MOUSE) == (NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    CHECK(netModPlayRefusal(NET_INPUT_PAD) == (NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    CHECK(netModPlayRefusal(NET_INPUT_TOUCH) == (NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    CHECK(netModPlayRefusal(7) == 0);   /* a class this build doesn't know: let in, as "VR players only" does */
+    /* flat only */
+    fixture_mod.m.playModes = GEVR_MOD_PLAY_FLAT;
+    CHECK(netModPlayRefusal(NET_INPUT_VR) == (NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_FLAT));
+    CHECK(netModPlayRefusal(NET_INPUT_PAD) == 0 && netModPlayRefusal(NET_INPUT_MOUSE) == 0 && netModPlayRefusal(NET_INPUT_UNKNOWN) == 0);
+    /* the reason is none of the others' */
+    CHECK((NET_DISCONNECT_MOD_PLAY & 0xFFFFFF00u) != NET_DISCONNECT_CAMPAIGN && (NET_DISCONNECT_MOD_PLAY & 0xFFFFFF00u) != NET_DISCONNECT_CONTENT);
+    CHECK((NET_DISCONNECT_VR_ONLY & 0xFFFFFF00u) != NET_DISCONNECT_MOD_PLAY && (NET_DISCONNECT_HAND_RELOAD & 0xFFFFFF00u) != NET_DISCONNECT_MOD_PLAY);
+    /* the joiner: the host named the mod first (NET_MSG_MOD_REQUIRED) */
+    fixture_mod.m.playModes = GEVR_MOD_PLAY_VR;
+    sent_size = 0;netSendModRequired(&hit_peers[1]);
+    sentSize = sent_size;memcpy(sent, sent_data, sentSize);
+    modRefusal((const char *)sent, sentSize);
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    why = netTakeJoinRefusal();
+    /* this fixture builds flat (no headset): it says where to play it */
+    CHECK(why && !strcmp(why, "Cannot join: this party's mod Tactical is for VR only. Join from a headset."));
+    CHECK(s_state == NET_STATE_OFFLINE && !s_server_peer && !s_refusal_mod_known);
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    modRefusal((const char *)sent, sentSize);
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_FLAT));
+    why = netTakeJoinRefusal();
+    CHECK(why && !strcmp(why, "Cannot join: this party's mod Tactical is for flat screen only. Set Play mode to Flat screen to join."));
+    /* no word from the host: its own copy of the mod names it (the content check matched it) */
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    strcpy(fixture_mod.m.title, "Same Mod");
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "this party's mod Same Mod is for VR only."));
+    fixture_mod_on = 0;
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY | GEVR_MOD_PLAY_VR));
+    why = netTakeJoinRefusal();
+    CHECK(why && !strcmp(why, "Cannot join: this party's mod is for VR only. Join from a headset."));
+    /* a reason with no mode bits isn't this one */
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(!netClientContentRefused(&hit_peers[0], NET_DISCONNECT_MOD_PLAY));
+    s_server_peer = NULL;
     return 0;
 }
 /* Who plays flat: the host's count for the lobby list and the LAN beacon,

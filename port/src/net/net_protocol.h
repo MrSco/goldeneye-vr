@@ -144,7 +144,12 @@ typedef enum {
      * shared) carry NET_MOD_DROP_BYTES or NET_MOD_PICKUP_BYTES after the id,
      * read by gevr_modapi.c: NET_MOD_DROP and NET_MOD_GRANT the host's
      * alone, to everyone; NET_MOD_CLAIM a player's, to the host alone;
-     * NET_MOD_GONE anyone's. Protocol 30 has no release before it. */
+     * NET_MOD_GONE anyone's. NET_MOD_ATTACH (mod.attach on the other
+     * players, #335): u16 n, n bytes (2 to NET_MOD_ATTACH_BYTES, laid out
+     * in gevr_modattach_net.h: what the sender wears and its state, the
+     * host's ask to send it to a player who just reached the stage); anyone's,
+     * to everyone or to one, relayed as NET_MOD_DATA is. Protocol 30 has no
+     * release before it. */
     NET_MSG_MOD = 68,
 } NetMsgType;
 
@@ -155,11 +160,13 @@ enum {
     NET_MOD_CLAIM = 3,  /* a player would take one: the host decides */
     NET_MOD_GRANT = 4,  /* the host's decision: the winner takes it, the others' copies go */
     NET_MOD_GONE = 5,   /* gone without a taker (recycled, used up): every copy goes */
+    NET_MOD_ATTACH = 6, /* the sender's attachments (mod.attach) and their state, for its copy on the others */
 };
 #define NET_MOD_DROP_BYTES 12
 #define NET_MOD_PICKUP_BYTES 8
 #define NET_MOD_PAYLOAD_MAX 1024
 #define NET_MOD_CHANNEL_MAX 32
+#define NET_MOD_ATTACH_BYTES 1024       /* a NET_MOD_ATTACH's records (GEVR_ATTNET_BYTES) */
 #define NET_MOD_HOST_RELAY_A_SECOND 64   /* the host drops a player's past this, each second */
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -222,6 +229,15 @@ enum {
 #define NET_PLATFORM_FRAME 8u           /* the Steam Frame APK (GEVR_FRAME) */
 #define NET_PLATFORM_MAX NET_PLATFORM_FRAME
 #define NET_DISCONNECT_VR_ONLY 0x47455652u   /* 'GEVR' */
+/*
+ * A mod made for some play modes (docs/mod-system.md, Play modes; manifest
+ * "playModes"): a host whose mod campaign doesn't run in the joiner's (its
+ * HELLO's input class: NET_INPUT_VR plays in VR, the others flat) turns it
+ * away with this | the mod's GEVR_MOD_PLAY_* bits, after NET_MSG_MOD_REQUIRED
+ * names the mod. An unknown class is let in, as for "VR players only".
+ * Additive on protocol 30, which has no release before it.
+ */
+#define NET_DISCONNECT_MOD_PLAY 0x47455300u   /* 'GES' | GEVR_MOD_PLAY_* ('GEP' is main's NET_DISCONNECT_VERSION) */
 /*
  * How each player reloads (the roster's Reload, the host's "Hand reload only", the Join
  * list's filter): by hand in VR (Hand reload on), or with the button. After the platform,

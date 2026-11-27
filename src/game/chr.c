@@ -3332,6 +3332,12 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
 
                 mrData.gdl = gevrModAttachDrawGuard(chr, &mrData, chrfadealpha, mrData.gdl);
             }
+            {
+                /* and what another player wears on a hand or the body (mod.attach, #335) */
+                extern Gfx *gevrModAttachDrawPlayer(ChrRecord *chr, ModelRenderData *body, s32 fadealpha, Gfx *gdl);
+
+                mrData.gdl = gevrModAttachDrawPlayer(chr, &mrData, chrfadealpha, mrData.gdl);
+            }
             if (chrfadealpha < 0xFF)
             {
                 gDPNoOpTag(mrData.gdl++, 0x56620000 | 0xFF);

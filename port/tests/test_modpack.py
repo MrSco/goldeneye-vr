@@ -48,7 +48,8 @@ def build(temp):
     cc = shutil.which("gcc") or "cc"
     # the sanitizers where the compiler has them (not Windows' MinGW gcc): run in WSL for them
     sanitize = [] if os.name == "nt" else ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
-    subprocess.run([cc, "-std=gnu11", "-O1", "-Wall", "-Wno-unused-function", "-DGEVR=1", "-D_LANGUAGE_C=1", *sanitize,
+    # as PC VR (GEVR_PCVR): the session's play mode follows VrPlayMode (Play modes)
+    subprocess.run([cc, "-std=gnu11", "-O1", "-Wall", "-Wno-unused-function", "-DGEVR=1", "-D_LANGUAGE_C=1", "-DGEVR_PCVR=1", *sanitize,
                     "-I" + str(ROOT / "include"), "-I" + str(ROOT / "port/include"),
                     str(src), str(ROOT / "port/src/gevr_modpack.c"), str(ROOT / "port/src/gevr_sha256.c"),
                     str(ROOT / "port/vr/miniz/miniz.c"), "-o", str(exe)], check=True)
@@ -127,8 +128,9 @@ class Runner:
     def __init__(self, exe, cwd):
         self.exe, self.cwd = exe, cwd
 
-    def __call__(self, *args):
-        out = subprocess.run([str(self.exe), *map(str, args)], cwd=self.cwd, capture_output=True, text=True)
+    def __call__(self, *args, env=None):
+        out = subprocess.run([str(self.exe), *map(str, args)], cwd=self.cwd, capture_output=True, text=True,
+                             env={**os.environ, **env} if env else None)
         assert out.returncode == 0, out.stderr
         return out.stdout.strip()
 
@@ -210,7 +212,18 @@ def main():
 
         out = manifest(json.dumps(MANIFEST))
         check(out == "OK id=tactical title=Tactical by=Kelly-D-Ripper version=1.0.0 api=1 kind=1 base=1 coop=1 "
-              "affects=1 modes=0 site=https://example.org/tactical", "a full manifest reads: " + out)
+              "affects=1 modes=0 play=3 site=https://example.org/tactical\nvr=-\nflat=-\nserver=-",
+              "a full manifest reads, and runs in VR and flat without \"playModes\": " + out)
+        # ---- play modes (docs/mod-system.md, Play modes) ----
+        for modes, play, vr, flat in ((["vr"], 1, "-", "This mod is for VR"),
+                                      (["flat"], 2, "This mod is for flat screen", "-"),
+                                      (["vr", "flat"], 3, "-", "-"), (["flat", "vr"], 3, "-", "-")):
+            out = manifest(with_(playModes=modes))
+            check(out.splitlines() == [out.splitlines()[0], f"vr={vr}", f"flat={flat}", "server=-"] and f" play={play} " in out,
+                  f"playModes {modes}: " + out)
+        out = manifest(with_(kind="overlay", affectsPlay=True, modes=["coop"], playModes=["vr"]))
+        check(" modes=1 play=1 " in out, "an overlay names its play modes beside its multiplayer modes: " + out)
+        check(run("session") == "stereo=1 screen=2 build=3", "a headset's session follows Play mode: " + run("session"))
         check(manifest(b"\xef\xbb\xbf" + json.dumps(MANIFEST).encode()).startswith("OK"), "a byte-order mark is fine")
         check(manifest(with_(coop=None, site=None)).startswith("OK"), "coop and site are optional")
         nested = json.loads(with_())
@@ -243,6 +256,14 @@ def main():
             "http site": (with_(site="http://example.org"), "https://"),
             "coop string": (with_(coop="yes"), "true or false"),
             "mode": (with_(kind="overlay", affectsPlay=True, modes=["coop", "race"]), '"modes" can hold'),
+            "play empty": (with_(playModes=[]), '"playModes" is empty'),
+            "play unknown": (with_(playModes=["vr", "ar"]), '"playModes" can hold "vr" and "flat"'),
+            "play case": (with_(playModes=["VR"]), '"playModes" can hold'),
+            "play twice": (with_(playModes=["flat", "flat"]), '"playModes" names "flat" twice'),
+            "play string": (with_(playModes="vr"), '"playModes" must be a list'),
+            "play null": (with_()[:-1] + ', "playModes": null}', '"playModes" must be a list'),
+            "play number": (with_(playModes=[1]), '"playModes" can hold'),
+            "play again": (with_(playModes=["vr"])[:-1] + ', "playModes": ["vr"]}', '"playModes" appears twice'),
             "deep": ('{"x":' + "[" * 40 + "]" * 40 + "}", "nested too deep"),
             "unclosed": ('{"id": "tac', "isn't closed"),
             "control": ('{"id": "ta\tc"}', "control character"),
@@ -299,6 +320,7 @@ def main():
         refused("layout", "isn't in scripts/ (.lua) or assets/", files=files_plus(**{"bin/x.so": b"x"}))
         refused("script-kind", "isn't in scripts/ (.lua) or assets/", files=files_plus(**{"scripts/notes.txt": b"x"}))
         refused("api", "needs a newer GoldenEye VR", manifest={**MANIFEST, "api": 2})
+        refused("play-modes", '"playModes" can hold', manifest={**MANIFEST, "playModes": ["vr", "headset"]})
         refused("bad-json", "mod.json:", manifest="{nope")
         refused("two-folders", "b/x.txt is outside the mod's folder", prefix="a/", extra=[("b/x.txt", b"x")])
         refused("deep-manifest", "no mod.json at its top", prefix="a/b/")
@@ -379,6 +401,21 @@ def main():
         run("install", z("overlay", manifest={**MANIFEST, "id": "looks", "kind": "overlay"}))
         out = run("boot", "looks", 0)
         check("active=-" in out and "note=Tactical is an overlay, not a campaign" in out, "an overlay as a campaign: " + out)
+        # a mod made for one play mode: off in the other, with the launcher's note (cloud sync can name it)
+        run("install", z("vr-only", manifest={**MANIFEST, "id": "vr-only", "title": "Hands On", "playModes": ["vr"]}))
+        run("install", z("flat-only", manifest={**MANIFEST, "id": "flat-only", "title": "Desk Job", "playModes": ["flat"]}))
+        out = run("boot", "vr-only", 0)
+        check("campaign=1 active=vr-only setting=vr-only" in out and out.endswith("note="), "a VR mod starts in VR: " + out)
+        out = run("boot", "vr-only", 0, env={"PLAY_MODE": "flat"})
+        check("campaign=0 active=- setting=-" in out and "save=$S/eeprom.bin" in out
+              and "note=Hands On did not start: This mod is for VR." in out, "a VR mod on the flat screen: " + out)
+        out = run("boot", "flat-only", 0)
+        check("active=- setting=-" in out and "note=Desk Job did not start: This mod is for flat screen." in out,
+              "a flat mod in VR: " + out)
+        out = run("boot", "flat-only", 0, env={"PLAY_MODE": "flat"})
+        check("active=flat-only" in out and out.endswith("note="), "a flat mod on the flat screen: " + out)
+        out = run("boot", "tactical", 0, env={"PLAY_MODE": "flat"})
+        check("active=tactical" in out and out.endswith("note="), "a mod without playModes starts flat too: " + out)
         out = run("boot", "tactical", 0, "Goldfinger 64")
         check("campaign=0 active=- setting=-" in out and "save=$S/eeprom.bin" in out
               and "note=Tactical needs Goldfinger 64, which did not load, so GoldenEye started instead." in out, "cartridge failed: " + out)

@@ -577,10 +577,10 @@ static int jSkip(Json *j, int depth)
     return jNumber(j, &n, &whole);
 }
 
-enum { K_FORMAT, K_ID, K_TITLE, K_BY, K_VERSION, K_API, K_KIND, K_BASE, K_COOP, K_SITE, K_AFFECTS, K_MODES, K_COUNT };
+enum { K_FORMAT, K_ID, K_TITLE, K_BY, K_VERSION, K_API, K_KIND, K_BASE, K_COOP, K_SITE, K_AFFECTS, K_MODES, K_PLAY, K_COUNT };
 
 static const char *const s_keys[K_COUNT] = {
-    "format", "id", "title", "by", "version", "api", "kind", "base", "coop", "site", "affectsPlay", "modes" };
+    "format", "id", "title", "by", "version", "api", "kind", "base", "coop", "site", "affectsPlay", "modes", "playModes" };
 
 static int jText(Json *j, const char *key, char *out, size_t cap, int spaces)
 {
@@ -688,6 +688,24 @@ static int jValue(Json *j, int key, gevrModManifest *m)
                 if (jTake(j, ']')) return 0;
                 if (!jTake(j, ',')) return jFail(j, "expected ',' or ']' in \"modes\"");
             }
+        case K_PLAY:
+            /* strict: an author who names the play modes means them (Play modes) */
+            if (!jTake(j, '[')) return jFail(j, "\"playModes\" must be a list");
+            if (jTake(j, ']')) return jFail(j, "\"playModes\" is empty: leave it out to run in VR and on a flat screen");
+            for (;;) {
+                unsigned bit;
+
+                if (jPeek(j) != '"') return jFail(j, "\"playModes\" can hold \"vr\" and \"flat\"");
+                n = jString(j, word, sizeof(word), NULL);
+                if (n == -1) return -1;
+                if (n >= 0 && !strcmp(word, "vr")) bit = GEVR_MOD_PLAY_VR;
+                else if (n >= 0 && !strcmp(word, "flat")) bit = GEVR_MOD_PLAY_FLAT;
+                else return jFail(j, "\"playModes\" can hold \"vr\" and \"flat\"");
+                if (m->playModes & bit) return jFail(j, "\"playModes\" names \"%s\" twice", word);
+                m->playModes |= bit;
+                if (jTake(j, ']')) return 0;
+                if (!jTake(j, ',')) return jFail(j, "expected ',' or ']' in \"playModes\"");
+            }
     }
     return -1;
 }
@@ -755,6 +773,9 @@ int gevrModParseManifest(const char *json, size_t len, gevrModManifest *out, cha
         say(why, whyLen, "%s was made for mod API %d, which this build no longer runs (%d to %d)", out->id,
             out->api, GEVR_MOD_API_MIN, GEVR_MOD_API_MAX);
         return -1;
+    }
+    if (!(seen & (1u << K_PLAY))) {
+        out->playModes = GEVR_MOD_PLAY_ALL;   /* left out: VR and flat alike */
     }
     if (out->kind == GEVR_MOD_CAMPAIGN) {
         out->affectsPlay = 1;   /* a campaign is its own play: checked in the lobby */
@@ -1445,6 +1466,20 @@ static void tidy(void)
     }
 }
 
+/* ---- play modes (docs/mod-system.md, Play modes) ---- */
+
+unsigned gevrModSessionPlayMode(void)
+{
+#if defined(GEVR_HEADLESS)
+    return 0;   /* the dedicated server plays no seat: its joiners are checked (net_core.c) */
+#elif (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)
+    extern int VrPlayMode;   /* 1 stereo VR, 0 the flat screen */
+    return VrPlayMode == 1 ? GEVR_MOD_PLAY_VR : GEVR_MOD_PLAY_FLAT;
+#else
+    return GEVR_MOD_PLAY_FLAT;
+#endif
+}
+
 /* ---- this run's mod campaign ---- */
 
 static void note(const char *fmt, ...)
@@ -1474,6 +1509,7 @@ void gevrModStartup(void)
 void gevrModBoot(void)
 {
     char why[256];
+    const char *refusal;
 
     gevrModStartup();
     s_hasActive = 0;
@@ -1484,6 +1520,9 @@ void gevrModBoot(void)
         note("The mod campaign did not start: %s.", why);
     } else if (s_active.m.kind != GEVR_MOD_CAMPAIGN) {
         note("%s is an overlay, not a campaign, so it did not start.", s_active.m.title);
+    } else if ((refusal = gevrModPlayModeRefusal(s_active.m.playModes, gevrModSessionPlayMode())) != NULL) {
+        /* the ini can name it from another device (cloud sync) or before Play mode changed */
+        note("%s did not start: %s.", s_active.m.title, refusal);
     } else {
         VrCampaign = s_active.m.base;
         s_hasActive = 1;

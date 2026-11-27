@@ -696,10 +696,14 @@ s32 gevrHeldGunCompute(ChrRecord *chr, PropRecord *weapon, GUNHAND hand, Mtxf *b
 
         if (rw->Raw.unk00)
         {
+            /* a pack gun body's authored muzzle, as the player's own (mod.weapon.model, #335) */
+            extern s32 gevrModAttachPlayerMuzzle(ChrRecord *chr, s32 hand, s32 item, f32 out[3]);
             Mtxf flash;
+            coord3d packMuzzle;
             WeaponStats *stats = get_ptr_item_statistics((ITEM_IDS)item);
 
-            matrix_4x4_set_identity_and_position((coord3d *)h->Switches[3]->Data, &flash);
+            matrix_4x4_set_identity_and_position(gevrModAttachPlayerMuzzle(chr, hand, item, packMuzzle.f)
+                                                 ? &packMuzzle : (coord3d *)h->Switches[3]->Data, &flash);
             if (stats != NULL)
             {
                 matrix_column_3_scalar_multiply(stats->MuzzleFlashExtension, flash.m[0]);
@@ -865,15 +869,35 @@ Gfx *gevrHeldGunDraw(ChrRecord *chr, ModelRenderData *body, Gfx *gdl, s32 withal
             gSPLookAt(rd.gdl++, sub_GAME_7F078474());
         }
 
-        /* Bean's launcher carries its own round (DAB fpRound): loaded or
-         * not as the holder's is, and GoldenEye's rocket not drawn in it */
-        gevrBeanSetLoaded(inst->rocketon);
-        subdraw(&rd, &inst->model);
-        gevrBeanSetLoaded(1);
+        {
+            /* another player's pack gun body in place of the item's model
+             * (mod.weapon.model, #335), as that player's own hand draws it */
+            extern Gfx *gevrModAttachDrawPlayerBody(Gfx *gdl, ModelRenderData *templ, ChrRecord *chr, s32 hand,
+                                                    s32 item, Model *gun, s32 *replaced);
+            s32 packBody;
+
+            rd.gdl = gevrModAttachDrawPlayerBody(rd.gdl, &rd, chr, hand, inst->file->item, &inst->model, &packBody);
+
+            if (!packBody)
+            {
+                /* Bean's launcher carries its own round (DAB fpRound): loaded or
+                 * not as the holder's is, and GoldenEye's rocket not drawn in it */
+                gevrBeanSetLoaded(inst->rocketon);
+                subdraw(&rd, &inst->model);
+                gevrBeanSetLoaded(1);
+            }
+        }
 
         if (inst->rocketon && !gevrBeanHasRound(inst->model.obj))
         {
             subdraw(&rd, &inst->rocket);
+        }
+
+        {
+            /* what another player wears on this gun (mod.attach, #335), on its matrices as just drawn */
+            extern Gfx *gevrModAttachDrawPlayerGun(Gfx *gdl, ModelRenderData *templ, ChrRecord *chr, s32 hand, Model *gun);
+
+            rd.gdl = gevrModAttachDrawPlayerGun(rd.gdl, &rd, chr, hand, &inst->model);
         }
 
         gdl = rd.gdl;
