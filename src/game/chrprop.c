@@ -1784,7 +1784,11 @@ void chraiDefaultWeaponFireHandler(s32 hand)
  * Hitscans gather candidate hits along the bullet path. This function records each candidate hit into shotdata
  * and enforces pentration limits and removes hits that should be blocked by closer objects.
  */
-void chrpropAddBulletHit(struct ShotData *shotdata, PropRecord *prop, f32 dist, s32 hitpart, ModelNode *node, struct HitThing *hitthing, s32 room, s32 unk44, Model *model, bool countsAsPenetration, s32 blocksFurtherHits)
+/* GEVR: unk44, the node hit, was an s32 here as on the N64, which cut its
+ * pointer in half on 64-bit builds: objHit's door-window and camera-glass
+ * tests never matched (no 100x damage on a camera's glass). BulletHit keeps
+ * it as the ModelNode * it is. */
+void chrpropAddBulletHit(struct ShotData *shotdata, PropRecord *prop, f32 dist, s32 hitpart, ModelNode *node, struct HitThing *hitthing, s32 room, ModelNode *unk44, Model *model, bool countsAsPenetration, s32 blocksFurtherHits)
 {
     s32 pad;
     s32 i;

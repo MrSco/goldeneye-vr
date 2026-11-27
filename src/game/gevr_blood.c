@@ -34,7 +34,6 @@
 #ifdef GEVR
 #include <ultra64.h>
 #include <math.h>
-#include <stdint.h>
 #include <string.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
@@ -507,14 +506,9 @@ static void bloodDecalOnObject(const BloodObjectHit *found, float w, float h)
         }
     }
     /* Cleared with a door's window or a camera's glass when it breaks, as
-     * objHit means a hole there to be (explosionClearBulletImpactRoomByFlag
-     * 1). BulletHit.unk44 holds that node through an s32
-     * (chrpropAddBulletHit), so its low 32 bits are what compare. */
-    {
-        const s32 node = (s32)(intptr_t)hit->unk44;
-        clearflag = (file->Skeleton == &skeleton_door && node == (s32)(intptr_t)file->Switches[3])
-                 || (file->Skeleton == &skeleton_cctv && node == (s32)(intptr_t)file->Switches[1]);
-    }
+     * objHit's holes there are (explosionClearBulletImpactRoomByFlag 1). */
+    clearflag = (file->Skeleton == &skeleton_door && hit->unk44 == file->Switches[3])
+             || (file->Skeleton == &skeleton_cctv && hit->unk44 == file->Switches[1]);
     bloodColour(rgba, obj->type == PROPDEF_GLASS || obj->type == PROPDEF_TINTED_GLASS);
     gevrExplosionCreateDecalOnProp(hit->prop, (s8)hit->room, GEVR_BLOOD_IMPACT_TYPE, centre, across, up, rgba, clearflag);
     s_onobjects = 1;
