@@ -27,11 +27,22 @@ void gevrModMeshPoint(const Mtxf *fit, const float point[3], float out[3]);
 s32 gevrModGunMuzzle(s32 hand, coord3d *out);
 /* Fitted off-hand hold point for the body the hand is actually drawing. */
 s32 gevrModGunSupport(s32 hand, coord3d *out);
+/* Fitted grip point: where the hand holds the body it is drawing (VR). */
+s32 gevrModGunGrip(s32 hand, coord3d *out);
 /* The moving parts of the body the hand is drawing, NULL for none; and each
  * group's offset this frame (gevr_modaction.h's share of its travel). */
 const GevrModGunParts *gevrModGunParts(s32 hand, f32 offset[GEVR_MODPART_GROUPS][3]);
 /* How far a gun attachment's travel goes this frame: 0..1 (handle: rack only). */
 f32 gevrModGunActionShare(s32 hand, s32 handle);
+/* The pack glove the hand's gun draws in a pose (GEVR_MODHAND_*), NULL for the
+ * stock hand: only while the hand draws the pack body it was given with;
+ * pose is its fit in carrier coordinates (its own frame, else the body's). */
+const GevrModMesh *gevrModGunHand(s32 hand, s32 pose, Mtxf *fit, s32 *fitted);
+/* the hand's gun is held two-handed and has a support glove, so the off
+ * hand's own arm isn't drawn (gunfire.c) */
+s32 gevrModGunSupportGloveShown(s32 hand);
+/* the gun hand's trigger is held (the VR trigger; flat shows ready) */
+s32 gevrModGunTriggerHeld(s32 hand);
 /* gun.c, each tick after the body's action: gun parts with their own timing step theirs */
 void gevrModAttachActionTick(s32 hand, s32 item, s32 shot, f32 ticks, s32 loaded, s32 holdOpen, s32 interval);
 #endif

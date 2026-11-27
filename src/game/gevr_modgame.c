@@ -125,7 +125,7 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 
 extern s32 gevrModGunHeld(s32 hand);                                        /* gun.c */
 extern void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
-                               const GevrModGunParts *parts);
+                               const float grip[3], const GevrModGunParts *parts);
 extern void gevrModGunModelReset(void);
 #include "gevr_modassets.h"
 #include "gevr_modmesh.h"
@@ -139,22 +139,42 @@ int gevrModGameLook(int hand)
 extern s32 gevrIsThrowable(s32 item);        /* input.c */
 
 int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
-                        const GevrModGunParts *parts)
+                        const float grip[3], const GevrModGunParts *parts)
 {
     const GevrModMesh *mesh;
     /* Thrown weapons have neither a muzzle, a two-handed hold nor an action. */
-    if ((muzzle != NULL || support != NULL || parts != NULL) && gevrIsThrowable(item)) return 0;
+    if ((muzzle != NULL || support != NULL || grip != NULL || parts != NULL) && gevrIsThrowable(item)) return 0;
     if (name != NULL) {
         int native;
         if (!gevrModAssetHasModel(name)) return 0;
         native = gevrModMeshLoad(name, &mesh);
-        if (native < 0 || ((frame != NULL || muzzle != NULL || support != NULL || parts != NULL) && native != 1)) return 0;
+        if (native < 0 || ((frame != NULL || muzzle != NULL || support != NULL || grip != NULL || parts != NULL) && native != 1)) return 0;
         /* its moving pictures' lists, built now rather than at a draw; a
          * picture the file doesn't have refuses the whole look */
         if (parts != NULL && (parts->pictures[GEVR_MODPART_ACTION] | parts->pictures[GEVR_MODPART_HANDLE])
             && !gevrModMeshSplit(mesh, parts->pictures)) return 0;
     }
-    gevrModGunModelSet(hand, item, name, frame, muzzle, support, parts);
+    gevrModGunModelSet(hand, item, name, frame, muzzle, support, grip, parts);
+    return 1;
+}
+
+extern void gevrModGunHandsSet(s32 hand, s32 item, const char *const files[GEVR_MODHAND_POSES],
+                               const float (*const frames[GEVR_MODHAND_POSES])[4]);   /* gun.c */
+
+int gevrModGameGunHands(int hand, int item, const char *const files[GEVR_MODHAND_POSES],
+                        const float (*const frames[GEVR_MODHAND_POSES])[4])
+{
+    const GevrModMesh *mesh;
+    int pose;
+
+    /* a thrown weapon leaves the hand: it has no hand of its own to give */
+    if (gevrIsThrowable(item)) return 0;
+    for (pose = 0; files != NULL && pose < GEVR_MODHAND_POSES; ++pose) {
+        if (files[pose] == NULL) continue;
+        /* gloves are self-describing pack meshes, loaded now rather than at a draw */
+        if (!gevrModAssetHasModel(files[pose]) || gevrModMeshLoad(files[pose], &mesh) != 1) return 0;
+    }
+    gevrModGunHandsSet(hand, item, files, frames);
     return 1;
 }
 

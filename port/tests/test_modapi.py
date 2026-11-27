@@ -1555,6 +1555,8 @@ mod.on("mission_start", function()
   print("fit", mod.weapon.model("right", "ak47", "pack-body.bin", {frame=frame, muzzle={0, 3, 350}}))
   print("muzzle only", mod.weapon.model("left", "ak47", "pack-body.bin", {muzzle={4, 5, 6}}))
   print("support only", mod.weapon.model("left", "ak47", "pack-body.bin", {support={4, 5, 60}}))
+  print("grip only", mod.weapon.model("left", "ak47", "pack-body.bin", {grip={0, -40, 90}}))
+  print("bad grip", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {grip={0, 0, 4001}})))
   print("bad support", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {support={0, 0, 4001}})))
   print("bad muzzle", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {muzzle={0, 0, 4001}})))
   print("nan muzzle", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {muzzle={0/0, 0, 1}})))
@@ -1567,7 +1569,7 @@ mod.on("mission_start", function()
 end)
 """
     out = run(exe, temp, "gunmodel_fit", lua, "start", "prepare", 9, "begin", 9)
-    check(logs(out) == ["fit true", "muzzle only true", "support only true", "bad support false", "bad muzzle false", "nan muzzle false", "short muzzle false",
+    check(logs(out) == ["fit true", "muzzle only true", "support only true", "grip only true", "bad grip false", "bad support false", "bad muzzle false", "nan muzzle false", "short muzzle false",
                         "thrown muzzle false", "legacy false", "clear with fit false", "wrong shape false", "unfitted true"],
           "fitted gun model results: " + str(logs(out)))
     check(answers(out, "GUNFRAME") == ["GUNFRAME 0 -1.0 1.0 1.0 12.0 1.0", "GUNFRAME 1 -1.0 1.0 1.0 12.0 1.0"],
@@ -1576,6 +1578,8 @@ end)
           "only valid model-local muzzle points for a gun reach the game")
     check(answers(out, "GUNSUPPORT") == ["GUNSUPPORT 1 4.0 5.0 60.0"],
           "only valid model-local support points reach the game")
+    check(answers(out, "GUNGRIP") == ["GUNGRIP 1 0.0 -40.0 90.0"],
+          "only valid model-local grip points reach the game")
 
 
 def gunmodel_parts(exe, temp):
@@ -1635,6 +1639,33 @@ end)
                                            "ATTACHACTION 2 0 0 -1 0", "ATTACHACTION 1 0 0 -44 0 1 6 0.40",
                                            "ATTACHACTION 1 -"],
           "a part's travel, its handle flag and clearing reach the game: " + str(answers(out, "ATTACHACTION")))
+
+
+def gunhands(exe, temp):
+    """A pack gun's gloves reach the game whole, with their own frames or none; bad ones never do."""
+    lua = r"""
+mod.on("mission_start", function()
+  local frame = {{1,0,0},{0,1,0},{0,0,1},{0,0,12}}
+  print("all", mod.weapon.hands("right", "ak47", {ready="pack-ready.bin", trigger="pack-trigger.bin", support="pack-support.bin",
+    frame=frame, supportFrame={{1,0,0},{0,1,0},{0,0,1},{0,0,40}}}))
+  print("ready only", mod.weapon.hands("left", "wppk", {ready="pack-ready.bin"}))
+  print("no ready", (pcall(mod.weapon.hands, "right", "ak47", {trigger="pack-trigger.bin"})))
+  print("nested", (pcall(mod.weapon.hands, "right", "ak47", {ready="gloves/pack-ready.bin"})))
+  print("bad frame", (pcall(mod.weapon.hands, "right", "ak47", {ready="pack-ready.bin", frame={{1,0,0}}})))
+  print("bad support frame", (pcall(mod.weapon.hands, "right", "ak47", {ready="pack-ready.bin", supportFrame={{0,0,0},{0,0,0},{0,0,0},{0,0,0}}})))
+  print("missing", mod.weapon.hands("right", "ak47", {ready="GtacGloveZ"}))
+  print("thrown", mod.weapon.hands("right", "grenade", {ready="pack-ready.bin"}))
+  print("clear", mod.weapon.hands("right", "ak47", nil))
+end)
+"""
+    out = run(exe, temp, "gunhands", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["all true", "ready only true", "no ready false", "nested false", "bad frame false",
+                        "bad support frame false", "missing false", "thrown false", "clear true"],
+          "gloves' answers and refusals: " + str(logs(out)))
+    check(answers(out, "GUNHANDS") == ["GUNHANDS 0 8 pack-ready.bin pack-trigger.bin pack-support.bin 12 12 40",
+                                       "GUNHANDS 1 4 pack-ready.bin - - - - -", "GUNHANDS 0 8 clear"],
+          "only well-formed gloves reach the game, a frame for ready and trigger and its own for support: "
+          + str(answers(out, "GUNHANDS")))
 
 
 def pack_names(exe, temp):
@@ -2464,6 +2495,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         gunmodel(exe, temp)
         gunmodel_fit(exe, temp)
         gunmodel_parts(exe, temp)
+        gunhands(exe, temp)
         attach(exe, temp)
         attach_authored_frame(exe, temp)
         pack_names(exe, temp)

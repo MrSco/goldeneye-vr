@@ -5721,8 +5721,17 @@ static f32 s_gevrModGunMuzzle[2][ITEM_IDS_MAX][3];
 static u8 s_gevrModGunHasMuzzle[2][ITEM_IDS_MAX];
 static f32 s_gevrModGunSupport[2][ITEM_IDS_MAX][3];
 static u8 s_gevrModGunHasSupport[2][ITEM_IDS_MAX];
+static f32 s_gevrModGunGrip[2][ITEM_IDS_MAX][3];
+static u8 s_gevrModGunHasGrip[2][ITEM_IDS_MAX];
 static GevrModGunParts s_gevrModGunPartsFor[2][ITEM_IDS_MAX];
 static u8 s_gevrModGunHasParts[2][ITEM_IDS_MAX];
+/* the gun's own hand (mod.weapon.hands): a glove file per pose, and its fit */
+static struct
+{
+    char file[GEVR_MODHAND_POSES][GEVR_MODGUN_NAME];
+    Mtxf fit[GEVR_MODHAND_POSES];
+    u8 fitted[GEVR_MODHAND_POSES];
+} s_gevrModGunHands[2][ITEM_IDS_MAX];
 static struct
 {
     const void *owner;           /* the player it was loaded for: another stage's is stale */
@@ -5784,6 +5793,15 @@ s32 gevrModGunMuzzle(s32 hand, coord3d *out)
     if (item < 0 || !s_gevrModGunHasMuzzle[hand][item]) return FALSE;
     const Mtxf *fit = s_gevrModGunHasFit[hand][item] ? &s_gevrModGunFit[hand][item] : NULL;
     gevrModMeshPoint(fit, s_gevrModGunMuzzle[hand][item], out->f);
+    return TRUE;
+}
+
+s32 gevrModGunGrip(s32 hand, coord3d *out)
+{
+    const s32 item = gevrModGunFittedItem(hand);
+    if (item < 0 || !s_gevrModGunHasGrip[hand][item]) return FALSE;
+    const Mtxf *fit = s_gevrModGunHasFit[hand][item] ? &s_gevrModGunFit[hand][item] : NULL;
+    gevrModMeshPoint(fit, s_gevrModGunGrip[hand][item], out->f);
     return TRUE;
 }
 
@@ -5853,6 +5871,68 @@ f32 gevrModGunActionShare(s32 hand, s32 handle)
     return gevrModActionShare(a, gevrRackPullShare(hand), handle, gevrModGunTiming(hand));
 }
 
+void gevrModGunHandsSet(s32 hand, s32 item, const char *const files[GEVR_MODHAND_POSES],
+                        const float (*const frames[GEVR_MODHAND_POSES])[4])
+{
+    s32 pose;
+
+    if (hand < 0 || hand > 1 || item <= ITEM_UNARMED || item >= ITEM_IDS_MAX)
+    {
+        return;
+    }
+    for (pose = 0; pose < GEVR_MODHAND_POSES; ++pose)
+    {
+        const char *file = files != NULL ? files[pose] : NULL;
+        snprintf(s_gevrModGunHands[hand][item].file[pose], GEVR_MODGUN_NAME, "%s", file != NULL ? file : "");
+        s_gevrModGunHands[hand][item].fitted[pose] = file != NULL && frames != NULL && frames[pose] != NULL;
+        if (s_gevrModGunHands[hand][item].fitted[pose])
+        {
+            memcpy(s_gevrModGunHands[hand][item].fit[pose].m, frames[pose], sizeof(s_gevrModGunHands[hand][item].fit[pose].m));
+        }
+    }
+}
+
+const GevrModMesh *gevrModGunHand(s32 hand, s32 pose, Mtxf *fit, s32 *fitted)
+{
+    const s32 item = gevrModGunFittedItem(hand);
+    const GevrModMesh *mesh = NULL;
+
+    if (item < 0 || pose < 0 || pose >= GEVR_MODHAND_POSES || !s_gevrModGunHands[hand][item].file[pose][0])
+    {
+        return NULL;
+    }
+    /* the mission's cache: loaded when it was given, so this is a lookup */
+    if (gevrModMeshLoad(s_gevrModGunHands[hand][item].file[pose], &mesh) != 1)
+    {
+        return NULL;
+    }
+    *fitted = s_gevrModGunHands[hand][item].fitted[pose] || s_gevrModGunHasFit[hand][item];
+    if (*fitted)
+    {
+        *fit = s_gevrModGunHands[hand][item].fitted[pose] ? s_gevrModGunHands[hand][item].fit[pose]
+                                                          : s_gevrModGunFit[hand][item];
+    }
+    return mesh;
+}
+
+s32 gevrModGunSupportGloveShown(s32 hand)
+{
+    extern s32 gevrStereoTwoHandGrip(void);   /* bondview2.c */
+    Mtxf fit;
+    s32 fitted;
+
+    return gevrStereoTwoHandGrip() && gevrStereoTwoHandGun() == hand
+        && gevrModGunHand(hand, GEVR_MODHAND_SUPPORT, &fit, &fitted) != NULL;
+}
+
+s32 gevrModGunTriggerHeld(s32 hand)
+{
+    extern int gevrVrTriggerDown[2];   /* input.c */
+    extern s32 g_gevrStereo;
+
+    return g_gevrStereo && (hand == GUNRIGHT || hand == GUNLEFT) && gevrVrTriggerDown[hand] != 0;
+}
+
 const GevrModGunParts *gevrModGunParts(s32 hand, f32 offset[GEVR_MODPART_GROUPS][3])
 {
     const s32 item = gevrModGunFittedItem(hand);
@@ -5908,7 +5988,7 @@ s32 gevrModGunBodyNow(s32 hand, char *name, s32 cap, s32 *item, f32 fit[4][4], s
 }
 
 void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
-                        const GevrModGunParts *parts)
+                        const float grip[3], const GevrModGunParts *parts)
 {
     if (hand >= 0 && hand <= 1 && item > ITEM_UNARMED && item < ITEM_IDS_MAX)
     {
@@ -5925,6 +6005,10 @@ void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[
         if (s_gevrModGunHasSupport[hand][item]) {
             memcpy(s_gevrModGunSupport[hand][item], support, sizeof(s_gevrModGunSupport[hand][item]));
         }
+        s_gevrModGunHasGrip[hand][item] = name != NULL && grip != NULL;
+        if (s_gevrModGunHasGrip[hand][item]) {
+            memcpy(s_gevrModGunGrip[hand][item], grip, sizeof(s_gevrModGunGrip[hand][item]));
+        }
         s_gevrModGunHasParts[hand][item] = name != NULL && parts != NULL;
         if (s_gevrModGunHasParts[hand][item]) {
             s_gevrModGunPartsFor[hand][item] = *parts;
@@ -5939,7 +6023,9 @@ void gevrModGunModelReset(void)
     memset(s_gevrModGunHasFit, 0, sizeof(s_gevrModGunHasFit));
     memset(s_gevrModGunHasMuzzle, 0, sizeof(s_gevrModGunHasMuzzle));
     memset(s_gevrModGunHasSupport, 0, sizeof(s_gevrModGunHasSupport));
+    memset(s_gevrModGunHasGrip, 0, sizeof(s_gevrModGunHasGrip));
     memset(s_gevrModGunHasParts, 0, sizeof(s_gevrModGunHasParts));
+    memset(s_gevrModGunHands, 0, sizeof(s_gevrModGunHands));
     for (p = 0; p < MAX_PLAYER_COUNT; ++p) {
         for (hand = 0; hand < 2; ++hand) {
             if (s_gevrModGunShown[p][hand].mesh != NULL) s_gevrModGunShown[p][hand].in = FALSE;

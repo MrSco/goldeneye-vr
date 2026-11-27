@@ -81,6 +81,7 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
 #ifdef GEVR
 #include "gevr_modapi.h"   /* mods' weapons and hands areas: throws, reloads, grips (before their first use) */
 #include "gevr_modmesh.h"
+#include "gevr_modgrip.h"
 extern bool netIsActive(void);
 extern int netGetLocalSlot(void);
 extern void netSendRespawnEvent(u8 pad_index, f32 theta);
@@ -2409,6 +2410,17 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
      * sideways trim mirrors with it.
      */
     gevrGunOff(handnum, off);
+    {
+        /* a pack body's grip point in the controller's grip, with the player's
+         * own Gun fit trim on top (gevr_modgrip.h) */
+        extern const float VrGunOffDefault[3];   /* vr_settings_defaults.c */
+        coord3d grip;
+        if (s_gevrGunOffOverride == NULL && gevrModGunGrip(handnum, &grip))
+        {
+            const f32 player[3] = { off[0], off[1], off[2] };
+            gevrModGripOff(grip.f, player, VrGunOffDefault, GEVR_VIEWMODEL_CM, GEVR_GRIP_TO_ORIGIN_CM, off);
+        }
+    }
     if (s_gevrGunOffOverride != NULL)
     {
         off[0] = s_gevrGunOffOverride[0];

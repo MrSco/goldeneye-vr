@@ -763,9 +763,9 @@ static int l_gunModel(lua_State *L)
     if (!gevrModGameSwappable(item)) {
         return luaL_argerror(L, 2, "a gun or thrown weapon with a model in this cartridge");
     }
-    float frame[4][4], muzzle[3], support[3];
+    float frame[4][4], muzzle[3], support[3], grip[3];
     const float (*fit)[4] = NULL;
-    const float *muzzlePoint = NULL, *supportPoint = NULL;
+    const float *muzzlePoint = NULL, *supportPoint = NULL, *gripPoint = NULL;
     GevrModGunParts parts = { { 0, 0 }, { { 0 } }, 1, { 0, 0, 1.0f } };
     int hasParts = 0;
     if (!lua_isnoneornil(L, 4)) {
@@ -774,6 +774,7 @@ static int l_gunModel(lua_State *L)
         if (authoredFrame(L, 4, "mod.weapon.model", frame)) fit = frame;
         if (authoredGunPoint(L, 4, "muzzle", muzzle)) muzzlePoint = muzzle;
         if (authoredGunPoint(L, 4, "support", support)) supportPoint = support;
+        if (authoredGunPoint(L, 4, "grip", grip)) gripPoint = grip;
         hasParts |= movingGroup(L, 4, "action", &parts.pictures[GEVR_MODPART_ACTION], parts.travel[GEVR_MODPART_ACTION],
                                 &parts.timing);
         hasParts |= movingGroup(L, 4, "handle", &parts.pictures[GEVR_MODPART_HANDLE], parts.travel[GEVR_MODPART_HANDLE],
@@ -787,13 +788,64 @@ static int l_gunModel(lua_State *L)
             hasParts = 1;
         }
         lua_pop(L, 1);
-        if (fit == NULL && muzzlePoint == NULL && supportPoint == NULL && !hasParts)
-            return luaL_argerror(L, 4, "a frame, muzzle, support point, action, handle or holdOpen for a pack mesh");
+        if (fit == NULL && muzzlePoint == NULL && supportPoint == NULL && gripPoint == NULL && !hasParts)
+            return luaL_argerror(L, 4, "a frame, muzzle, support or grip point, action, handle or holdOpen for a pack mesh");
     }
     needPlayer(L, "mod.weapon.model");
-    const int set = gevrModGameGunModel(hand, item, name, fit, muzzlePoint, supportPoint, hasParts ? &parts : NULL);
+    const int set = gevrModGameGunModel(hand, item, name, fit, muzzlePoint, supportPoint, gripPoint, hasParts ? &parts : NULL);
     if (set && name != NULL) gunBodyTold(L, hand);   /* a pack body is told to the others as the hand draws it */
     lua_pushboolean(L, set);
+    return 1;
+}
+
+/*
+ * hands(hand, item, { ready = file, trigger = file, support = file, frame,
+ * supportFrame } | nil): the pack's own gloves for item's pack body in that
+ * hand, in place of the stock hand and sleeve: ready, trigger while the hand's
+ * trigger is held, support on the gun while the other hand holds it. Each a
+ * flat pack mesh name; frames in the body's fit's rows (default the body's).
+ */
+static int l_gunHands(lua_State *L)
+{
+    static const char *const keys[GEVR_MODHAND_POSES] = { "ready", "trigger", "support" };
+    const int hand = handArg(L, 1);
+    const int item = itemArg(L, 2);
+    const char *files[GEVR_MODHAND_POSES] = { NULL, NULL, NULL };
+    float fit[4][4], supportFit[4][4];
+    const float (*frames[GEVR_MODHAND_POSES])[4] = { NULL, NULL, NULL };
+
+    if (!gevrModGameSwappable(item)) {
+        return luaL_argerror(L, 2, "a gun or thrown weapon with a model in this cartridge");
+    }
+    if (!lua_isnoneornil(L, 3)) {
+        luaL_checktype(L, 3, LUA_TTABLE);
+        for (int pose = 0; pose < GEVR_MODHAND_POSES; ++pose) {
+            size_t n;
+            if (lua_getfield(L, 3, keys[pose]) != LUA_TNIL) {
+                const char *name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &n) : NULL;
+                if (name == NULL || !modelNameOk(name, n)) {
+                    return luaL_error(L, "mod.weapon.hands: %s needs a flat model file name", keys[pose]);
+                }
+                files[pose] = lua_tostring(L, -1);
+            }
+            lua_pop(L, 1);   /* the name stays in the table, so the pointer stays valid */
+        }
+        if (files[GEVR_MODHAND_READY] == NULL) return luaL_argerror(L, 3, "a ready glove");
+        if (authoredFrame(L, 3, "mod.weapon.hands", fit)) frames[GEVR_MODHAND_READY] = frames[GEVR_MODHAND_TRIGGER] = fit;
+        lua_getfield(L, 3, "supportFrame");
+        if (!lua_isnil(L, -1)) {
+            lua_newtable(L);
+            lua_pushvalue(L, -2);
+            lua_setfield(L, -2, "frame");
+            if (authoredFrame(L, lua_gettop(L), "mod.weapon.hands: supportFrame", supportFit)) {
+                frames[GEVR_MODHAND_SUPPORT] = supportFit;
+            }
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+    }
+    needPlayer(L, "mod.weapon.hands");
+    lua_pushboolean(L, gevrModGameGunHands(hand, item, lua_isnoneornil(L, 3) ? NULL : files, frames));
     return 1;
 }
 
@@ -806,6 +858,7 @@ static const luaL_Reg s_weaponFuncs[] = {
     { "scope", l_scope },
     { "look", l_look },
     { "model", l_gunModel },
+    { "hands", l_gunHands },
     { NULL, NULL },
 };
 
