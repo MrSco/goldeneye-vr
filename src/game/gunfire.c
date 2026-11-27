@@ -3206,8 +3206,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
         extern s32 gevrStereoClubBat(s32 hand);   /* bondview2.c: the other hand on the bat is its own */
 
+        /* a pack's support glove (mod.weapon.hands) is drawn with its gun instead */
         if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun())
-            && !gevrStereoClubBat(gevrStereoTwoHandGun()))
+            && !gevrStereoClubBat(gevrStereoTwoHandGun()) && !gevrModGunSupportGloveShown(gevrStereoTwoHandGun()))
         {
             /* Bean's own off hand holds (bondview2.c), else the taser's hand */
             extern Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
@@ -3465,10 +3466,43 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                     renderdata.gdl = gevrModMeshDrawParts(renderdata.gdl, fit != NULL ? &fitted : root, mesh,
                                                           parts != NULL ? parts->pictures : NULL,
                                                           (const f32 (*)[3])partOffset);
-                    /* the stock hand, less the gun pieces some models file under it
-                     * (model.c modelGunHandList), known by the item's cartridge file */
-                    modelDrawGunHand(&renderdata, &handptr->weaponModel,
-                                     (const char *)get_ptr_item_text_call_line(item));
+                    /* the pack's own glove (mod.weapon.hands) in the pose the trigger
+                     * gives, else the stock hand, less the gun pieces some models file
+                     * under it (model.c modelGunHandList), known by the item's cartridge file */
+                    {
+                        Mtxf gloveFit, gloved;
+                        s32 gloveFitted = FALSE;
+                        const GevrModMesh *glove = gevrModGunTriggerHeld(handnum)
+                            ? gevrModGunHand(handnum, GEVR_MODHAND_TRIGGER, &gloveFit, &gloveFitted) : NULL;
+
+                        if (glove == NULL)
+                        {
+                            glove = gevrModGunHand(handnum, GEVR_MODHAND_READY, &gloveFit, &gloveFitted);
+                        }
+                        if (glove != NULL)
+                        {
+                            if (gloveFitted)
+                            {
+                                matrix_4x4_multiply(root, &gloveFit, &gloved);
+                            }
+                            renderdata.gdl = gevrModMeshDraw(renderdata.gdl, gloveFitted ? &gloved : root, glove);
+                        }
+                        else
+                        {
+                            modelDrawGunHand(&renderdata, &handptr->weaponModel,
+                                             (const char *)get_ptr_item_text_call_line(item));
+                        }
+                        /* held two-handed, the off hand's glove on the gun, where the pack put it */
+                        if (gevrModGunSupportGloveShown(handnum)
+                            && (glove = gevrModGunHand(handnum, GEVR_MODHAND_SUPPORT, &gloveFit, &gloveFitted)) != NULL)
+                        {
+                            if (gloveFitted)
+                            {
+                                matrix_4x4_multiply(root, &gloveFit, &gloved);
+                            }
+                            renderdata.gdl = gevrModMeshDraw(renderdata.gdl, gloveFitted ? &gloved : root, glove);
+                        }
+                    }
                     /* with an authored muzzle, the carrier's own flash, which
                      * gunUpdateAndFire placed there (model.c modelGunFlashList) */
                     coord3d packMuzzle;

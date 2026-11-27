@@ -158,6 +158,26 @@ int gevrModGameGunModel(int hand, int item, const char *name, const float frame[
     return 1;
 }
 
+extern void gevrModGunHandsSet(s32 hand, s32 item, const char *const files[GEVR_MODHAND_POSES],
+                               const float (*const frames[GEVR_MODHAND_POSES])[4]);   /* gun.c */
+
+int gevrModGameGunHands(int hand, int item, const char *const files[GEVR_MODHAND_POSES],
+                        const float (*const frames[GEVR_MODHAND_POSES])[4])
+{
+    const GevrModMesh *mesh;
+    int pose;
+
+    /* a thrown weapon leaves the hand: it has no hand of its own to give */
+    if (gevrIsThrowable(item)) return 0;
+    for (pose = 0; files != NULL && pose < GEVR_MODHAND_POSES; ++pose) {
+        if (files[pose] == NULL) continue;
+        /* gloves are self-describing pack meshes, loaded now rather than at a draw */
+        if (!gevrModAssetHasModel(files[pose]) || gevrModMeshLoad(files[pose], &mesh) != 1) return 0;
+    }
+    gevrModGunHandsSet(hand, item, files, frames);
+    return 1;
+}
+
 void gevrModGameGunModelReset(void)
 {
     gevrModGunModelReset();

@@ -10,6 +10,7 @@ typedef union { float f[3]; } coord3d;
 typedef struct { float m[4][4]; } Mtxf;
 typedef struct { int unused; } GevrModMesh;
 typedef struct { unsigned pictures[2]; float travel[2][3]; int holdOpen; } GevrModGunParts;
+enum { GEVR_MODHAND_READY, GEVR_MODHAND_TRIGGER, GEVR_MODHAND_SUPPORT, GEVR_MODHAND_POSES };
 enum { FALSE, TRUE, ITEM_UNARMED, ITEM_TEST, ITEM_IDS_MAX, MAX_PLAYER_COUNT = 4 };
 static struct TestPlayer { int hand_item[2]; } player;
 static void *owner = &player;

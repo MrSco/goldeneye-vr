@@ -664,6 +664,26 @@ in-game screen). We maintain the adapters, not the mods.
     pulled (`gevrRackShare`), the action group at whichever is further
     back. The hand's own state starts closed for each gun it draws.
 
+    A pack gun's own hand: `mod.weapon.hands(hand, item, { ready =
+    "glove.bin", trigger = "glove-trigger.bin", support = "glove-support.bin",
+    frame = ..., supportFrame = ... })` gives gloves, each a pack mesh, in
+    place of the stock hand and sleeve while that hand draws item's pack
+    body. `ready` is needed; `trigger` is drawn instead while the hand's VR
+    trigger is held (the flat game shows `ready`), and `support` on the gun
+    while the other hand holds it two-handed, when the off hand's own arm
+    (Bean's grip arm, or the fallback arm) isn't drawn. Each sits at the
+    gun's root through `frame` (`ready` and `trigger`) or `supportFrame`,
+    with the same rows as `mod.weapon.model`'s fit, else through the body's
+    fit, so gloves authored in the body file's space line up with it. They
+    follow the gun's matrix as drawn, so a left or mirrored gun mirrors them
+    as it does the body. Over a cartridge model, or while the body is still
+    loading, the stock hand stays. `nil` clears the hand's gloves for item;
+    they also clear with the rest at a mission's start. A thrown item, a
+    missing file or one that isn't a pack mesh answers false and changes
+    nothing. Not yet: gloves for the empty off hand (open, and pinch while
+    gripping), the watch on a glove's wrist point (`GEVRWPN2`), and gloves
+    on the other players' copies.
+
     A pack may give the action its own timing in the same table:
     `action = { pictures, travel, open = 1, close = 5, ease = 0.4 }`.
     `open` is the ticks to open fully (1 is fully open on the shot's own

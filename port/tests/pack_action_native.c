@@ -17,6 +17,7 @@ typedef struct { float m[4][4]; } Mtxf;
 typedef struct { int unused; } GevrModMesh;
 enum { FALSE, TRUE, ITEM_UNARMED, ITEM_TEST, ITEM_OTHER, ITEM_IDS_MAX, MAX_PLAYER_COUNT = 4 };
 enum { GEVR_MODPART_ACTION, GEVR_MODPART_HANDLE, GEVR_MODPART_GROUPS };
+enum { GEVR_MODHAND_READY, GEVR_MODHAND_TRIGGER, GEVR_MODHAND_SUPPORT, GEVR_MODHAND_POSES };
 typedef struct { unsigned pictures[GEVR_MODPART_GROUPS]; float travel[GEVR_MODPART_GROUPS][3]; int holdOpen;
                  GevrModActionTiming timing; } GevrModGunParts;
 typedef struct { f32 BoltRecoilBack; } WeaponStats;

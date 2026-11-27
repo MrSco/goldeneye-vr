@@ -1637,6 +1637,33 @@ end)
           "a part's travel, its handle flag and clearing reach the game: " + str(answers(out, "ATTACHACTION")))
 
 
+def gunhands(exe, temp):
+    """A pack gun's gloves reach the game whole, with their own frames or none; bad ones never do."""
+    lua = r"""
+mod.on("mission_start", function()
+  local frame = {{1,0,0},{0,1,0},{0,0,1},{0,0,12}}
+  print("all", mod.weapon.hands("right", "ak47", {ready="pack-ready.bin", trigger="pack-trigger.bin", support="pack-support.bin",
+    frame=frame, supportFrame={{1,0,0},{0,1,0},{0,0,1},{0,0,40}}}))
+  print("ready only", mod.weapon.hands("left", "wppk", {ready="pack-ready.bin"}))
+  print("no ready", (pcall(mod.weapon.hands, "right", "ak47", {trigger="pack-trigger.bin"})))
+  print("nested", (pcall(mod.weapon.hands, "right", "ak47", {ready="gloves/pack-ready.bin"})))
+  print("bad frame", (pcall(mod.weapon.hands, "right", "ak47", {ready="pack-ready.bin", frame={{1,0,0}}})))
+  print("bad support frame", (pcall(mod.weapon.hands, "right", "ak47", {ready="pack-ready.bin", supportFrame={{0,0,0},{0,0,0},{0,0,0},{0,0,0}}})))
+  print("missing", mod.weapon.hands("right", "ak47", {ready="GtacGloveZ"}))
+  print("thrown", mod.weapon.hands("right", "grenade", {ready="pack-ready.bin"}))
+  print("clear", mod.weapon.hands("right", "ak47", nil))
+end)
+"""
+    out = run(exe, temp, "gunhands", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["all true", "ready only true", "no ready false", "nested false", "bad frame false",
+                        "bad support frame false", "missing false", "thrown false", "clear true"],
+          "gloves' answers and refusals: " + str(logs(out)))
+    check(answers(out, "GUNHANDS") == ["GUNHANDS 0 8 pack-ready.bin pack-trigger.bin pack-support.bin 12 12 40",
+                                       "GUNHANDS 1 4 pack-ready.bin - - - - -", "GUNHANDS 0 8 clear"],
+          "only well-formed gloves reach the game, a frame for ready and trigger and its own for support: "
+          + str(answers(out, "GUNHANDS")))
+
+
 def pack_names(exe, temp):
     """The Lua binding forwards flat pack filenames and an omitted legacy header."""
     lua = r"""
@@ -2464,6 +2491,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         gunmodel(exe, temp)
         gunmodel_fit(exe, temp)
         gunmodel_parts(exe, temp)
+        gunhands(exe, temp)
         attach(exe, temp)
         attach_authored_frame(exe, temp)
         pack_names(exe, temp)

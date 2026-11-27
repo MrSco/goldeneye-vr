@@ -486,6 +486,14 @@ typedef struct GevrModGunParts {
  * when parts name pictures the file doesn't have */
 int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
                         const GevrModGunParts *parts);
+/* A pack gun's own hand (mod.weapon.hands): gloves in place of the stock
+ * hand and sleeve while the hand draws item's pack body, as pack meshes. */
+enum { GEVR_MODHAND_READY, GEVR_MODHAND_TRIGGER, GEVR_MODHAND_SUPPORT, GEVR_MODHAND_POSES };
+/* files[pose] NULL: none for that pose (ready is needed for any); frames[pose]
+ * NULL: the body's fit. All NULL clears. 0 when a file isn't a pack mesh the
+ * mod has, or item is thrown (nothing changes) */
+int gevrModGameGunHands(int hand, int item, const char *const files[GEVR_MODHAND_POSES],
+                        const float (*const frames[GEVR_MODHAND_POSES])[4]);
 /* every hand's own models back (a mod stopped, a new mission) */
 void gevrModGameGunModelReset(void);
 /* The pack gun body the local player's hand draws now (#335, told to the

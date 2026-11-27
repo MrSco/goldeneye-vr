@@ -224,6 +224,20 @@ static int gunModel(int hand, int item, const char *name, const float frame[4][4
     if (frame != NULL || muzzle != NULL || support != NULL) return name != NULL && strcmp(name, "pack-body.bin") == 0;
     return name == NULL || strncmp(name, "Gtac", 4) == 0 || strcmp(name, "pack-body.bin") == 0;
 }
+/* gun.c's gloves: pack meshes are pack-*.bin; a thrown item refuses */
+int gevrModGameGunHands(int hand, int item, const char *const files[GEVR_MODHAND_POSES],
+                        const float (*const frames[GEVR_MODHAND_POSES])[4])
+{
+    if (files == NULL) { printf("GUNHANDS %d %d clear\n", hand, item); return 1; }
+    if (item == 3 || (item >= 26 && item <= 29)) return 0;
+    for (int pose = 0; pose < GEVR_MODHAND_POSES; ++pose)
+        if (files[pose] != NULL && strncmp(files[pose], "pack-", 5)) return 0;
+    printf("GUNHANDS %d %d %s %s %s", hand, item, files[0], files[1] ? files[1] : "-", files[2] ? files[2] : "-");
+    for (int pose = 0; pose < GEVR_MODHAND_POSES; ++pose)
+        printf(frames[pose] ? " %.0f" : " -", frames[pose] ? frames[pose][3][2] : 0.0f);
+    printf("\n");
+    return 1;
+}
 void gevrModGameGunModelReset(void) { printf("GUNMODEL reset\n"); memset(s_gunBody, 0, sizeof(s_gunBody)); }
 /* gevr_modattach.c: models starting Gno won't load, nor a file past the
  * mission's GEVR_MODAPI_ATTACH_MODELS; the offset printed whole (-0 as 0) */
