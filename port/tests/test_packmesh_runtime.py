@@ -25,6 +25,16 @@ def mesh(colour):
     return b"GEVRWPN1" + struct.pack("<IHH", 1, 2, 2) + rgba * 4 + struct.pack("<I", 1) + corners
 
 
+def moving_mesh():
+    """Two pictures: a receiver panel on picture 0 and a bolt panel on picture 1."""
+    def triangle(picture, z):
+        return b"".join(struct.pack("<5f4BB3x", x, y, z + dz, u, v, 255, 255, 255, 255, picture)
+                        for x, y, dz, u, v in ((-.03, .02, 0, .1, .1), (.03, .08, 0, .9, .1), (.02, .09, .03, .9, .9)))
+    picture = struct.pack("<HH", 2, 2)
+    return (b"GEVRWPN1" + struct.pack("<I", 2) + picture + bytes((90, 90, 90, 255)) * 4 + picture
+            + bytes((200, 160, 40, 255)) * 4 + struct.pack("<I", 2) + triangle(0, .01) + triangle(1, .04))
+
+
 def main():
     exe = os.environ.get("GEVR_PACKMESH_EXE")
     rom = os.environ.get("GEVR_GE_ROM")
@@ -51,24 +61,32 @@ def main():
         (assets / "held.bin").write_bytes(mesh((243, 29, 73, 255)))
         (assets / "attachment.bin").write_bytes(mesh((37, 241, 113, 191)))
         (assets / "bad.bin").write_bytes(mesh((0, 0, 0, 255))[:-1])
+        (assets / "moving.bin").write_bytes(moving_mesh())
         # Non-self-describing input must not reach the cartridge loader without a header.
         (assets / "cartridge.bin").write_bytes(bytes(32))
         (pack / "scripts/main.lua").write_text(r'''local time, phase = 0, 0
+local function attach(file)
+  return mod.attach.add({ model = file, on = "gun", hand = "right" })
+end
 mod.on("tick", function(dt)
   time = time + dt
   local item = mod.weapon.held("right")
   if not item or item < 4 then return end
   if time > 8 and phase == 0 then
     phase = 1
-    local function attach(file)
-      return mod.attach.add({ model = file, on = "gun", hand = "right" })
-    end
     print("mesh-test bad", mod.weapon.model("right", item, "bad.bin"), attach("bad.bin"))
     print("mesh-test cartridge", attach("cartridge.bin"))
     print("mesh-test load", mod.weapon.model("right", item, "held.bin"), attach("attachment.bin"))
   elseif time > 9 and phase == 1 then
     phase = 2
     print("mesh-test drawn", mod.weapon.look("right"))
+    print("mesh-test stray", mod.weapon.model("right", item, "moving.bin", {action={pictures={2}, travel={0, 0, -40}}}))
+    local bolt = attach("attachment.bin")
+    print("mesh-test moving", mod.weapon.model("right", item, "moving.bin",
+      {action={pictures={1}, travel={0, 0, -40}}, holdOpen=false}), mod.attach.action(bolt, {travel={0, 0, -40}}))
+  elseif time > 10 and phase == 2 then
+    phase = 3
+    print("mesh-test moving drawn", mod.weapon.look("right"))
   end
 end)
 ''')
@@ -84,12 +102,16 @@ end)
         log = log_path.read_text(errors="replace") if log_path.exists() else ""
         assert result.returncode == 0, (result.returncode, result.stdout[-3000:], result.stderr[-3000:], log[-5000:])
         for pattern in (r"mesh-test bad false nil", r"mesh-test cartridge nil", r"mesh-test load true [1-9]\d*",
-                        r"mesh-test drawn mod", r"refused pack model bad\.bin: malformed model"):
+                        r"mesh-test drawn mod", r"refused pack model bad\.bin: malformed model",
+                        r"mesh-test stray false", r"mesh-test moving true true", r"mesh-test moving drawn mod",
+                        r"pack model moving\.bin: 2 triangles, 2 RGBA textures \(GEVRWPN1\)",
+                        r"pack model moving\.bin: moving pictures 0x2 with the action, 0x0 with the handle"):
             assert re.search(pattern, log), (pattern, "\n".join(line for line in log.splitlines() if re.search(r"\bmods?:|mesh-test|input script:", line)))
         assert log.count("refused pack model bad.bin: malformed model") == 2
         for name in ("held", "attachment"):
             assert re.search(rf"pack model {name}\.bin: 1 triangles, 1 RGBA textures \(GEVRWPN1\), [1-9]\d* display-list commands", log)
-    print("PASS: desktop Lua held and attached pack meshes, malformed refusals, legacy header requirement and display lists")
+    print("PASS: desktop Lua held and attached pack meshes, malformed refusals, legacy header requirement and display lists;"
+          " a body's moving pictures split into their own lists and a gun part with an action")
 
 
 if __name__ == "__main__":

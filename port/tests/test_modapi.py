@@ -1578,6 +1578,65 @@ end)
           "only valid model-local support points reach the game")
 
 
+def gunmodel_parts(exe, temp):
+    """A pack body's moving pictures and a gun part's travel reach the game whole; bad ones never do."""
+    lua = r"""
+mod.on("mission_start", function()
+  print("bolt", mod.weapon.model("right", "sniperrifle", "pack-body.bin",
+    {action={pictures={1}, travel={0, 0, -44}}, holdOpen=false}))
+  print("both", mod.weapon.model("left", "mp5k", "pack-body.bin",
+    {action={pictures={7, 8}, travel={0, 0, -30}}, handle={pictures={0}, travel={0, 0, -55}}}))
+  print("hold only", mod.weapon.model("right", "ak47", "pack-body.bin", {holdOpen=true}))
+  print("shared", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin",
+    {action={pictures={1}, travel={0, 0, -1}}, handle={pictures={1}, travel={0, 0, -1}}})))
+  print("repeat", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1, 1}, travel={0, 0, -1}}})))
+  print("range", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={32}, travel={0, 0, -1}}})))
+  print("empty", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={}, travel={0, 0, -1}}})))
+  print("no travel", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}}})))
+  print("far", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -4001}}})))
+  print("hold kind", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {holdOpen=1})))
+  print("thrown", mod.weapon.model("right", "grenade", "pack-body.bin", {action={pictures={0}, travel={0, 0, -1}}}))
+  print("timed", mod.weapon.model("right", "sniperrifle", "pack-body.bin",
+    {action={pictures={1}, travel={0, 0, -44}, open=1, close=5, ease=0.4}, holdOpen=false}))
+  print("linear", mod.weapon.model("right", "sniperrifle", "pack-body.bin", {action={pictures={1}, travel={0, 0, -44}, open=2, close=30}}))
+  print("half timing", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=1}})))
+  print("slow", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=1, close=31}})))
+  print("instant", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=0, close=5}})))
+  print("fraction", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=1.5, close=5}})))
+  print("steep", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {action={pictures={1}, travel={0, 0, -1}, open=1, close=5, ease=1.5}})))
+  print("handle timing", (pcall(mod.weapon.model, "right", "ak47", "pack-body.bin", {handle={pictures={1}, travel={0, 0, -1}, open=1, close=5}})))
+  local bolt = mod.attach.add({ model = "pack-part.bin", on = "gun", hand = "right" })
+  local glove = mod.attach.add({ model = "pack-part.bin", on = "hand", hand = "left" })
+  print("part", mod.attach.action(bolt, {travel={0, 0, -44}}))
+  print("handle part", mod.attach.action(bolt, {travel={-3, 0, -55}, handle=true}))
+  print("hand part", mod.attach.action(glove, {travel={0, 0, -1}}))
+  print("timed part", mod.attach.action(bolt, {travel={0, 0, -44}, open=1, close=6, ease=0.4}))
+  print("timed handle", (pcall(mod.attach.action, bolt, {travel={0, 0, -44}, handle=true, open=1, close=6})))
+  print("still", mod.attach.action(bolt, nil))
+  print("bad part", (pcall(mod.attach.action, bolt, {travel={0, 0}})))
+  print("not ours", mod.attach.action(99, {travel={0, 0, -1}}))
+end)
+"""
+    out = run(exe, temp, "gunmodel_parts", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["bolt true", "both true", "hold only true", "shared false", "repeat false", "range false", "empty false",
+                        "no travel false", "far false", "hold kind false", "thrown false",
+                        "timed true", "linear true", "half timing false", "slow false", "instant false", "fraction false",
+                        "steep false", "handle timing false",
+                        "part true", "handle part true", "hand part false", "timed part true", "timed handle false",
+                        "still true", "bad part false", "not ours false"],
+          "moving parts' answers and refusals: " + str(logs(out)))
+    check(answers(out, "GUNPARTS") == ["GUNPARTS 0 2 0.0 0.0 -44.0 0 0.0 0.0 0.0 0 0 0 1.00",
+                                       "GUNPARTS 1 180 0.0 0.0 -30.0 1 0.0 0.0 -55.0 1 0 0 1.00",
+                                       "GUNPARTS 0 0 0.0 0.0 0.0 0 0.0 0.0 0.0 1 0 0 1.00",
+                                       "GUNPARTS 0 2 0.0 0.0 -44.0 0 0.0 0.0 0.0 0 1 5 0.40",
+                                       "GUNPARTS 0 2 0.0 0.0 -44.0 0 0.0 0.0 0.0 1 2 30 1.00"],
+          "only well-formed groups reach the game, as picture bits and travel: " + str(answers(out, "GUNPARTS")))
+    check(answers(out, "ATTACHACTION") == ["ATTACHACTION 1 0 0 -44 0", "ATTACHACTION 1 -3 0 -55 1",
+                                           "ATTACHACTION 2 0 0 -1 0", "ATTACHACTION 1 0 0 -44 0 1 6 0.40",
+                                           "ATTACHACTION 1 -"],
+          "a part's travel, its handle flag and clearing reach the game: " + str(answers(out, "ATTACHACTION")))
+
+
 def pack_names(exe, temp):
     """The Lua binding forwards flat pack filenames and an omitted legacy header."""
     lua = r"""
@@ -1621,7 +1680,7 @@ def attach_placement():
           < load.index("used = gevrModAssetPendingUsed;") < load.index("gevrModAssetPendingName = NULL;")
           < load.index("if (!used)"), "a model loads under its own name, and the cartridge's in its place is refused")
     one = function(mine, "static Gfx *attachDraw(")
-    check(one.index("matrix_4x4_multiply(anchor, &a->offset, &pose);") < one.index("mtx[i] = pose;")
+    check(one.index("matrix_4x4_multiply(anchor, (Mtxf *) offset, &pose);") < one.index("mtx[i] = pose;")
           < one.index("if (a->file->rigid)") < one.index("instcalcmatrices(&rd, &a->model);")
           < one.index("subdraw(&rd, &a->model);"),
           "laid in the anchor's frame: a prop file's nodes from there, an animated one's every matrix the pose")
@@ -1631,6 +1690,9 @@ def attach_placement():
     drawgun = function(mine, "Gfx *gevrModAttachDrawGun(")
     check("node = ((Mtxf *) gun->render_pos)[a->node];" in drawgun and "a->node < gun->obj->numMatrices" in drawgun
           and "attachLocal()" in drawgun, "the gun model's matrix it rides as drawn, none past the model's; local")
+    check("attachDraw(gdl, templ, a, &node, &offset, &a->drawnPose, FALSE);" in drawgun and "Mtxf offset = a->offset;" in drawgun
+          and mine.count("&a->offset, NULL, ") == 4,
+          "a gun part's own offset, moved by its action (mod.attach.action); a guard's and the body's as placed")
     drawbody = function(mine, "Gfx *gevrModAttachDrawBody(Gfx *gdl)")
     check("g_gevrExtraPass" in drawbody and "0x565F0000 | (u32) (a->on == GEVR_MODATTACH_HAND ? (a->where == GUNRIGHT ? 2 : 1) : 3)" in drawbody
           and drawbody.count("matrix_4x4_7F058C64();") == 1,
@@ -2401,6 +2463,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         scope(exe, temp)
         gunmodel(exe, temp)
         gunmodel_fit(exe, temp)
+        gunmodel_parts(exe, temp)
         attach(exe, temp)
         attach_authored_frame(exe, temp)
         pack_names(exe, temp)

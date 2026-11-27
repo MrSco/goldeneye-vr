@@ -124,7 +124,8 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 }
 
 extern s32 gevrModGunHeld(s32 hand);                                        /* gun.c */
-extern void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3]);
+extern void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
+                               const GevrModGunParts *parts);
 extern void gevrModGunModelReset(void);
 #include "gevr_modassets.h"
 #include "gevr_modmesh.h"
@@ -137,18 +138,23 @@ int gevrModGameLook(int hand)
 
 extern s32 gevrIsThrowable(s32 item);        /* input.c */
 
-int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3])
+int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
+                        const GevrModGunParts *parts)
 {
     const GevrModMesh *mesh;
-    /* Thrown weapons have neither a muzzle nor a two-handed hold. */
-    if ((muzzle != NULL || support != NULL) && gevrIsThrowable(item)) return 0;
+    /* Thrown weapons have neither a muzzle, a two-handed hold nor an action. */
+    if ((muzzle != NULL || support != NULL || parts != NULL) && gevrIsThrowable(item)) return 0;
     if (name != NULL) {
         int native;
         if (!gevrModAssetHasModel(name)) return 0;
         native = gevrModMeshLoad(name, &mesh);
-        if (native < 0 || ((frame != NULL || muzzle != NULL || support != NULL) && native != 1)) return 0;
+        if (native < 0 || ((frame != NULL || muzzle != NULL || support != NULL || parts != NULL) && native != 1)) return 0;
+        /* its moving pictures' lists, built now rather than at a draw; a
+         * picture the file doesn't have refuses the whole look */
+        if (parts != NULL && (parts->pictures[GEVR_MODPART_ACTION] | parts->pictures[GEVR_MODPART_HANDLE])
+            && !gevrModMeshSplit(mesh, parts->pictures)) return 0;
     }
-    gevrModGunModelSet(hand, item, name, frame, muzzle, support);
+    gevrModGunModelSet(hand, item, name, frame, muzzle, support, parts);
     return 1;
 }
 
@@ -239,6 +245,21 @@ s32 gevrModThrowGuideLook(s32 item, f32 *length, f32 *width, u8 rgb[3], s32 *fad
 
 /* gunfire.c: the firing switch's case for the item: an automatic's (the
  * AK47's) or a shot a press (the PP7's) when a mod chose, else as */
+/* gun.c (gevr_modaction.h): the ticks between an automatic's shots as
+ * gunfire.c fires it (its AutomaticFiringRate, or a mod's fireRate), 0 for a
+ * gun that fires a shot a press */
+s32 gevrModGameShotInterval(s32 item)
+{
+    const WeaponStats *st;
+    s32 automatic;
+
+    if (item <= ITEM_UNARMED || item >= ITEM_IDS_MAX) return 0;
+    automatic = s_modFireMode[item] ? s_modFireMode[item] == 1 : nativeAutomatic(item);
+    st = get_ptr_item_statistics((ITEM_IDS)item);
+    if (!automatic || st == NULL || st->AutomaticFiringRate == 0xFF || st->AutomaticFiringRate == 0) return 0;
+    return st->AutomaticFiringRate;
+}
+
 s32 gevrModFireAs(s32 item, s32 as)
 {
     if (item < 0 || item >= ITEM_IDS_MAX || s_modFireMode[item] == 0) return as;

@@ -3459,7 +3459,12 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                         Mtxf offset = *fit;
                         matrix_4x4_multiply(root, &offset, &fitted);
                     }
-                    renderdata.gdl = gevrModMeshDraw(renderdata.gdl, fit != NULL ? &fitted : root, mesh);
+                    /* its moving parts, if the mod gave any, where the action is now */
+                    f32 partOffset[GEVR_MODPART_GROUPS][3];
+                    const GevrModGunParts *parts = gevrModGunParts(handnum, partOffset);
+                    renderdata.gdl = gevrModMeshDrawParts(renderdata.gdl, fit != NULL ? &fitted : root, mesh,
+                                                          parts != NULL ? parts->pictures : NULL,
+                                                          (const f32 (*)[3])partOffset);
                     /* the stock hand, less the gun pieces some models file under it
                      * (model.c modelGunHandList), known by the item's cartridge file */
                     modelDrawGunHand(&renderdata, &handptr->weaponModel,

@@ -192,4 +192,12 @@ static inline float gevrRackNudge(const GevrRack *r)
     return 0.0f;
 }
 
+/* How far along its throw the hand has the slide or handle, 0..1 (a pack
+ * gun's moving parts follow it: gevr_modaction.h). */
+static inline float gevrRackShare(const GevrRack *r)
+{
+    if (!r->held || !(r->throwCm > 0.0f) || !(r->pull > 0.0f)) return 0.0f;
+    return r->pull >= r->throwCm ? 1.0f : r->pull / r->throwCm;
+}
+
 #endif

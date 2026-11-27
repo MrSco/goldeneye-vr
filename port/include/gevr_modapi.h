@@ -8,6 +8,8 @@
 #ifndef GEVR_MODAPI_H
 #define GEVR_MODAPI_H
 
+#include "gevr_modaction.h"   /* GevrModActionTiming */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -467,10 +469,23 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 /* Which models the hand's gun is drawn with: 0 the cartridge's, 1 GoldenEye
  * X's, 2 Bean's (bondview2.c gevrFitLook), 3 a mod's (mod.weapon.model) */
 int gevrModGameLook(int hand);
+/* A pack body's moving parts (mod.weapon.model's action and handle): which of
+ * its pictures move, and where each group is when fully back, in the body's
+ * model units before its fit (gevr_modaction.h says how far along it is). */
+enum { GEVR_MODPART_ACTION, GEVR_MODPART_HANDLE, GEVR_MODPART_GROUPS };
+#define GEVR_MODAPI_PICTURES_MAX 32   /* a pack mesh's pictures (gevr_packmesh.h) */
+typedef struct GevrModGunParts {
+    unsigned pictures[GEVR_MODPART_GROUPS];   /* bit n: picture n; 0 no such group */
+    float travel[GEVR_MODPART_GROUPS][3];
+    int holdOpen;                             /* back on an empty magazine, as GoldenEye's slide */
+    GevrModActionTiming timing;               /* the action's own open, close and ease; 0 GoldenEye's */
+} GevrModGunParts;
 /* A mod's model for the gun a hand draws (gun.c gevrModGunModelSet): the
  * run's mod's assets/models/<name> for item in that hand, or name NULL the
- * item's own. 0 when the run's mod has no such file (nothing changes) */
-int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3]);
+ * item's own. 0 when the run's mod has no such file (nothing changes), or
+ * when parts name pictures the file doesn't have */
+int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4], const float muzzle[3], const float support[3],
+                        const GevrModGunParts *parts);
 /* every hand's own models back (a mod stopped, a new mission) */
 void gevrModGameGunModelReset(void);
 /* The pack gun body the local player's hand draws now (#335, told to the
@@ -509,6 +524,9 @@ int gevrModGameAttach(const GevrModAttach *a);
 int gevrModGameDetach(int id);
 int gevrModGameAttachShow(int id, int shown);
 int gevrModGameAttachPlace(int id, const float offset[4][4]);   /* a new offset, from the next frame */
+/* a gun attachment's travel with the action (NULL: it stays put); handle: the rack's pull only; timing
+ * NULL follows the gun's body (or GoldenEye's), else the part's own. 0 not on a gun */
+int gevrModGameAttachAction(int id, const float travel[3], int handle, const GevrModActionTiming *timing);
 void gevrModGameAttachReset(void);   /* none attached (a new mission, a mod stopped) */
 /* mod.attach.optic (gevr_modoptic.c): a pack optic profile on an attachment
  * (NULL unbinds), with its folded housing (a pack mesh, or NULL); 1 when bound */

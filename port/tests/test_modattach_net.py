@@ -102,7 +102,7 @@ def placement():
     game = (ROOT / "src/game/gevr_modattach.c").read_bytes().decode()
     gun = function(game, "Gfx *gevrModAttachDrawPlayerGun(")
     check("a->id < 0 && a->owner == slot" in gun and "node = ((Mtxf *) gun->render_pos)[a->node];" in gun
-          and "attachDraw(gdl, templ, a, &node, NULL, TRUE)" in gun,
+          and "attachDraw(gdl, templ, a, &node, &a->offset, NULL, TRUE)" in gun,
           "another player's on its gun: the held model's matrix as drawn, through the one attachment draw")
     body = function(game, "Gfx *gevrModAttachDrawPlayer(ChrRecord *chr")
     check("fadealpha < 0xFF" in body and body.index("gevrAvatarAttachFrame(slot, a->on, a->where, at, unit, &frame)")
@@ -123,7 +123,7 @@ def placement():
     check("a->id < 0 ? a->remoteFolded : gevrModOpticFolded(a->id)" in one,
           "another player's optic: its folded housing as that player's is told, never this player's own optic's")
     guard = function(game, "Gfx *gevrModAttachDrawGuard(")
-    check("attachDraw(gdl, &objdata, a, &node, NULL, TRUE)" in guard,
+    check("attachDraw(gdl, &objdata, a, &node, &a->offset, NULL, TRUE)" in guard,
           "a guard's pack mesh in the body's passes too: once, at the level's scale")
     pbody = function(game, "Gfx *gevrModAttachDrawPlayerBody(")
     check(pbody.index("*replaced = TRUE;") < pbody.index("if (templ->flags & 1)") < pbody.index("attachWorldScale(&pose);")

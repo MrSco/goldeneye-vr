@@ -9,6 +9,7 @@ typedef float f32;
 typedef union { float f[3]; } coord3d;
 typedef struct { float m[4][4]; } Mtxf;
 typedef struct { int unused; } GevrModMesh;
+typedef struct { unsigned pictures[2]; float travel[2][3]; int holdOpen; } GevrModGunParts;
 enum { FALSE, TRUE, ITEM_UNARMED, ITEM_TEST, ITEM_IDS_MAX, MAX_PLAYER_COUNT = 4 };
 static struct TestPlayer { int hand_item[2]; } player;
 static void *owner = &player;
@@ -29,7 +30,7 @@ int main(void)
     player.hand_item[0] = ITEM_TEST;
     assert(!gevrModGunSupport(0, &point)); /* stock: caller keeps its hold */
     assert(point.f[0] == 10 && point.f[1] == 20 && point.f[2] == 30);
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, support);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, support, NULL);
     s_gevrModGunShown[0][0].owner = owner;
     s_gevrModGunShown[0][0].mesh = &mesh;
     strcpy(s_gevrModGunShown[0][0].name, "previous.bin");
@@ -37,9 +38,9 @@ int main(void)
     strcpy(s_gevrModGunShown[0][0].name, "pack.bin");
     assert(gevrModGunSupport(0, &point));
     assert(point.f[0] == -2 && point.f[1] == 15 && point.f[2] == 140);
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, NULL);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, NULL, NULL);
     assert(!gevrModGunSupport(0, &point)); /* the same body drops its override */
-    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, support);
+    gevrModGunModelSet(0, ITEM_TEST, "pack.bin", fit, NULL, support, NULL);
     assert(gevrModGunSupport(0, &point));
     gevrModGunModelReset();
     assert(!gevrModGunSupport(0, &point)); /* stage reset */
