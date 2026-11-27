@@ -7,7 +7,10 @@
  * a stop) reaching it, the rate and the packing; and every malformed message
  * refused whole. Then an optic's housing state riding its SET (bound, the
  * mode, folded, the folded housing's file) and each hand's pack gun body
- * (GUNBODY): set, reset to the hand's own, a swap, a join, a stop.
+ * (GUNBODY): set, reset to the hand's own, a swap, a join, a stop. And the
+ * moving parts (#353): a gun part's action in its SET, a pack body's groups,
+ * travels, hold open and timing in its GUNBODY, each told on change, joined,
+ * and refused whole outside the limits.
  */
 #include <assert.h>
 #include <math.h>
@@ -143,7 +146,9 @@ static int same(int who, const GevrAttachRecord *r)
         && m->r.where == r->where && m->r.node == r->node && !strcmp(m->r.model, r->model)
         && !strcmp(m->r.like, r->like) && !memcmp(m->r.frame, r->frame, sizeof(r->frame))
         && !memcmp(m->r.body, r->body, sizeof(r->body)) && m->r.optic == r->optic && m->r.mode == r->mode
-        && m->r.folded == r->folded && !strcmp(m->r.housing, r->housing);
+        && m->r.folded == r->folded && !strcmp(m->r.housing, r->housing) && m->r.moves == r->moves
+        && m->r.handle == r->handle && m->r.timed == r->timed && !memcmp(m->r.travel, r->travel, sizeof(r->travel))
+        && m->r.open == r->open && m->r.close == r->close && m->r.ease == r->ease;
 }
 
 /* the gun body the other player sees in that hand */
@@ -153,7 +158,9 @@ static int sameBody(int who, const GevrAttachRecord *r)
 
     return b->op == GEVR_ATTNET_GUNBODY && b->item == r->item && b->fitted == r->fitted && b->muzzled == r->muzzled
         && !strcmp(b->model, r->model) && !memcmp(b->frame, r->frame, sizeof(r->frame))
-        && !memcmp(b->muzzle, r->muzzle, sizeof(r->muzzle));
+        && !memcmp(b->muzzle, r->muzzle, sizeof(r->muzzle)) && b->parts == r->parts && b->holdOpen == r->holdOpen
+        && !memcmp(b->pictures, r->pictures, sizeof(r->pictures)) && !memcmp(b->partTravel, r->partTravel, sizeof(r->partTravel))
+        && b->open == r->open && b->close == r->close && b->ease == r->ease;
 }
 
 static void settle(void)
@@ -223,8 +230,8 @@ static int wire(void)
     bad[8] = 2;
     CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);                 /* a third hand */
     bad[8] = 1;
-    bad[10] = 8;
-    CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);                 /* flags past shown, optic, folded */
+    bad[10] = 64;
+    CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);                 /* flags past shown, optic, folded, the action's */
     bad[10] = 2;
     CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);                 /* an optic on a cartridge-built part */
     bad[10] = 0;
@@ -300,8 +307,8 @@ static int wire(void)
         longest[GEVR_ATTNET_NAME] = '\0';
         CHECK(gevrAttachNetNameOk(longest));
         for (i = 0; i < GEVR_ATTNET_RECORDS; i++) many[i] = part(i + 1, GEVR_ATTNET_GUN, 0, longest);
-        CHECK(gevrAttachNetEncode(out, sizeof(out), 9, many, 7) == 2 + 7 * (GEVR_ATTNET_SET_BYTES + 63 + 8));
-        CHECK(gevrAttachNetEncode(out, sizeof(out), 9, many, 8) == 0);   /* past GEVR_ATTNET_BYTES */
+        CHECK(gevrAttachNetEncode(out, sizeof(out), 9, many, 6) == 2 + 6 * (GEVR_ATTNET_SET_BYTES + 63 + 8));
+        CHECK(gevrAttachNetEncode(out, sizeof(out), 9, many, 7) == 0);   /* past GEVR_ATTNET_BYTES */
     }
     CHECK(gevrAttachNetNameOk("GtacAcogZ") && gevrAttachNetNameOk("part.bin") && !gevrAttachNetNameOk("")
           && !gevrAttachNetNameOk(".bin.bin") && !gevrAttachNetNameOk("a.b") && !gevrAttachNetNameOk(NULL));
@@ -338,7 +345,7 @@ static int wireOptic(void)
     CHECK(out[at] == 15 && !memcmp(out + at + 1, "hhs1-folded.bin", 15));
     at += 16;                                                         /* the GUNBODY */
     CHECK(out[at] == GEVR_ATTNET_GUNBODY && out[at + 1] == 1 && out[at + 2] == 0x2A && out[at + 3] == 3
-          && out[at + 64] == 13 && !memcmp(out + at + 65, "kelly-pp7.bin", 13));
+          && out[at + GEVR_ATTNET_GUNBODY_BYTES - 1] == 13 && !memcmp(out + at + GEVR_ATTNET_GUNBODY_BYTES, "kelly-pp7.bin", 13));
     n = gevrAttachNetDecode(out, len, NULL, got);
     CHECK(n == 3 && got[0].optic && got[0].mode == 2 && got[0].folded && got[0].shown && !strcmp(got[0].housing, "hhs1-folded.bin"));
     CHECK(got[1].op == GEVR_ATTNET_GUNBODY && got[1].where == 1 && got[1].item == 0x2A && got[1].fitted && got[1].muzzled
@@ -383,7 +390,7 @@ static int wireOptic(void)
     bad[at] = GEVR_ATTNET_MODES;
     CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
     memcpy(bad, out, (size_t)len);
-    bad[10] = 8 | 7;
+    bad[10] = 64 | 7;
     CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
     memcpy(bad, out, (size_t)len);
     bad[10] = 1 | 4;                                                  /* folded, no optic */
@@ -400,7 +407,7 @@ static int wireOptic(void)
      * limits or not finite, a byte short */
     at = 2 + (GEVR_ATTNET_SET_BYTES + 8 + 15);
     {
-        static const int field[][2] = { { 1, 2 }, { 3, 4 } };
+        static const int field[][2] = { { 1, 2 }, { 3, 16 } };
         static const float nope[] = { NAN, INFINITY, 100.5f, -101.0f };
 
         for (i = 0; i < 2; i++) {
@@ -423,7 +430,7 @@ static int wireOptic(void)
         memcpy(bad + at + 4 + 48, &(float){ NAN }, 4);
         CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
         memcpy(bad, out, (size_t)len);
-        bad[at + 65] = '.';                                             /* ".elly-pp7.bin" */
+        bad[at + GEVR_ATTNET_GUNBODY_BYTES] = '.';                      /* ".elly-pp7.bin" */
         CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
         memcpy(bad, out, (size_t)len);
         bad[at + 2] = 0;                                                /* the hand's own, named */
@@ -758,6 +765,287 @@ static int gunBody(void)
     return 0;
 }
 
+/* the moving parts' bytes (#353): a gun part's action in its SET, a pack
+ * body's parts in its GUNBODY; each field outside its limits refused whole */
+static int wireAction(void)
+{
+    unsigned char out[GEVR_ATTNET_BYTES], bad[GEVR_ATTNET_BYTES];
+    GevrAttachRecord in[2], got[GEVR_ATTNET_RECORDS], r;
+    const int set = 2 + 1 + 8 + 60;   /* the SET's travel: past the op, the id and bytes, frame and body */
+    int len, at, i;
+
+    in[0] = part(5, GEVR_ATTNET_GUN, 0, "bolt.bin");
+    in[0].moves = in[0].timed = 1;
+    in[0].travel[2] = -44.0f;
+    in[0].open = 1;
+    in[0].close = 5;
+    in[0].ease = 0.4f;
+    memset(&in[1], 0, sizeof(in[1]));
+    in[1].op = GEVR_ATTNET_GUNBODY;
+    in[1].item = 0x17;
+    in[1].parts = in[1].holdOpen = 1;
+    in[1].pictures[0] = 6;
+    in[1].pictures[1] = 0x80000000u;
+    in[1].partTravel[0][2] = -44.0f;
+    in[1].partTravel[1][0] = -3.0f;
+    in[1].partTravel[1][2] = -4000.0f;
+    in[1].open = 30;
+    in[1].close = 1;
+    in[1].ease = 1.0f;
+    strcpy(in[1].model, "pack-body.bin");
+    len = gevrAttachNetEncode(out, sizeof(out), 9, in, 2);
+    CHECK(len == 2 + (GEVR_ATTNET_SET_BYTES + 8) + (GEVR_ATTNET_GUNBODY_BYTES + 13));
+    /* the layout: flags 1 shown, 8 moves, 32 its own timing; the travel, the ticks, the ease, then the mode */
+    CHECK(out[10] == (1 | 8 | 32));
+    CHECK(!memcmp(out + set + 8, &in[0].travel[2], 4) && out[set + 12] == 1 && out[set + 13] == 5
+          && !memcmp(out + set + 14, &in[0].ease, 4) && set + 18 == 2 + GEVR_ATTNET_SET_BYTES - 4);
+    at = 2 + GEVR_ATTNET_SET_BYTES + 8;                     /* the GUNBODY */
+    CHECK(out[at + 3] == (4 | 8) && out[at + 64] == 6 && out[at + 71] == 0x80);   /* parts, hold open; the pictures */
+    CHECK(out[at + 64 + 32] == 30 && out[at + 64 + 33] == 1 && !memcmp(out + at + 64 + 34, &in[1].ease, 4));
+    CHECK(gevrAttachNetDecode(out, len, NULL, got) == 2);
+    CHECK(got[0].moves && !got[0].handle && got[0].timed && got[0].travel[2] == -44.0f && got[0].open == 1
+          && got[0].close == 5 && got[0].ease == 0.4f && got[0].shown);
+    CHECK(got[1].parts && got[1].holdOpen && got[1].pictures[0] == 6 && got[1].pictures[1] == 0x80000000u
+          && got[1].partTravel[0][2] == -44.0f && got[1].partTravel[1][0] == -3.0f && got[1].partTravel[1][2] == -4000.0f
+          && got[1].open == 30 && got[1].close == 1 && got[1].ease == 1.0f && !strcmp(got[1].model, "pack-body.bin"));
+
+    /* a SET's action, encoding: on a hand or the body, a handle with a timing,
+     * a handle or a timing without moving, a travel that doesn't move, half a
+     * timing, past 30 ticks, an ease past 1 or without a timing, not finite */
+    {
+        static const float nope[] = { NAN, INFINITY, 4000.5f, -4000.5f };
+
+        r = in[0];
+        r.on = GEVR_ATTNET_HAND;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r = in[0];
+        r.handle = 1;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r.timed = r.open = r.close = 0;
+        r.ease = 0.0f;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) > 0);        /* a handle: fine */
+        r.moves = 0;
+        memset(r.travel, 0, sizeof(r.travel));
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r.handle = 0;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) > 0);        /* still */
+        r.travel[1] = 1.0f;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r = in[0];
+        r.moves = 0;
+        memset(r.travel, 0, sizeof(r.travel));
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);      /* timed, not moving */
+        r = in[0];
+        r.close = 0;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r.close = GEVR_ATTNET_TICKS + 1;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r.close = GEVR_ATTNET_TICKS;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) > 0);
+        r.ease = 1.5f;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r.ease = -0.1f;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r.ease = NAN;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r = in[0];
+        r.timed = r.open = r.close = 0;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);      /* an ease without a timing */
+        r.ease = 0.0f;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) > 0);
+        r.open = 2;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);      /* ticks without the flag */
+        for (i = 0; i < 4; i++) {
+            r = in[0];
+            r.travel[i % 3] = nope[i];
+            CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        }
+    }
+    /* and decoding: the same, a byte at a time */
+    {
+        static const float nope[] = { NAN, INFINITY, 4000.5f };
+
+        memcpy(bad, out, (size_t)len);
+        bad[10] = 1 | 8 | 16 | 32;                                      /* a timed handle */
+        CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+        bad[10] = 1 | 8;                                                /* ticks without the flag */
+        CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+        bad[10] = 1 | 32;                                               /* timed without moving */
+        CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+        memcpy(bad, out, (size_t)len);
+        bad[set + 12] = 31;
+        CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+        bad[set + 12] = 0;
+        CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+        memcpy(bad, out, (size_t)len);
+        memcpy(bad + set + 14, &(float){ 1.01f }, 4);
+        CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+        for (i = 0; i < 3; i++) {
+            memcpy(bad, out, (size_t)len);
+            memcpy(bad + set + 4 * i, &nope[i], 4);
+            CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+        }
+        memcpy(bad, out, (size_t)len);
+        bad[set + 18] = 0;                                              /* the mode, still a byte on */
+        CHECK(gevrAttachNetDecode(bad, len, NULL, got) == 2);
+    }
+
+    /* a GUNBODY's parts, encoding: the groups sharing a picture, a travel for
+     * a group without one, a timing without the action's pictures, half or
+     * past 30, a steep ease; any of it without the flag; on the hand's own */
+    {
+        r = in[1];
+        r.pictures[1] |= 2;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r = in[1];
+        r.pictures[1] = 0;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);      /* the handle's travel, no pictures */
+        memset(r.partTravel[1], 0, sizeof(r.partTravel[1]));
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) > 0);
+        r = in[1];
+        r.pictures[0] = 0;
+        memset(r.partTravel[0], 0, sizeof(r.partTravel[0]));
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);      /* timed, no action */
+        r.open = r.close = 0;
+        r.ease = 0.0f;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) > 0);       /* a handle alone */
+        r = in[1];
+        r.close = 0;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r.close = 31;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r = in[1];
+        r.ease = 2.0f;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r = in[1];
+        r.partTravel[0][1] = INFINITY;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);
+        r = in[1];
+        r.parts = 0;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);      /* pictures without the flag */
+        memset(r.pictures, 0, sizeof(r.pictures));
+        memset(r.partTravel, 0, sizeof(r.partTravel));
+        r.open = r.close = 0;
+        r.ease = 0.0f;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);      /* hold open without the flag */
+        r.holdOpen = 0;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) > 0);
+        r.parts = 1;
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) > 0);       /* parts that hold open or not: fine */
+        r.item = 0;
+        r.model[0] = '\0';
+        CHECK(gevrAttachNetEncode(bad, sizeof(bad), 9, &r, 1) == 0);      /* the hand's own with parts */
+    }
+    /* and decoding */
+    memcpy(bad, out, (size_t)len);
+    bad[at + 3] = 16;
+    CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);                /* flags past fit, muzzle, parts, hold */
+    bad[at + 3] = 8;
+    CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);                /* the parts without their flag */
+    memcpy(bad, out, (size_t)len);
+    bad[at + 68] = 2;                                                   /* the handle's pictures share the action's */
+    CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+    memcpy(bad, out, (size_t)len);
+    memcpy(bad + at + 72 + 20, &(float){ NAN }, 4);                     /* the handle's travel z */
+    CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+    memcpy(bad, out, (size_t)len);
+    bad[at + 64 + 32] = 0;                                              /* half a timing */
+    CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+    memcpy(bad, out, (size_t)len);
+    memcpy(bad + at + 64 + 34, &(float){ -0.5f }, 4);
+    CHECK(gevrAttachNetDecode(bad, len, NULL, got) < 0);
+    CHECK(gevrAttachNetDecode(out, len - 1, NULL, got) < 0);
+    return 0;
+}
+
+/* the owner's side of the moving parts: told on change, never the same twice,
+ * joined with the rest, and only for a part on the gun */
+static int ownerAction(void)
+{
+    GevrAttachRecord bolt = part(40, GEVR_ATTNET_GUN, 1, "bolt.bin"), glove = part(41, GEVR_ATTNET_HAND, 0, "glove.bin");
+    GevrAttachRecord pp7 = body(0, 0x17, "pack-body.bin");
+    static const float back[3] = { 0, 0, -44 };
+    Mirror *m;
+
+    gevrAttachNetReset(0);
+    memset(s_mirror, 0, sizeof(s_mirror));
+    memset(s_bodies, 0, sizeof(s_bodies));
+    s_now += 2000000;
+    CHECK(gevrAttachNetSet("tactical", &bolt) && gevrAttachNetSet("tactical", &glove) && poll() == 1);
+    /* an action: sent; the same again: nothing; its own timing; a handle; none */
+    CHECK(gevrAttachNetAction(40, 1, 0, back, 0, 0, 0.0f) && poll() == 1);
+    bolt.moves = 1;
+    bolt.travel[2] = -44.0f;
+    CHECK(same(3, &bolt) && same(3, &glove));
+    CHECK(gevrAttachNetAction(40, 1, 0, back, 0, 0, 0.0f) && poll() == 0);
+    CHECK(gevrAttachNetAction(40, 1, 0, back, 2, 6, 0.5f) && poll() == 1);
+    bolt.timed = 1;
+    bolt.open = 2;
+    bolt.close = 6;
+    bolt.ease = 0.5f;
+    CHECK(same(5, &bolt));
+    CHECK(gevrAttachNetAction(40, 1, 1, back, 2, 6, 0.5f) && poll() == 1);   /* a handle takes no timing */
+    bolt.handle = 1;
+    bolt.timed = bolt.open = bolt.close = 0;
+    bolt.ease = 0.0f;
+    CHECK(same(5, &bolt));
+    /* a move keeps it */
+    bolt.frame[3][0] = 7.0f;
+    CHECK(gevrAttachNetPlace(40, (const float (*)[3])bolt.frame) && poll() == 1 && same(6, &bolt));
+    /* a join: with its action */
+    memset(s_mirror[4], 0, sizeof(s_mirror[4]));
+    gevrAttachNetAnswer(4);
+    CHECK(poll() == 1 && s_lastTo == 4 && same(4, &bolt));
+    CHECK(gevrAttachNetAction(40, 0, 0, NULL, 0, 0, 0.0f) && poll() == 1);
+    bolt.moves = bolt.handle = 0;
+    memset(bolt.travel, 0, sizeof(bolt.travel));
+    CHECK(same(2, &bolt) && (m = mirrorOf(2, 40)) != NULL && !m->r.moves);
+    /* refused: a hand's part, one never set, a travel out of bounds, 31 ticks; nothing sent */
+    CHECK(!gevrAttachNetAction(41, 1, 0, back, 0, 0, 0.0f) && !gevrAttachNetAction(99, 1, 0, back, 0, 0, 0.0f));
+    CHECK(!gevrAttachNetAction(40, 1, 0, (const float[3]){ 0, 0, NAN }, 0, 0, 0.0f));
+    CHECK(!gevrAttachNetAction(40, 1, 0, back, 31, 5, 1.0f) && poll() == 0 && same(2, &bolt));
+    /* removed: no longer told */
+    gevrAttachNetRemove(40);
+    CHECK(!gevrAttachNetAction(40, 1, 0, back, 0, 0, 0.0f) && poll() == 1 && !has(2, 40));
+
+    /* the body's parts: with it, and again as they change */
+    s_now += 2000000;   /* past the second's sends */
+    pp7.parts = 1;
+    pp7.pictures[0] = 2;
+    pp7.partTravel[0][2] = -44.0f;
+    pp7.open = 1;
+    pp7.close = 5;
+    pp7.ease = 0.4f;
+    CHECK(gevrAttachNetGunBody("tactical", 0, &pp7) && poll() == 1 && sameBody(1, &pp7));
+    CHECK(gevrAttachNetGunBody("tactical", 0, &pp7) && poll() == 0);
+    pp7.holdOpen = 1;
+    CHECK(gevrAttachNetGunBody("tactical", 0, &pp7) && poll() == 1 && sameBody(7, &pp7));
+    /* a timing's fields with no parts aren't sent; parts without one carry none */
+    {
+        GevrAttachRecord plain = pp7, told;
+
+        plain.parts = 0;
+        CHECK(gevrAttachNetGunBody("tactical", 0, &plain) && poll() == 1);
+        told = s_bodies[3][0];
+        CHECK(!told.parts && !told.holdOpen && !told.pictures[0] && !told.open && told.ease == 0.0f);
+        plain = pp7;
+        plain.open = 0;
+        CHECK(gevrAttachNetGunBody("tactical", 0, &plain) && poll() == 1);
+        told = s_bodies[3][0];
+        CHECK(told.parts && told.pictures[0] == 2 && !told.open && !told.close && told.ease == 0.0f);
+    }
+    /* refused: groups sharing a picture; nothing sent */
+    {
+        GevrAttachRecord r = pp7;
+
+        r.pictures[1] = 2;
+        r.partTravel[1][0] = 1.0f;
+        CHECK(!gevrAttachNetGunBody("tactical", 0, &r) && poll() == 0);
+    }
+    gevrAttachNetReset(0);
+    return 0;
+}
+
 int bodyAt(int where, float out[3])
 {
     out[0] = 66.0f + where;
@@ -805,7 +1093,7 @@ int main(void)
     int line;
 
     if ((line = wire()) || (line = wireOptic()) || (line = owner()) || (line = join()) || (line = optic())
-        || (line = gunBody())) return line;
+        || (line = gunBody()) || (line = wireAction()) || (line = ownerAction())) return line;
     printf("modattach_net: ok\n");
     return 0;
 }
