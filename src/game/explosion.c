@@ -2820,6 +2820,81 @@ void explosionCreateBulletImpact(struct coord3d *pos, struct coord3d *arg1, s16 
     g_BulletImpactBuffer[g_NumImpactEntries].room = -1;
 }
 
+#ifdef GEVR
+/*
+ * Mods: the Blood patch's splat on an object, door or gun (gevr_blood.c), as
+ * a hole on one goes above: in the ring with the holes, on the prop's model
+ * matrix mtxindex, in that matrix's own units. The caller lays the quad: its
+ * centre and half sides (already divided by the matrix's scale, as the sizes
+ * above are) and its colour; the corners and their eighths are these.
+ */
+void gevrExplosionCreateDecalOnProp(PropRecord *prop, s8 mtxindex, s16 impact_type, const f32 centre[3],
+                                    const f32 across[3], const f32 up[3], const u8 rgba[4], s8 room_clear_flag)
+{
+    static const f32 sa[4] = { -1.0f, -1.0f, 1.0f, 1.0f };
+    static const f32 su[4] = { -1.0f, 1.0f, 1.0f, -1.0f };
+    struct BulletImpact *b = &g_BulletImpactBuffer[g_NumImpactEntries];
+    const s_impacttype *type = &g_ImpactTypes[impact_type];
+    f32 corners[4][3], most = 0.0f;
+    s32 fine = GEVR_IMPACT_FINE_MAX;
+    s32 j, k;
+
+    for (j = 0; j < 4; j++)
+    {
+        for (k = 0; k < 3; k++)
+        {
+            corners[j][k] = centre[k] + sa[j] * across[k] + su[j] * up[k];
+            if (fabsf(corners[j][k]) > most) most = fabsf(corners[j][k]);
+        }
+    }
+    if (most > 32000.0f)
+    {
+        return;
+    }
+    while (fine > 1 && most * fine > 32000.0f)
+    {
+        fine >>= 1;
+    }
+
+    b->prop = prop;
+    b->model_render_pos_index = mtxindex;
+    b->room_clear_flag = room_clear_flag;
+    b->room = 1;
+    b->impact_type = impact_type;
+    for (j = 0; j < 4; j++)
+    {
+        b->vertex_list[j] = g_BulletImpactDefaultVertex;
+        for (k = 0; k < 3; k++)
+        {
+            b->vertex_list[j].v.ob[k] = explosionRoundFloat(corners[j][k] * fine);
+        }
+        b->vertex_list[j].v.flag = fine;
+        b->vertex_list[j].v.tc[0] = sa[j] > 0.0f ? impactimages[impact_type].width << 5 : 0;
+        b->vertex_list[j].v.tc[1] = (j == 0 || j == 3) ? impactimages[impact_type].height << 5 : 0;
+        for (k = 0; k < 4; k++)
+        {
+            b->vertex_list[j].v.cn[k] = rgba[k];
+        }
+    }
+    if ((type->unk2 < 2) && (type->unk1 == 2))
+    {
+        prop->obj->state |= PROPSTATE_2;
+    }
+    else
+    {
+        prop->obj->state |= PROPSTATE_DAMAGED;
+    }
+
+    g_NumImpactEntries++;
+    if (g_NumImpactEntries >= BULLET_IMPACT_BUFFER_LEN)
+    {
+        g_NumImpactEntries = 0;
+    }
+    explosionSetBulletImpactAlpha(g_NumImpactEntries);
+    g_BulletImpactBuffer[g_NumImpactEntries].room = -1;
+}
+#endif
+
 
 
 

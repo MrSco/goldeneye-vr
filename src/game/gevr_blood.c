@@ -20,8 +20,10 @@
  * (gBloodColour). No art ships with it.
  *
  * What differs from PD:
- * - Splats land on the level, not on doors or other objects (PD's objTestHit
- *   pass); a splat's own ring of 96 keeps them from pushing out bullet holes.
+ * - A shot's splats land on objects, doors and guns too (PD's objTestHit
+ *   pass, done as a shot tests them), stuck to the object as its bullet holes
+ *   are and in their ring, whole at once. Splats on the level have a ring of
+ *   96 of their own, so they never push out bullet holes.
  * - A body bleeds whatever killed it, not only after a shot this headset saw:
  *   in co-op another player's kill bleeds on every headset, as its death
  *   plays everywhere. A Ragdolls body bleeds where it came to rest.
@@ -39,6 +41,8 @@
 #include "bgroomtrans.h"
 #include "bondview.h"
 #include "chr.h"
+#include "chrai.h"
+#include "chrobjdata.h"
 #include "matrixmath.h"
 #include "stan.h"
 #include "image_bank.h"
@@ -50,6 +54,9 @@
 extern int VrBloodPatch;   /* vr_settings: Mods, the blood patch */
 s32 bgGetConnectedRooms(s32 roomIndex, s32 *list, s32 max);   /* bg.c */
 s32 chrpropRayIntersectsRoomBbox(s32 room, coord3d *start, coord3d *dir);   /* chrprop.c */
+void sub_GAME_7F04E9BC(PropRecord *prop, struct ShotData *shotdata);   /* propobj.c: a shot's object test */
+void gevrExplosionCreateDecalOnProp(PropRecord *prop, s8 mtxindex, s16 impact_type, const f32 centre[3],
+                                    const f32 across[3], const f32 up[3], const u8 rgba[4], s8 room_clear_flag);   /* explosion.c */
 
 #define BLOOD_DECALS        96
 #define BLOOD_CHRS          512        /* gevr_ragdoll.c keeps 512 chrs too */
@@ -194,6 +201,21 @@ static void bloodWrite(BloodDecal *d)
     }
 }
 
+/* gBloodColour, a little lighter or darker splat to splat, and wallhit.c's
+ * alpha: minalpha 0xc0 (0x40 on glass) to maxalpha 0xff */
+static void bloodColour(u8 rgba[4], int glass)
+{
+    const float shade = 0.85f + 0.3f * bloodFrac();
+    const unsigned minalpha = glass ? 0x40 : 0xc0;
+    int k;
+
+    for (k = 0; k < 3; k++) {
+        const float c = (float)gBloodColour.rgba[k] * shade;
+        rgba[k] = (u8)(c > 255.0f ? 255.0f : c);
+    }
+    rgba[3] = (u8)(minalpha + bloodRandom() % (0x100 - minalpha));
+}
+
 /* A splat on the level at pos (world units) in room, half sides w by h. */
 static void bloodDecalCreate(const float pos[3], const float normal[3], int room, float w, float h, float timermax)
 {
@@ -221,15 +243,12 @@ static void bloodDecalCreate(const float pos[3], const float normal[3], int room
     d->room = (s16)room;
     d->timermax = timermax;
     d->fade = 1.0f;
-    /* gBloodColour, a little lighter or darker splat to splat */
     {
-        const float shade = 0.85f + 0.3f * bloodFrac();
-        for (k = 0; k < 3; k++) {
-            const float c = (float)gBloodColour.rgba[k] * shade;
-            d->rgb[k] = (u8)(c > 255.0f ? 255.0f : c);
-        }
+        u8 rgba[4];
+        bloodColour(rgba, 0);
+        memcpy(d->rgb, rgba, 3);
+        d->alpha = rgba[3];
     }
-    d->alpha = (u8)(0xc0 + bloodRandom() % 0x40);   /* wallhit.c's minalpha .. maxalpha */
     bloodWrite(d);
 
     s_next = (s_next + 1) % BLOOD_DECALS;
@@ -342,6 +361,130 @@ static int bloodTrace(const coord3d *from, const coord3d *to, int room, float hi
     return found;
 }
 
+/*
+ * PD's objTestHit pass (splat0f149274): the nearest object, door or gun on
+ * screen along the spray within reach (world units), found as a shot finds
+ * them (chrprop.c: sub_GAME_7F04E9BC on each on-screen prop, in view space).
+ * The hit is in the hit matrix's own space (BulletHit.room is its index);
+ * *distance is how far it is from from, in world units.
+ */
+static int bloodObjectHit(const coord3d *from, const float dir[3], float reach, BulletHit *out, float *distance)
+{
+    Mtxf *toview = camGetWorldToScreenMtxf();
+    Mtxf *toworld = currentPlayerGetViewToWorldMtxf();
+    struct ShotData shot;
+    PropRecord **pp;
+    float len, best = reach;
+    int i, k, found = 0;
+
+    if (!toview || !toworld || !g_LastOnScreenProp) return 0;
+    memset(&shot, 0, sizeof(shot));
+    shot.viewOrigin = *from;
+    mtx4TransformVecInPlace(toview, &shot.viewOrigin);
+    for (k = 0; k < 3; k++) shot.viewDir.f[k] = dir[k];
+    mtx4RotateVecInPlace(toview, &shot.viewDir);
+    len = sqrtf(shot.viewDir.x * shot.viewDir.x + shot.viewDir.y * shot.viewDir.y + shot.viewDir.z * shot.viewDir.z);
+    if (len <= 0.0f) return 0;
+    for (k = 0; k < 3; k++) {
+        shot.viewDir.f[k] /= len;
+        shot.gunpos.f[k] = from->f[k];
+        shot.dir.f[k] = dir[k];
+    }
+    shot.weapon = ITEM_WPPK;
+    /* the depth test is from the eye, not from the spray's start */
+    shot.maxdist = -shot.viewOrigin.z + reach;
+    if (shot.maxdist <= 0.0f) return 0;
+
+    for (pp = g_LastOnScreenProp; (--pp) >= g_OnScreenPropList;) {
+        PropRecord *prop = *pp;
+        if (prop && (prop->type == PROP_TYPE_OBJ || prop->type == PROP_TYPE_WEAPON || prop->type == PROP_TYPE_DOOR)) {
+            sub_GAME_7F04E9BC(prop, &shot);
+        }
+    }
+    for (i = 0; i < (int)(sizeof(shot.hits) / sizeof(shot.hits[0])); i++) {
+        BulletHit *h = &shot.hits[i];
+        Model *model;
+        coord3d at;
+        float d = 0.0f, along = 0.0f;
+
+        if (!h->prop || !h->prop->obj || !(model = h->prop->obj->model) || h->room < 0) continue;
+        at = h->hit.hitpos;
+        mtx4TransformVecInPlace(&model->render_pos[h->room].pos, &at);
+        mtx4TransformVecInPlace(toworld, &at);
+        for (k = 0; k < 3; k++) {
+            const float delta = at.f[k] - from->f[k];
+            d += delta * delta;
+            along += delta * dir[k];
+        }
+        d = sqrtf(d);
+        if (along > 0.0f && d < best) {
+            best = d;
+            *out = *h;
+            found = 1;
+        }
+    }
+    if (found) *distance = best;
+    return found;
+}
+
+/* The splat on an object, as its bullet hole is made (propobj.c objHit):
+ * in the hit matrix's units, the sides divided by the matrix's scale. It is
+ * whole at once: the ring is the bullet holes'. */
+static void bloodDecalOnObject(const BulletHit *hit, float w, float h)
+{
+    ObjectRecord *obj = hit->prop->obj;
+    Mtxf *mtx = &obj->model->render_pos[hit->room].pos;
+    float across[3], up[3], centre[3];
+    coord3d sa, su;
+    float la, lu;
+    u8 rgba[4];
+    int k;
+
+    bloodSurfaceAxes(hit->hit.normal.f, (float)(bloodRandom() % 360), across, up);
+    for (k = 0; k < 3; k++) {
+        sa.f[k] = across[k];
+        su.f[k] = up[k];
+        centre[k] = hit->hit.hitpos.f[k];
+    }
+    mtx4RotateVecInPlace(mtx, &sa);
+    mtx4RotateVecInPlace(mtx, &su);
+    la = sqrtf(sa.x * sa.x + sa.y * sa.y + sa.z * sa.z);
+    lu = sqrtf(su.x * su.x + su.y * su.y + su.z * su.z);
+    if (la <= 0.0f || lu <= 0.0f) return;
+    for (k = 0; k < 3; k++) {
+        across[k] *= w / la;
+        up[k] *= h / lu;
+    }
+    /* Kept on the face it hit: an object's faces are small (a door's
+     * panels, a crate's sides), and the decal band rightly hides what hangs
+     * past an edge, which cut big splats in two. Shrunk to the hit
+     * triangle's box, as a smaller splat (Dab's Mod trims them instead). */
+    if (hit->hit.vtx0 && hit->hit.vtx1 && hit->hit.vtx2) {
+        const Vertex *v[3] = { hit->hit.vtx0, hit->hit.vtx1, hit->hit.vtx2 };
+        float fit = 1.0f;
+        for (k = 0; k < 3; k++) {
+            const float c[3] = { v[0]->coord.x, v[1]->coord.x, v[2]->coord.x };
+            const float cy[3] = { v[0]->coord.y, v[1]->coord.y, v[2]->coord.y };
+            const float cz[3] = { v[0]->coord.z, v[1]->coord.z, v[2]->coord.z };
+            const float *axis = k == 0 ? c : k == 1 ? cy : cz;
+            const float lo = fminf(axis[0], fminf(axis[1], axis[2]));
+            const float hi = fmaxf(axis[0], fmaxf(axis[1], axis[2]));
+            const float reach = fabsf(across[k]) + fabsf(up[k]);
+            const float room = fminf(centre[k] - lo, hi - centre[k]);
+            if (hi - lo < 1.0f || reach <= 0.0f) continue;   /* the face's own depth */
+            if (room < reach) fit = fminf(fit, fmaxf(room, 0.0f) / reach);
+        }
+        if (fit < 0.2f) return;   /* at the very edge: no room for one */
+        for (k = 0; k < 3; k++) {
+            across[k] *= fit;
+            up[k] *= fit;
+        }
+    }
+    bloodColour(rgba, obj->type == PROPDEF_GLASS || obj->type == PROPDEF_TINTED_GLASS);
+    gevrExplosionCreateDecalOnProp(hit->prop, (s8)hit->room, GEVR_BLOOD_IMPACT_TYPE, centre, across, up, rgba,
+                                   obj->model->obj->Skeleton == &skeleton_door);
+}
+
 /* dir turned by up to SPLAT_SPREAD_DEG about each axis (splatsCreate) */
 static void bloodSpread(const float dir[3], float out[3])
 {
@@ -366,19 +509,33 @@ static int bloodSplat(const coord3d *from, const float dir[3], int room, int typ
     coord3d to;
     int k, hitroom = 0;
 
+    BulletHit object;
+    float objectdistance = SPLAT_MAX_DISTANCE;
+    int onlevel;
+
     bloodSpread(dir, spread);
     for (k = 0; k < 3; k++) to.f[k] = from->f[k] + spread[k] * SPLAT_MAX_DISTANCE;
-    if (!bloodTrace(from, &to, room, hit, normal, &hitroom)) return 0;
-    for (k = 0; k < 3; k++) distance += (hit[k] - from->f[k]) * (hit[k] - from->f[k]);
-    distance = sqrtf(distance);
-    if (distance >= SPLAT_MAX_DISTANCE) return 0;
+    onlevel = bloodTrace(from, &to, room, hit, normal, &hitroom);
+    if (onlevel) {
+        for (k = 0; k < 3; k++) distance += (hit[k] - from->f[k]) * (hit[k] - from->f[k]);
+        distance = sqrtf(distance);
+        onlevel = distance < SPLAT_MAX_DISTANCE;
+    }
+    /* only a shot's spray tests objects, as in PD (splat0f149274) */
+    if (type == SPLAT_HIT && bloodObjectHit(from, spread, onlevel ? distance : SPLAT_MAX_DISTANCE, &object, &objectdistance)) {
+        distance = objectdistance;
+        onlevel = 0;
+    } else if (!onlevel) {
+        return 0;
+    }
     {
         const unsigned r1 = bloodRandom();
         const float r2 = bloodFrac();
         const float r3 = bloodFrac();
         bloodSplatSize(distance, scales[type], r1, r2, r3, &w, &h);
     }
-    bloodDecalCreate(hit, normal, hitroom, w, h, timers[type]);
+    if (onlevel) bloodDecalCreate(hit, normal, hitroom, w, h, timers[type]);
+    else bloodDecalOnObject(&object, w, h);
     return 1;
 }
 

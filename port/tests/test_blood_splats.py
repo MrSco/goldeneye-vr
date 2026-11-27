@@ -48,6 +48,10 @@ def main():
         "the splats draw inside the bullet holes' decal band"
     blood = (ROOT / "src/game/gevr_blood.c").read_text(encoding="utf-8")
     assert "randomGetNext" not in blood, "cosmetic: never the game's random sequence"
+    assert "sub_GAME_7F04E9BC(prop, &shot);" in blood, \
+        "a shot's splats test objects as the shot does (PD's objTestHit pass)"
+    assert "void gevrExplosionCreateDecalOnProp(" in explosion, \
+        "object splats go in the bullet holes' ring, on the object's matrix"
     print("blood splat checks passed")
 
 

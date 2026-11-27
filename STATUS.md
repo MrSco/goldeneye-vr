@@ -47,12 +47,17 @@ Blood patch also leaves Perfect Dark's splats, ported from Dab's Mod
 drips from wounded guards, a six-splat pool under each body (a Ragdolls body
 where it rests), each growing in. Drawn as GoldenEye's own wall hits with the
 Paintball splat tinted gBloodColour, in a ring of 96 of their own
-(src/game/gevr_blood.c), never the game's random sequence. Not on objects yet
-(doors, Dam's huts: PD's objTestHit pass). Tactical's pack blood on
+(src/game/gevr_blood.c), never the game's random sequence. A shot's splats
+land on objects, doors and guns too (PD's objTestHit pass, through the shot's
+own object test), on the object's matrix in the bullet holes' ring, sized to
+the face they hit (a big one hung over a door panel's edge and the band cut
+it). Tactical's pack blood on
 `mod-system` (gevr_modblood.c) was not used: its sheets come from a Unity
 store bundle. When `mod-system` merges, a pack's `mod.effect.blood` should
 replace these splats. PC-tested in Dam with and without Bean (rock-wall
-splat, pools; at `at 20167 60 16893 180`); test_blood_splats.py. On the Quest
+splat, pools; at `at 20167 60 16893 180`; the sliding door at `... 0`, where
+a splat on the rear leaf is hidden behind the front leaf, as a hole is);
+test_blood_splats.py. On the Quest
 the build runs, but no scripted shot hit a guard, so the VR draw is still
 unchecked (it shares the bullet holes' path). The `kill` test hook removes
 spawned bodies, so it makes no pools.
