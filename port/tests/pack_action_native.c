@@ -20,15 +20,16 @@ enum { GEVR_MODPART_ACTION, GEVR_MODPART_HANDLE, GEVR_MODPART_GROUPS };
 typedef struct { unsigned pictures[GEVR_MODPART_GROUPS]; float travel[GEVR_MODPART_GROUPS][3]; int holdOpen;
                  GevrModActionTiming timing; } GevrModGunParts;
 typedef struct { f32 BoltRecoilBack; } WeaponStats;
-struct hand { f32 field_A88; s32 field_A8C; s32 weapon_ammo_in_magazine; };
+struct hand { f32 field_A88; s32 field_A8C; s32 weapon_ammo_in_magazine; int weaponnum; };
 static struct TestPlayer { int hand_item[2]; struct hand hands[2]; } player;
 static void *owner = &player;
 static struct TestPlayer *g_CurrentPlayer = &player;
 static f32 g_GlobalTimerDelta = 1.0f;
 static WeaponStats s_stats = { 7.0f };   /* a PP7-like stroke for GoldenEye's own slide */
 static f32 s_rack[2];
-static int netIsActive(void) { return FALSE; }
-static int get_cur_playernum(void) { return 0; }
+static int s_online, s_playernum;   /* online, the player ticking: 0 this headset's, else a copy */
+static int netIsActive(void) { return s_online; }
+static int get_cur_playernum(void) { return s_playernum; }
 static int netGetLocalSlot(void) { return 0; }
 static void gevrModMeshReset(void) {}
 static int get_item_in_hand_or_watch_menu(GUNHAND hand) { return g_CurrentPlayer->hand_item[hand]; }
@@ -45,6 +46,19 @@ void gevrModAttachActionTick(s32 hand, s32 item, s32 shot, f32 ticks, s32 loaded
     ++s_partTicks;
     s_partShots += shot != 0;
     s_partInterval = interval;
+}
+/* gevr_modattach.c: another player's copy's tick (#335), as gun.c hands it over */
+static int s_copyTicks, s_copyShots, s_copySlot, s_copyHand, s_copyItem, s_copyInterval;
+static float s_copyTime;
+void gevrModAttachRemoteActionTick(s32 slot, s32 hand, s32 item, s32 shot, f32 ticks, s32 interval)
+{
+    ++s_copyTicks;
+    s_copyShots += shot != 0;
+    s_copySlot = slot;
+    s_copyHand = hand;
+    s_copyItem = item;
+    s_copyTime = ticks;
+    s_copyInterval = interval;
 }
 
 /* PRODUCTION */
@@ -173,6 +187,40 @@ int main(void)
         const GevrModActionTiming slow = { 10, 30, 1.0f };
         gevrModActionTicks(&slow, 5, &open, &close);
         assert(open == 10 && close == 1);   /* never below one tick */
+    }
+    /* online: another player's copy hands its shots and ticks to its own
+     * action (gevr_modattach.c), never this headset's; this player's own as before */
+    {
+        const float before = gevrModGunActionShare(0, FALSE);
+
+        s_online = 1;
+        s_playernum = 2;
+        s_partTicks = s_copyTicks = s_copyShots = 0;
+        player.hands[1].weaponnum = ITEM_TEST;
+        s_interval = 5;
+        sub_GAME_7F05E808(1);   /* the copy's gun fired (gunfire.c, on its owner's trigger) */
+        gevrModGunCopyActionTick(1);
+        gevrModGunActionTick(1);
+        assert(s_copyTicks == 1 && s_copyShots == 1 && s_copySlot == 2 && s_copyHand == 1 && s_copyItem == ITEM_TEST
+               && s_copyInterval == 5 && s_copyTime == g_GlobalTimerDelta && s_partTicks == 0);
+        gevrModGunCopyActionTick(1);
+        assert(s_copyTicks == 2 && s_copyShots == 1);   /* told once */
+        player.hands[1].weaponnum = ITEM_OTHER;   /* its owner's gun, as the network gives it */
+        gevrModGunCopyActionTick(1);
+        assert(s_copyItem == ITEM_OTHER);
+        /* this headset's player online: its own tick, no copy's */
+        s_playernum = 0;
+        gevrModGunCopyActionTick(0);
+        gevrModGunActionTick(0);
+        assert(s_copyTicks == 3 && s_partTicks == 1);
+        /* offline: never a copy's */
+        s_online = 0;
+        s_playernum = 2;
+        gevrModGunCopyActionTick(1);
+        assert(s_copyTicks == 3);
+        s_playernum = 0;
+        s_interval = 0;
+        near(gevrModGunActionShare(0, FALSE), before, "this player's own untouched by a copy's");
     }
     gevrModGunModelReset();
     assert(gevrModGunParts(0, offset) == NULL);

@@ -47,6 +47,14 @@
  * So does the pack gun body each hand draws (mod.weapon.model with a pack
  * mesh): drawn on the copy's held gun in place of the item's model, through
  * the same pack-mesh path, its file one of the same shared files.
+ * Their moving parts (the body's action and handle, mod.attach.action) move
+ * on the copy as on the owner's own hand: GoldenEye's slide rule
+ * (gevr_modaction.h) per that player's hand, opened by the shots its copy's
+ * gun fires here (gunfire.c fires it as the owner's trigger says, at the
+ * gun's own rate) and stepped on the game's tick with the timing the owner
+ * gave, the fast-gun cut too (gevrModAttachRemoteActionTick). Not the owner's
+ * magazine nor its rack pull, which the network doesn't carry: a copy's
+ * action never holds open, and a handle stays home.
  */
 
 #include <ultra64.h>
@@ -148,11 +156,14 @@ typedef struct
     s32 fitted, muzzled;
     Mtxf fit;                    /* the mesh on the gun model's root */
     f32 muzzle[3];               /* its authored muzzle, the mesh's units */
+    s32 hasParts;                /* its moving parts, as its owner's mod.weapon.model gave them */
+    GevrModGunParts parts;
 } RemoteBody;
 
 static AttachFile s_files[GEVR_MODAPI_ATTACH_MODELS];
 static Attachment s_attach[GEVR_MODAPI_ATTACH_MAX];
 static RemoteBody s_remoteBody[MAX_PLAYER_COUNT][2];
+static GevrModAction s_remoteAction[MAX_PLAYER_COUNT][2];   /* each other player's hand's action, on its copy's shots */
 static s32 s_nextId = 1;
 static s32 s_nextRemote = -1;
 static s32 s_remoteAny;    /* another player's placed this mission */
@@ -556,6 +567,7 @@ void gevrModGameAttachReset(void)
     }
     gevrModOpticReset();
     memset(s_remoteBody, 0, sizeof(s_remoteBody));
+    memset(s_remoteAction, 0, sizeof(s_remoteAction));
     for (i = 0; i < GEVR_MODAPI_ATTACH_MODELS; i++)
     {
         s_files[i].model[0] = '\0';
@@ -684,7 +696,114 @@ void gevrModGameAttachRemoteGone(int slot, int id)
     if (id == 0 && slot >= 0 && slot < MAX_PLAYER_COUNT)
     {
         memset(s_remoteBody[slot], 0, sizeof(s_remoteBody[slot]));   /* its gun bodies too */
+        memset(s_remoteAction[slot], 0, sizeof(s_remoteAction[slot]));   /* and its hands' actions */
     }
+}
+
+/* another player's part on the gun: its action (mod.attach.action) as told;
+ * a change starts it closed, as this player's own timed part does */
+int gevrModGameAttachRemoteAction(int slot, int id, const float travel[3], int handle, const GevrModActionTiming *timing)
+{
+    Attachment *at = NULL;
+    s32 moves, handled, timed, i;
+    GevrModActionTiming wasTiming;
+    f32 wasTravel[3];
+
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX && at == NULL; i++)
+    {
+        if (s_attach[i].id < 0 && s_attach[i].owner == slot && s_attach[i].ownerId == id)
+        {
+            at = &s_attach[i];
+        }
+    }
+    if (at == NULL || at->on != GEVR_MODATTACH_GUN)
+    {
+        return 0;
+    }
+    moves = at->moves;
+    handled = at->handle;
+    timed = at->timed;
+    wasTiming = at->timing;
+    memcpy(wasTravel, at->travel, sizeof(wasTravel));
+    at->moves = travel != NULL;
+    at->handle = travel != NULL && handle;
+    at->timed = travel != NULL && !at->handle && timing != NULL;
+    memset(&at->timing, 0, sizeof(at->timing));
+    if (at->timed)
+    {
+        at->timing = *timing;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        at->travel[i] = travel != NULL ? travel[i] : 0.0f;
+    }
+    if (at->moves != moves || at->handle != handled || at->timed != timed
+        || memcmp(&at->timing, &wasTiming, sizeof(at->timing)) || memcmp(at->travel, wasTravel, sizeof(at->travel)))
+    {
+        memset(&at->action, 0, sizeof(at->action));
+    }
+    return 1;
+}
+
+/* the timing another player's hand's action runs on for item: its pack
+ * body's own when it gave one, else GoldenEye's (NULL) */
+static const GevrModActionTiming *attachRemoteTiming(s32 slot, s32 hand, s32 item)
+{
+    const RemoteBody *b = &s_remoteBody[slot][hand];
+
+    return b->file != NULL && b->item == item && b->hasParts ? &b->parts.timing : NULL;
+}
+
+/* gun.c, each of another player's copy's ticks (#335): the shot its gun
+ * fired here this tick opens that hand's action, as the owner's own shot
+ * opens its, and each steps by the owner's timing; never held open, the
+ * owner's magazine not being known here (co-op refills a copy's) */
+void gevrModAttachRemoteActionTick(s32 slot, s32 hand, s32 item, s32 shot, f32 ticks, s32 interval)
+{
+    GevrModAction *body;
+    int open, close;
+    s32 i;
+
+    if (!s_remoteAny || slot < 0 || slot >= MAX_PLAYER_COUNT || hand < 0 || hand > 1)
+    {
+        return;
+    }
+    body = &s_remoteAction[slot][hand];
+    if (shot)
+    {
+        gevrModActionShot(body, item);
+    }
+    gevrModActionTicks(attachRemoteTiming(slot, hand, item), interval, &open, &close);
+    gevrModActionStep(body, item, ticks, 1, FALSE, open, close);
+    /* its gun parts with timing of their own beside it, as this player's own */
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
+    {
+        Attachment *a = &s_attach[i];
+
+        if (a->id >= 0 || a->owner != slot || a->on != GEVR_MODATTACH_GUN || a->where != hand || !a->moves || !a->timed)
+        {
+            continue;
+        }
+        if (shot)
+        {
+            gevrModActionShot(&a->action, item);
+        }
+        gevrModActionTicks(&a->timing, interval, &open, &close);
+        gevrModActionStep(&a->action, item, ticks, 1, FALSE, open, close);
+    }
+}
+
+/* how far along its travel another player's gun part is now: its own
+ * action, else its hand's (the rack's pull isn't known here: none) */
+static f32 attachRemoteShare(const Attachment *a)
+{
+    const GevrModAction *body = &s_remoteAction[a->owner][a->where];
+
+    if (a->timed)
+    {
+        return gevrModActionShare(a->action.item == body->item ? &a->action : NULL, 0.0f, a->handle, &a->timing);
+    }
+    return gevrModActionShare(body, 0.0f, a->handle, attachRemoteTiming(a->owner, a->where, body->item));
 }
 
 /* another player's attachment's optic housing: its folded housing (a pack
@@ -738,7 +857,8 @@ int gevrModGameAttachOpticState(int id, int *mode, int *folded, char *housing, i
 /* another player's pack gun body in a hand (item 0 or model NULL: the item's
  * own model again): 1 set, 0 not (a file that isn't a pack mesh, no room
  * after this player's own files) */
-int gevrModGameAttachRemoteBody(int slot, int hand, int item, const char *model, const float fit[4][4], const float muzzle[3])
+int gevrModGameAttachRemoteBody(int slot, int hand, int item, const char *model, const float fit[4][4], const float muzzle[3],
+                                const GevrModGunParts *parts)
 {
     RemoteBody *b;
     AttachFile *f;
@@ -760,10 +880,33 @@ int gevrModGameAttachRemoteBody(int slot, int hand, int item, const char *model,
         memset(b, 0, sizeof(*b));   /* the item's own rather than the old body */
         return 0;
     }
+    if (b->file != f || b->item != item)
+    {
+        memset(&s_remoteAction[slot][hand], 0, sizeof(s_remoteAction[slot][hand]));   /* another body starts closed */
+    }
     b->file = f;
     b->item = item;
     b->fitted = fit != NULL;
     b->muzzled = muzzle != NULL;
+    /* its moving pictures, split as the owner's are (gevr_modmesh.c); one
+     * the mesh hasn't: the body without them */
+    b->hasParts = parts != NULL
+               && (!(parts->pictures[GEVR_MODPART_ACTION] | parts->pictures[GEVR_MODPART_HANDLE])
+                   || gevrModMeshSplit(f->mesh, parts->pictures));
+    if (b->hasParts)
+    {
+        b->parts = *parts;
+    }
+    else
+    {
+        memset(&b->parts, 0, sizeof(b->parts));
+        if (parts != NULL && !s_remoteWarned)
+        {
+            sysLogPrintf(LOG_WARNING, "mods: attach: another player's %s moves pictures it doesn't have; drawn still",
+                         model);
+            s_remoteWarned = TRUE;
+        }
+    }
     for (i = 0; i < 4; i++)
     {
         for (j = 0; j < 4; j++)
@@ -1107,8 +1250,21 @@ Gfx *gevrModAttachDrawPlayerGun(Gfx *gdl, ModelRenderData *templ, ChrRecord *chr
         if (a->id < 0 && a->owner == slot && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand
             && a->node < gun->obj->numMatrices)
         {
+            Mtxf offset = a->offset;
+
             node = ((Mtxf *) gun->render_pos)[a->node];
-            gdl = attachDraw(gdl, templ, a, &node, &a->offset, NULL, TRUE);
+            if (a->moves)
+            {
+                /* where its action is now on the copy, along its travel in the anchor's frame */
+                const f32 share = attachRemoteShare(a);
+                s32 k;
+
+                for (k = 0; k < 3; k++)
+                {
+                    offset.m[3][k] += share * a->travel[k];
+                }
+            }
+            gdl = attachDraw(gdl, templ, a, &node, &offset, NULL, TRUE);
         }
     }
     return gdl;
@@ -1175,7 +1331,29 @@ Gfx *gevrModAttachDrawPlayerBody(Gfx *gdl, ModelRenderData *templ, ChrRecord *ch
             pose = *(Mtxf *) gun->render_pos;
         }
         attachWorldScale(&pose);
-        gdl = gevrModMeshDraw(gdl, &pose, b->file->mesh);
+        if (b->hasParts)
+        {
+            /* its moving parts where the copy's action is now, as the owner's hand draws them */
+            const GevrModAction *a = &s_remoteAction[attachRemoteSlot(chr)][hand];
+            f32 offset[GEVR_MODPART_GROUPS][3];
+            s32 group, k;
+
+            for (group = 0; group < GEVR_MODPART_GROUPS; group++)
+            {
+                const f32 share = gevrModActionShare(a->item == item ? a : NULL, 0.0f, group == GEVR_MODPART_HANDLE,
+                                                     &b->parts.timing);
+
+                for (k = 0; k < 3; k++)
+                {
+                    offset[group][k] = share * b->parts.travel[group][k];
+                }
+            }
+            gdl = gevrModMeshDrawParts(gdl, &pose, b->file->mesh, b->parts.pictures, (const f32 (*)[3])offset);
+        }
+        else
+        {
+            gdl = gevrModMeshDraw(gdl, &pose, b->file->mesh);
+        }
     }
     rd = *templ;
     rd.gdl = gdl;

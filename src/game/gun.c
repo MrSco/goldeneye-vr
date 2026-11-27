@@ -5838,12 +5838,27 @@ static void gevrModGunActionTick(s32 hand)
     const s32 interval = gevrModGameShotInterval(held);
     const s32 loaded = g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine;
     int open, close;
-    if (a == NULL) return;
+    if (a == NULL || (netIsActive() && get_cur_playernum() != netGetLocalSlot())) return;   /* a copy: below */
     gevrModActionTicks(gevrModGunTiming(hand), interval, &open, &close);
     gevrModActionStep(a, held, g_GlobalTimerDelta, loaded, holdOpen, open, close);
     /* gun parts with timing of their own step beside it (gevr_modattach.c) */
     gevrModAttachActionTick(hand, held, s_gevrModShot[get_cur_playernum()][hand], g_GlobalTimerDelta, loaded, holdOpen, interval);
     s_gevrModShot[get_cur_playernum()][hand] = FALSE;
+}
+
+/* another player's copy (#335), each tick: its pack parts move with the
+ * shots its own gun fires here (gunfire.c fires it as the owner's trigger
+ * says, at the gun's own rate), by that player's timing as it was told
+ * (gevr_modattach.c); asked before the hand's buffer is, as a low-memory
+ * copy's left hand has none */
+static void gevrModGunCopyActionTick(s32 hand)
+{
+    const s32 p = get_cur_playernum();
+    s32 held;
+    if (!netIsActive() || p == netGetLocalSlot() || p < 0 || p >= MAX_PLAYER_COUNT || hand < 0 || hand > 1) return;
+    held = g_CurrentPlayer->hands[hand].weaponnum;   /* its owner's, as net_player_sync.c gives it */
+    gevrModAttachRemoteActionTick(p, hand, held, s_gevrModShot[p][hand], g_GlobalTimerDelta, gevrModGameShotInterval(held));
+    s_gevrModShot[p][hand] = FALSE;
 }
 
 f32 gevrModGunActionShare(s32 hand, s32 handle)
@@ -5890,9 +5905,10 @@ static void gevrModGunReconcile(s32 hand)
 }
 
 /* the pack gun body the current player's hand draws now (#335: the others
- * draw it on this player's copy): its file, the item, its fit and its
- * authored muzzle; FALSE when the hand draws a cartridge model */
-s32 gevrModGunBodyNow(s32 hand, char *name, s32 cap, s32 *item, f32 fit[4][4], s32 *fitted, f32 muzzle[3], s32 *muzzled)
+ * draw it on this player's copy): its file, the item, its fit, its authored
+ * muzzle and its moving parts; FALSE when the hand draws a cartridge model */
+s32 gevrModGunBodyNow(s32 hand, char *name, s32 cap, s32 *item, f32 fit[4][4], s32 *fitted, f32 muzzle[3], s32 *muzzled,
+                      GevrModGunParts *parts, s32 *hasParts)
 {
     const s32 p = get_cur_playernum();
     const s32 at = gevrModGunFittedItem(hand);
@@ -5904,6 +5920,8 @@ s32 gevrModGunBodyNow(s32 hand, char *name, s32 cap, s32 *item, f32 fit[4][4], s
     if (*fitted) memcpy(fit, s_gevrModGunFit[hand][at].m, sizeof(s_gevrModGunFit[hand][at].m));
     *muzzled = s_gevrModGunHasMuzzle[hand][at];
     if (*muzzled) memcpy(muzzle, s_gevrModGunMuzzle[hand][at], sizeof(s_gevrModGunMuzzle[hand][at]));
+    *hasParts = s_gevrModGunHasParts[hand][at];
+    if (*hasParts) *parts = s_gevrModGunPartsFor[hand][at];
     return TRUE;
 }
 
@@ -5963,6 +5981,9 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
     s32              gevrModUsed = FALSE;
 #endif
 
+#ifdef GEVR
+    gevrModGunCopyActionTick(hand);   /* another player's copy, even a hand without a buffer */
+#endif
     if (!g_CurrentPlayer->ptr_hand_weapon_buffer[hand]) return;
 #ifdef GEVR
     gevrModGunActionTick(hand);

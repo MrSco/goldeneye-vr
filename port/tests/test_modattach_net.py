@@ -6,7 +6,9 @@ player alone); a removal on a gun swap, a detach and a stop reach them; sends
 go on change, at most GEVR_ATTNET_SENDS a second, packed; every malformed
 message is refused whole. An optic's housing state rides its SET, and each
 hand's pack gun body its own GUNBODY record: set, reset, swapped, joined,
-stopped. Then where it sits: NET_MOD_ATTACH in net_protocol.h and
+stopped; a gun part's action (mod.attach.action) its SET, and the body's
+moving parts (mod.weapon.model's action, handle, holdOpen and timing) its
+GUNBODY, on change and to a joiner, bounded. Then where it sits: NET_MOD_ATTACH in net_protocol.h and
 net_core.c, the API's calls in gevr_modapi.c, and the draws on the other
 player's copy in the game (its optic housing and its pack gun body too).
 Run: python port/tests/test_modattach_net.py
@@ -97,13 +99,23 @@ def placement():
     check("gevrModGameAttachRemoteOptic(from, r[i].id, r[i].optic ? r[i].housing : NULL, r[i].mode, r[i].folded);" in apply
           and "gevrModGameSwappable(r[i].item)" in apply and "gevrModGameAttachRemoteBody(from, r[i].where, r[i].item" in apply,
           "applied: an optic's housing with its attachment, a gun body for a gun this cartridge has")
+    check("gevrModGameAttachRemoteAction(from, r[i].id, r[i].moves ? r[i].travel : NULL, r[i].handle," in apply
+          and "r[i].parts ? &parts : NULL" in apply,
+          "applied: a gun part's action with it, a pack body's moving parts with it")
+    check("&parts,\n                                      &r.parts)" in frame and "r.holdOpen = parts.holdOpen;" in frame,
+          "the hands' pack bodies told with their moving parts")
+    check("gevrAttachNetAction(s_attachOwners[at].id, moves, handle, travel," in function(api, "static int l_attachAction("),
+          "a part's action told as the game takes it")
     flush = function(api, "void gevrModApiNetFlush(void)")
     check(flush.index("attachJoined(slot);") < flush.index('gevrModScriptEvent("peer_ready"'), "the host's ask at peer_ready")
     game = (ROOT / "src/game/gevr_modattach.c").read_bytes().decode()
     gun = function(game, "Gfx *gevrModAttachDrawPlayerGun(")
     check("a->id < 0 && a->owner == slot" in gun and "node = ((Mtxf *) gun->render_pos)[a->node];" in gun
-          and "attachDraw(gdl, templ, a, &node, &a->offset, NULL, TRUE)" in gun,
+          and "attachDraw(gdl, templ, a, &node, &offset, NULL, TRUE)" in gun,
           "another player's on its gun: the held model's matrix as drawn, through the one attachment draw")
+    check(gun.index("if (a->moves)") < gun.index("attachRemoteShare(a)") < gun.index("offset.m[3][k] += share * a->travel[k];")
+          < gun.index("attachDraw(gdl, templ, a, &node, &offset"),
+          "another player's gun part along its travel where its copy's action is, as this player's own")
     body = function(game, "Gfx *gevrModAttachDrawPlayer(ChrRecord *chr")
     check("fadealpha < 0xFF" in body and body.index("gevrAvatarAttachFrame(slot, a->on, a->where, at, unit, &frame)")
           < body.index("gevrAvatarModelAttachFrame(chr, a->on, a->where, at, unit, &frame)"),
@@ -130,6 +142,18 @@ def placement():
           < pbody.index("gevrModMeshDraw(gdl, &pose, b->file->mesh)") < pbody.index("modelDrawGunHand(&rd, gun,")
           < pbody.index("modelDrawGunFlash(&rd, gun);"),
           "another player's pack gun body: the mesh once at the level's scale, the hand's lists and its flash as its own")
+    check(pbody.index("if (b->hasParts)") < pbody.index("gevrModMeshDrawParts(gdl, &pose, b->file->mesh, b->parts.pictures,")
+          < pbody.index("gevrModMeshDraw(gdl, &pose, b->file->mesh)")
+          and "a->item == item ? a : NULL" in pbody,
+          "another player's pack body with its moving parts through the owner's split draw, for its gun's action alone")
+    rtick = function(game, "void gevrModAttachRemoteActionTick(")
+    check("gevrModActionShot(body, item);" in rtick and "gevrModActionTicks(attachRemoteTiming(slot, hand, item), interval, &open, &close);" in rtick
+          and "gevrModActionStep(body, item, ticks, 1, FALSE, open, close);" in rtick
+          and "gevrModActionStep(&a->action, item, ticks, 1, FALSE, open, close);" in rtick,
+          "a copy's action: the shot, the owner's timing with the fast-gun cut, never held open; its timed parts too")
+    check("memset(s_remoteAction[slot], 0, sizeof(s_remoteAction[slot]));" in function(game, "void gevrModGameAttachRemoteGone(int slot, int id)")
+          and "memset(s_remoteAction, 0, sizeof(s_remoteAction));" in function(game, "void gevrModGameAttachReset(void)"),
+          "a copy's actions gone with its player, a CLEAR, a mission's or a stop's reset")
     check("b->item == item" in function(game, "static RemoteBody *attachPlayerBody(")
           and "attachRemoteSlot(chr)" in function(game, "static RemoteBody *attachPlayerBody("),
           "drawn only for the gun it was told for, on another player's copy alone")
@@ -162,7 +186,19 @@ def placement():
           "the copy's flash at its pack body's authored muzzle")
     gun_c = (ROOT / "src/game/gun.c").read_bytes().decode()
     now = function(gun_c, "s32 gevrModGunBodyNow(")
-    check("gevrModGunFittedItem(hand)" in now, "the owner's body: only a pack mesh the hand draws now, for its gun")
+    check("gevrModGunFittedItem(hand)" in now and "*parts = s_gevrModGunPartsFor[hand][at];" in now,
+          "the owner's body: only a pack mesh the hand draws now, for its gun, with its moving parts")
+    load = function(gun_c, "void used_to_load_1st_person_model_on_demand(")
+    check(load.index("gevrModGunCopyActionTick(hand);") < load.index("if (!g_CurrentPlayer->ptr_hand_weapon_buffer[hand]) return;")
+          < load.index("gevrModGunActionTick(hand);"),
+          "a copy's action steps each tick, even in a hand without a buffer; this player's own as before")
+    copy = function(gun_c, "static void gevrModGunCopyActionTick(")
+    check("p == netGetLocalSlot()" in copy and "g_CurrentPlayer->hands[hand].weaponnum" in copy
+          and "s_gevrModShot[p][hand]" in copy and "gevrModGameShotInterval(held)" in copy,
+          "a copy's: its owner's gun, the shot its copy fired, the gun's interval")
+    fire = (ROOT / "src/game/gunfire.c").read_bytes().decode()
+    low = fire[fire.index("A low-memory copy needs shot timing"):fire.index("gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand")]
+    check("gevrModGunActionShot(GUNLEFT);" in low, "a low-memory copy's left hand: its shot moves its pack parts too")
     chr = (ROOT / "src/game/chr.c").read_bytes().decode()
     render = function(chr, "Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)")
     check(render.index("gevrModAttachDrawGuard(chr, &mrData, chrfadealpha, mrData.gdl);")
@@ -193,7 +229,7 @@ def main():
         sys.exit(1)
     print("PASS: mod.attach on the other players: the message's bytes and refusals, sends on change at the rate, "
           "a flip, a join's whole state, a removal and a stop reaching the others; an optic's housing state and the "
-          "hands' pack gun bodies with them; NET_MOD_ATTACH's place in the network and the API; the draws on the "
+          "hands' pack gun bodies with them, and their moving parts (a part's action, a body's groups and timing); NET_MOD_ATTACH's place in the network and the API; the draws on the "
           "other player's gun (its pack body, its optic housing), hands and body, and a guard's pack mesh")
 
 
