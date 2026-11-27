@@ -935,6 +935,7 @@ fit=function(input_source,'if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereo
 production.append('static void fitSupport(float mx,float my,float ry,float rate,float dt) { '+fit+' }')
 fire=(ROOT/"src/game/gunfire.c").read_text(encoding="utf-8")
 legacy=function(fire,'if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun())\n')
+production.append('static s32 gevrModGunSupportGloveShown(s32 hand) { (void)hand; return 0; }   /* no pack support glove */')
 production.append('static void drawLegacySupport(Gfx *gdl) { ModelRenderData renderdata={0}; '+legacy+' }')
 with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
     temp=Path(directory); file=temp/"test.c"; exe=temp/"test.exe"
