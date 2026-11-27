@@ -223,6 +223,7 @@ Vtx g_SmokeRenderPartDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0x0 };
 Vtx g_ScorchDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0xDC };
 #ifdef GEVR
 #define GEVR_IMPACT_FINE_MAX 8   /* a hole's corners in eighths of a unit (explosionCreateBulletImpact) */
+#define GEVR_IMPACT_BLOOD 0x4244   /* BulletImpact.unk4E: a Blood patch splat (gevrExplosionCreateDecalOnProp) */
 #endif
 Vtx g_BulletImpactDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0xDC };
 
@@ -2540,6 +2541,14 @@ void explosionSetBulletImpactAlpha(s32 arg0)
     for (i = 0; i < SMOKE_PARTS_LEN; i++)
     {
         val = (u32) (((f32) i / 10.0f) * 255.0f);
+#ifdef GEVR
+        /* a blood splat fades from its own alpha (glass's is low), never up to the ramp */
+        if (g_BulletImpactBuffer[arg0].unk4E == GEVR_IMPACT_BLOOD)
+        {
+            const u32 own = g_BulletImpactBuffer[arg0].vertex_list[0].v.cn[3];
+            if (own < val) val = own;
+        }
+#endif
 
         g_BulletImpactBuffer[arg0].vertex_list[3].v.cn[3] = val; // alpha
         g_BulletImpactBuffer[arg0].vertex_list[2].v.cn[3] = val; // alpha
@@ -2679,6 +2688,9 @@ void explosionCreateBulletImpact(struct coord3d *pos, struct coord3d *arg1, s16 
     g_BulletImpactBuffer[g_NumImpactEntries].room_clear_flag = room_clear_flag;
     g_BulletImpactBuffer[g_NumImpactEntries].room = room;
     g_BulletImpactBuffer[g_NumImpactEntries].impact_type = impact_type;
+#ifdef GEVR
+    g_BulletImpactBuffer[g_NumImpactEntries].unk4E = 0;   /* not the Blood patch's (GEVR_IMPACT_BLOOD) */
+#endif
 
     g_BulletImpactBuffer[g_NumImpactEntries].vertex_list[0] = spE0;
     g_BulletImpactBuffer[g_NumImpactEntries].vertex_list[1] = spE0;
@@ -2861,6 +2873,7 @@ void gevrExplosionCreateDecalOnProp(PropRecord *prop, s8 mtxindex, s16 impact_ty
     b->room_clear_flag = room_clear_flag;
     b->room = 1;
     b->impact_type = impact_type;
+    b->unk4E = GEVR_IMPACT_BLOOD;
     for (j = 0; j < 4; j++)
     {
         b->vertex_list[j] = g_BulletImpactDefaultVertex;
@@ -2892,6 +2905,21 @@ void gevrExplosionCreateDecalOnProp(PropRecord *prop, s8 mtxindex, s16 impact_ty
     }
     explosionSetBulletImpactAlpha(g_NumImpactEntries);
     g_BulletImpactBuffer[g_NumImpactEntries].room = -1;
+}
+
+/* The Blood patch turned off: its splats on objects go with it (gevr_blood.c). */
+void gevrExplosionClearBlood(void)
+{
+    s32 i;
+
+    for (i = 0; i < BULLET_IMPACT_BUFFER_LEN; i++)
+    {
+        if (g_BulletImpactBuffer[i].unk4E == GEVR_IMPACT_BLOOD)
+        {
+            g_BulletImpactBuffer[i].room = -1;
+            g_BulletImpactBuffer[i].unk4E = 0;
+        }
+    }
 }
 #endif
 
