@@ -51,8 +51,11 @@ Paintball splat tinted gBloodColour, in a ring of 96 of their own
 (doors, Dam's huts: PD's objTestHit pass). Tactical's pack blood on
 `mod-system` (gevr_modblood.c) was not used: its sheets come from a Unity
 store bundle. When `mod-system` merges, a pack's `mod.effect.blood` should
-replace these splats. PC-tested in Dam (rock-wall splat, pools);
-test_blood_splats.py.
+replace these splats. PC-tested in Dam with and without Bean (rock-wall
+splat, pools; at `at 20167 60 16893 180`); test_blood_splats.py. On the Quest
+the build runs, but no scripted shot hit a guard, so the VR draw is still
+unchecked (it shares the bullet holes' path). The `kill` test hook removes
+spawned bodies, so it makes no pools.
 **Unreleased (t3/separate-dual-hat-models):** dual throwing knives with
 Oddjob's hat on a flat screen: each hand eases 10 units out so the brims no
 longer overlap (`flat` in gevr_oddjobhat.txt, docs/oddjob-hat.md); PC-tested
