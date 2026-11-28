@@ -835,6 +835,18 @@ void gevrRagdollCapture(ChrRecord *chr)
 #define RD_SHAKE_LATE 6.0f    /* s: awake this long, a body rocks in place within twice the reach, */
 #define RD_LATE_SPEED 240.0f  /* units/s: and a piece slower than this rocks however far it swings */
 /*
+ * A piece shaking in place, its parts' steps turning back on themselves tick
+ * after tick within a small space, lies still at once: a limb thrown by a
+ * grenade launcher jittered on landing (user, 2026-11-28), wider than
+ * RD_SHAKE_REACH, until RD_SHAKE_LATE let it rest, with nothing in the log
+ * (every body asleep within 8 s). A piece rolling, sliding, falling or
+ * swinging doesn't turn back that often; a bounce turns back once a hop.
+ */
+#define RD_JITTER_WINDOW 0.5f /* s */
+#define RD_JITTER_FLIPS 5     /* steps turned back within the window */
+#define RD_JITTER_REACH 48.0f /* units: no part strays farther than this from the window's start */
+#define RD_JITTER_STEP 0.5f   /* units: a smaller step (the piece's parts together) isn't counted */
+/*
  * CE ragdoll.c rdMpSolidCheck (Perfect-Dark-CE b0180009), Resting Bodies Turn
  * Solid on its default, the Combat Simulator: in a multiplayer match a body
  * whose every part has been slower than 40 units/s for 0.3 s turns static.
@@ -854,13 +866,48 @@ void rdUnsolid(RdBody *rd, const char *why)
     sysLogPrintf(LOG_NOTE,"ragdoll: body %u moves again (no longer solid: %s)",rd->serial,why);
 }
 
+/* rdRest: piece (0 the body, cut+1), its parts mask, each part's step this
+ * tick. 1 once it has shaken in place long enough and is put to sleep. */
+static int rdJitter(RdBody *b, int piece, unsigned mask, const float step[][3], float dt)
+{
+    float turn=0,len=0,wide=0;
+    for(int p=0;p<b->count;p++) {
+        if(!(mask&(1u<<p)))continue;
+        float w=0;
+        for(int k=0;k<3;k++) {
+            float x=b->joints[p].m[3][k]-b->jitanchor[p][k];
+            turn+=step[p][k]*b->jitstep[p][k]; len+=step[p][k]*step[p][k]; w+=x*x;
+            b->jitstep[p][k]=step[p][k];
+        }
+        wide=fmaxf(wide,w);
+    }
+    float *t=&b->jittime[piece];
+    if(*t<=0 || wide>RD_JITTER_REACH*RD_JITTER_REACH) {
+        for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->jitanchor[p],b->joints[p].m[3],sizeof(b->jitanchor[p]));
+        *t=dt>0 ? dt*0.5f : 1e-3f;
+        b->jitflips[piece]=0;
+        return 0;
+    }
+    if(turn<0 && len>RD_JITTER_STEP*RD_JITTER_STEP)b->jitflips[piece]++;    if((*t+=dt)<RD_JITTER_WINDOW)return 0;
+    const int flips=b->jitflips[piece];
+    *t=0;
+    if(flips<RD_JITTER_FLIPS)return 0;
+    pdphysRagdollSleepParts(b->handle,mask);
+    if(b->jitlogs<3) {
+        b->jitlogs++;
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u piece %d shook in place (%d turns in %.1f s within %.0f units, awake %.1f s): asleep",
+                     b->serial,piece,flips,RD_JITTER_WINDOW,sqrtf(wide),b->awake);
+    }
+    return 1;
+}
+
 static void rdRest(RdBody *b, float dt, int asleep)
 {
-    float fastest[RD_PARTS+1]={0},all=0;
+    float fastest[RD_PARTS+1]={0},all=0,step[RD_PARTS][3];
     for(int p=0;p<b->count;p++) {
         const int piece=rdPiece(b,p);
         float d=0;
-        for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->restpos[p][k];d+=x*x;}
+        for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->restpos[p][k];d+=x*x;step[p][k]=x;}
         if(b->restset && dt>0)fastest[piece]=fmaxf(fastest[piece],sqrtf(d)/dt);
         all=fmaxf(all,fastest[piece]);
         memcpy(b->restpos[p],b->joints[p].m[3],sizeof(b->restpos[p]));
@@ -902,6 +949,7 @@ static void rdRest(RdBody *b, float dt, int asleep)
          * forearm on the Quest went 10 units/s, now and then 3 units off its
          * anchor, and stayed awake for good (headset log, 2026-11-28) */
         every|=mask;
+        if(rdJitter(b,c+1,mask,step,dt))continue;
         float *shake=&b->shake[c+1];
         /* Late, a slow piece counts as rocking however far its joint swings: a
          * cut head spinning on the floor swung its neck joint past the reach
@@ -928,6 +976,9 @@ static void rdRest(RdBody *b, float dt, int asleep)
      * pieces jittered for good on the Quest (user, 2026-11-28) and slept within
      * 4 s on the PC, the same throws and floors. Per piece: its top speed this
      * tick, how far it strayed from its anchor, how long it has lain still. */
+    /* how long the slow ones took, which the 8 s report never sees */
+    if((asleep || b->solid) && b->awake>=3.0f)
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u asleep after %.1f s awake, cuts 0x%x",b->serial,b->awake,b->cuts);
     if(asleep || b->solid){b->awake=0;b->awakelog=0;b->moverwakes=0;}
     else if((b->awake+=dt)>=8.0f && (b->awakelog-=dt)<=0) {
         char line[200];int n=0;

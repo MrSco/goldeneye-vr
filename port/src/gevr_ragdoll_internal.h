@@ -86,6 +86,11 @@ typedef struct RdBody {
     float stillbody;             /* the same for the body itself (the piece of no cut) */
     float shake[RD_PARTS+1];     /* per piece (0 the body, cut+1): how long it has kept within RD_SHAKE_REACH */
     float shakeanchor[RD_PARTS][3];
+    /* shaking in place (rdRest, RD_JITTER_*): each part's last step, and per
+     * piece the window's start, its age, and the reversals counted in it */
+    float jitstep[RD_PARTS][3], jitanchor[RD_PARTS][3];
+    float jittime[RD_PARTS+1];
+    int jitflips[RD_PARTS+1], jitlogs;
     int restset;
     float awake, awakelog;  /* awake this long; the next awake report in (rdRest) */
     int moverwakes, mover[4];  /* props that kept it awake since the last report, the last one's type and place */

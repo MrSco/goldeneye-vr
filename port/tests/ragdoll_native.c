@@ -409,6 +409,26 @@ static void cutPiecesRest(void)
         }
         memcpy(b->joints[piece].m[3],base,sizeof(base));
         assert(pdphysRagdollIsAsleep(b->handle) && ticks<90);
+        /* Moving on steadily (a roll, a slide) it stays awake: no step turns
+         * back. It starts out of RD_SHAKE_REACH, or the rocking it slept from
+         * puts it straight back to sleep. */
+        pdphysRagdollAddVelocity(b->handle,piece,wake);
+        b->awake=0;
+        for(ticks=0;ticks<90;ticks++) {
+            b->joints[piece].m[3][0]=base[0]+20.0f+ticks*1.0f;
+            rdRest(b,1.0f/60,0);
+        }
+        assert(!pdphysRagdollIsAsleep(b->handle));
+        /* Shaking wider than RD_SHAKE_REACH, every step turned back (a limb a
+         * grenade launcher threw, on the headset), soon after it fell: asleep
+         * within a window or two (RD_JITTER_*), long before RD_SHAKE_LATE */
+        b->awake=0;
+        for(ticks=0;ticks<90 && !pdphysRagdollIsAsleep(b->handle);ticks++) {
+            b->joints[piece].m[3][0]=base[0]+(ticks%2 ? -15.0f : 15.0f);
+            rdRest(b,1.0f/60,0);
+        }
+        memcpy(b->joints[piece].m[3],base,sizeof(base));
+        assert(pdphysRagdollIsAsleep(b->handle) && ticks<=62);
         const float push[3]={0,0,300};
         pdphysRagdollAddVelocity(b->handle,piece,push);
         for(int t=0;t<10;t++){g_GlobalTimer++;gevrRagdollTick(1);}
