@@ -2423,8 +2423,11 @@ static Gfx *gevrReloadLabelOn(Gfx *gdl, s32 hand, const Mtxf *gun)
             if (gevrReloadSaddleShown(hand, shell, &hover))
                 gdl = gevrDrawInteractionRing(gdl, shell, 3.0f, (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xE0);
         }
+        /* green with the hand on it or at it, as the saddle's shell (bondview2.c gevrRackPointHover) */
+        extern s32 gevrRackPointHover(s32 gunHand);
         if (gevrRackPointShown(hand, rack, &held))
-            gdl = gevrDrawInteractionRing(gdl, rack, 3.0f, (held ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xE0);
+            gdl = gevrDrawInteractionRing(gdl, rack, 3.0f,
+                                          (held || gevrRackPointHover(hand) ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xE0);
     }
     if (label <= GEVR_RELOAD_LABEL_NONE || label >= GEVR_RELOAD_LABEL_COUNT
         || up < 1e-6f || D_800364CC < 1e-6f) return gdl;

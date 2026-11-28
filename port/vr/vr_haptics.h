@@ -11,6 +11,8 @@ extern "C" {
 #define GEVR_ACTION_SLOT_TAKE        1005   // a weapon taken from or put in a slot
 #define GEVR_ACTION_SLOT_DENY        1006   // the slot can't give that hand anything
 #define GEVR_ACTION_SLOT_STEP        1007   // stepping through a slot's category
+#define GEVR_ACTION_RELOAD_HOVER     1008   // a hand onto a reload spot: the rack or pump, a shell, the hip, the well
+#define GEVR_ACTION_WHEEL_STEP       1009   // the weapon wheel's highlight moves
 
 typedef enum {
     HAPTIC_CAT_PISTOLS = 0,
