@@ -576,6 +576,20 @@ static void sentence(char *out, size_t cap, const char *list, const char *what)
 	if (!len && out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 'a' + 'A');
 }
 
+/* The folder's files in the order they were picked: a pick stages them as
+ * "0-name", "1-name" ..., and readdir gives them in no order on Linux (the
+ * summary listed them shuffled, test_rom_import under WSL). By the leading
+ * number, then by name. */
+static int byPickOrder(const void *a, const void *b)
+{
+	const char *x = *(const char *const *)a, *y = *(const char *const *)b;
+	if (x[0] >= '0' && x[0] <= '9' && y[0] >= '0' && y[0] <= '9') {
+		const long nx = strtol(x, NULL, 10), ny = strtol(y, NULL, 10);
+		if (nx != ny) return nx < ny ? -1 : 1;
+	}
+	return strcmp(x, y);
+}
+
 int gevrRomImportRun(const char *dataDir, char *summary, int summaryLen, int *gotGe)
 {
 	struct sorted s;
@@ -590,14 +604,31 @@ int gevrRomImportRun(const char *dataDir, char *summary, int summaryLen, int *go
 	snprintf(dir, sizeof(dir), "%s/" GEVR_ROM_IMPORT_DIR, dataDir);
 	d = opendir(dir);
 	if (d) {
+		char **names = NULL;
+		size_t count = 0, cap = 0;
 		while ((e = readdir(d)) != NULL) {
+			char *copy, **grown;
 			if (e->d_name[0] == '.' || isPart(e->d_name)) continue;
 			snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
 			if (isDir(path)) continue;
-			sortFile(dataDir, path, e->d_name, &s);
-			dropPick(path, dir, e->d_name);
+			if (count == cap) {
+				grown = realloc(names, (cap ? cap * 2 : 16) * sizeof(*names));
+				if (!grown) break;
+				names = grown;
+				cap = cap ? cap * 2 : 16;
+			}
+			if (!(copy = strdup(e->d_name))) break;
+			names[count++] = copy;
 		}
 		closedir(d);
+		if (count) qsort(names, count, sizeof(*names), byPickOrder);
+		for (size_t i = 0; i < count; i++) {
+			snprintf(path, sizeof(path), "%s/%s", dir, names[i]);
+			sortFile(dataDir, path, names[i], &s);
+			dropPick(path, dir, names[i]);
+			free(names[i]);
+		}
+		free(names);
 	}
 	/* after the folder: a lone pick of a zip is in picked.z64, and a GoldenEye
 	 * from the folder may just have been written there */

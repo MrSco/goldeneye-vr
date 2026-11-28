@@ -69,6 +69,8 @@ const RdSkel g_RdSkelHuman = {
 #define RD_KILLFLOOR_Y -32000.0f
 #define RD_DOOR_FADE_S 0.5f   /* a body a moving door touched is gone this soon */
 #define RD_COLROOM_MOVE 12.0f
+#define RD_WALL_RAYS 8          /* rdRooms: rays out level from the pelvis and each cut piece ... */
+#define RD_WALL_REACH 60.0f     /* ... this far, for walls of rooms no portal joins */
 #define RD_FAR 2000.0f
 
 typedef struct RdSeen {
@@ -459,6 +461,23 @@ static void rdRooms(RdBody *body)
     if(g_BgPortals)for(int i=0;i<PORTMAX && g_BgPortals[i].offset_portal;i++) {
         int a=g_BgPortals[i].connectedRoom1,b=g_BgPortals[i].connectedRoom2;
         if(a<MAXROOMCOUNT && b<MAXROOMCOUNT) { if(include[a])nearby[b]=1; if(include[b])nearby[a]=1; }
+    }
+    /* And the rooms whose walls are near it, portal or not: a body a blast
+     * threw at 600 units/s through Dam's room 111 went through a wall of room
+     * 119, which no portal joins to it, and fell out of the level (headset
+     * log, 2026-11-28). Rays out level from its pelvis and each cut piece
+     * find them; a floor or ceiling met (a stacked room's) is left out, as
+     * rdCrossCheck leaves it. */
+    for(int part=0;part<body->count;part++) {
+        if(part!=body->root && !(body->cuts&(1u<<part)))continue;
+        const float *at=body->joints[part].m[3];
+        for(int d=0;d<RD_WALL_RAYS;d++) {
+            const float a=(float)d*(2.0f*(float)M_PI/RD_WALL_RAYS);
+            float to[3]={at[0]+cosf(a)*RD_WALL_REACH,at[1],at[2]+sinf(a)*RD_WALL_REACH},hit[3],normal[3];
+            int room=-1;
+            if(pdphysRaycastAnyRoom(at,to,hit,normal,&room) && room>=0 && room<MAXROOMCOUNT && fabsf(normal[1])<=0.7f)
+                nearby[room]=1;
+        }
     }
     for(int i=0;i<MAXROOMCOUNT && count<64;i++)if(nearby[i])rooms[count++]=i;
     pdphysRagdollSetRooms(body->handle,rooms,count?count:-1);
@@ -954,6 +973,25 @@ static void rdCrossCheck(RdBody *b, const float before[3], float dt)
         b->visrooms[2]==255?-1:b->visrooms[2],b->visrooms[3]==255?-1:b->visrooms[3]);
 }
 
+/* A body that falls asleep and is woken again and again never stays awake
+ * the 8 s rdRest reports: a cut piece jittered on the Quest with no report
+ * (user, 2026-11-28). Every third waking within 10 s, what moved and what
+ * woke it, for a headset log. */
+static void rdRewakeLog(RdBody *b)
+{
+    if(b->age-b->rewakefrom>10.0f){b->rewakefrom=b->age;b->rewakes=0;}
+    if(++b->rewakes%3)return;
+    char line[200];int n=0;
+    for(int p=0;p<b->count && n<(int)sizeof(line)-24;p++) {
+        float d=0;
+        for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->restpos[p][k];d+=x*x;}
+        if(d>0.01f)n+=snprintf(line+n,sizeof(line)-n," %d(piece %d):%.1f",p,rdPiece(b,p),sqrtf(d));
+    }
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u woke again, %d times in %.1f s, cuts 0x%x, %d prop wakes (last type %d at %d %d %d); moved:%s",
+                 b->serial,b->rewakes,b->age-b->rewakefrom,b->cuts,b->moverwakes,b->mover[0],b->mover[1],b->mover[2],b->mover[3],
+                 n ? line : " nothing");
+}
+
 static float rdCameraDistance2(const float pos[3])
 {
     const Mtxf *eye=currentPlayerGetViewToWorldMtxf();
@@ -1009,6 +1047,7 @@ void gevrRagdollTick(int ticks60)
         const int asleep=pdphysRagdollIsAsleep(b->handle);
         float before[3];memcpy(before,b->joints[b->root].m[3],sizeof(before));
         if(!(b->asleep && asleep))pdphysRagdollGetJoints(b->handle,(float (*)[16])b->joints);
+        if(b->asleep && !asleep)rdRewakeLog(b);
         b->asleep=asleep;
         rdRest(b,dt,asleep);
         rdCrossCheck(b,before,dt);
