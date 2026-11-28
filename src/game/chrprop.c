@@ -5042,7 +5042,14 @@ void sub_GAME_7F03ECC0(f32 x1, f32 x2, f32 y1, f32 y2, f32 z1, f32 z2, Mtxf *m, 
     s32 maxxi = 0;
     s32 minzi;
     s32 maxzi = 0;
+#ifdef GEVR
+    /* GoldenEye PC D490: coincident extrema leave more than four candidates.
+     * The N64's stack padding absorbed the extra writes. On ARM64 they
+     * overwrite pts[0] and can put a phantom edge in a collision hull. */
+    s32 rem[8];
+#else
     s32 rem[4];
+#endif
     s32 cnt;
     f64 x1d = x1;
     f64 x2d = x2;
