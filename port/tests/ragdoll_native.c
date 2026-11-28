@@ -10,6 +10,7 @@
 #include "propobj.h"
 #include "matrixmath.h"
 #include "chrai.h"
+#include "cheat.h"
 #include "gevr_ragdoll.c"
 
 int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance=40;
@@ -35,6 +36,8 @@ static struct player players[8];
 struct player *g_playerPointers[8];
 static int playerCount=1;
 s32 getPlayerCount(void) { return playerCount; }
+static int mpRules;
+s32 gevrMpRules(void) { return mpRules; }
 s32 getPlayerPointerIndex(PropRecord *prop) { return prop->chr->chrnum; }
 static Mtxf view,world;
 Mtxf *currentPlayerGetViewToWorldMtxf(void) { return &world; }
@@ -55,6 +58,8 @@ void sysLogPrintf(s32 level,const char *fmt,...) { (void)level; (void)fmt; }
 void gevrBeanForgetWounds(Model *model) { (void)model; }
 void gevrBeanCopyWounds(const Model *from, Model *to, size_t bytes) { (void)from; (void)to; (void)bytes; }
 void gevrBeanSetCuts(const GevrBeanCuts *cuts) { (void)cuts; }
+static int dkMode,paintball;
+bool cheatIsActive(CHEAT_ID cheat) { return (cheat==CHEAT_DK_MODE && dkMode) || (cheat==CHEAT_PAINTBALL && paintball); }
 static int beanDraws;
 u64 g_randomSeed=12345;
 static int stains; static ModelNode *stainedNode; static s32 stainedPart;
@@ -399,6 +404,76 @@ static void cutPiecesRest(void)
     VrDismemberment=dismember;playerCount=players;
 }
 
+/* DK Mode: the head's sphere 4x and the arms' capsules 2.5x, as chr.c draws them */
+static void dkModeSizes(void)
+{
+    float normal[RD_SKEL],dk[RD_SKEL];
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;
+    for(int pass=0;pass<2;pass++) {
+        dkMode=pass;
+        capture(0);
+        RdBody *b=newest();
+        assert(b->dk==pass);
+        for(int j=0;j<RD_SKEL;j++)(pass?dk:normal)[j]=b->body[j]>=0 ? b->radius[b->body[j]] : 0;
+        gevrRagdollReset();
+    }
+    dkMode=0;
+    assert(fabsf(dk[2]-normal[2]*4)<1e-3f && fabsf(dk[3]-normal[3]*2.5f)<1e-3f && fabsf(dk[6]-normal[6]*2.5f)<1e-3f);
+    assert(dk[1]==normal[1] && dk[9]==normal[9]);   /* chest, thigh as they were */
+}
+
+/* Multiplayer: a body lying still turns solid (CE Resting Bodies Turn Solid):
+ * shots no longer push it or cut it, and it moves again when let go */
+static void mpBodiesTurnSolid(void)
+{
+    const int dismember=VrDismemberment;
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;VrDismemberment=1;mpRules=1;
+    capture(0);
+    RdBody *b=newest();
+    for(int t=0;t<60*10 && !b->solid;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+    assert(b->solid && pdphysRagdollIsAsleep(b->handle));
+    float a[3],c[3];
+    pdphysRagdollGetPartPos(b->handle,b->root,a);
+    const float push[3]={0,0,300};
+    pdphysRagdollAddVelocity(b->handle,-1,push);
+    for(int t=0;t<30;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+    pdphysRagdollGetPartPos(b->handle,b->root,c);
+    assert(fabsf(a[2]-c[2])<0.01f && !rdCut(b,b->body[3]));
+    rdUnsolid(b,"the test");
+    assert(!b->solid);
+    pdphysRagdollAddVelocity(b->handle,-1,push);
+    for(int t=0;t<10;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+    pdphysRagdollGetPartPos(b->handle,b->root,c);
+    assert(fabsf(a[2]-c[2])>1.0f);
+    gevrRagdollReset();
+    /* solo bodies never turn solid */
+    mpRules=0;capture(0);b=newest();
+    for(int t=0;t<60*10;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+    assert(!b->solid);
+    gevrRagdollReset();
+    VrDismemberment=dismember;
+}
+
+/* Paintball Mode: each cut a paint colour, never black; blood without it */
+static void paintballCuts(void)
+{
+    const int dismember=VrDismemberment;
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;VrDismemberment=1;
+    capture(0);
+    RdBody *b=newest();
+    assert(rdCut(b,b->body[3]) && b->cutpaint[b->body[3]]==0);
+    paintball=1;
+    for(int n=0;n<24;n++) {
+        const u32 c=rdPaintColour();
+        assert((c&0xff)==0xff && (c&0xffffff00u));
+        for(int k=1;k<4;k++){const u32 x=(c>>(k*8))&255;assert(x==0 || x==255);}
+    }
+    assert(rdCut(b,b->body[4]) && b->cutpaint[b->body[4]]!=0);
+    paintball=0;
+    gevrRagdollReset();
+    VrDismemberment=dismember;
+}
+
 int main(void)
 {
     view=world=identity();for(int i=0;i<8;i++)g_playerPointers[i]=&players[i];
@@ -409,6 +484,9 @@ int main(void)
     assert(!gevrRagdollNeedsPose(&sourceChr));assert(!pdphysIsReady());
     VrRagdolls=1;VrBodiesStay=RD_BODIES;
     cutPiecesRest();
+    dkModeSizes();
+    paintballCuts();
+    mpBodiesTurnSolid();
     for(int mode=1;mode<=8;mode*=2) {
         playerCount=mode;
         for(int i=0;i<RD_BODIES+2;i++) { capture(mode>1);assert(countBodies()==(i<RD_BODIES?i+1:RD_BODIES)); }

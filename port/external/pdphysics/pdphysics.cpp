@@ -663,6 +663,7 @@ struct Ragdoll {
 	Mat44 lastTrack[PDPHYS_MAX_RAGDOLL_PARTS];   // animation blend: previous target body transforms
 	bool lastTrackValid = false;
 	float keepAwake = 0.0f; // seconds left during which its parts may not fall asleep
+	bool solid = false;     // CE b0180009 (combat simulator ragdolls) - static (pdphysRagdollSetSolid): collides, never moves or wakes
 	bool inWater = false;   // floats: water surface at waterY (metres)
 	float waterY = 0.0f;
 	float partHalf[PDPHYS_MAX_RAGDOLL_PARTS];    // capsule half height (0 = sphere), metres
@@ -677,6 +678,12 @@ Ragdoll g_Ragdolls[kMaxRagdolls];
 static bool ragdollLive(int handle)
 {
 	return handle >= 0 && handle < kMaxRagdolls && g_Ragdolls[handle].used;
+}
+
+// CE b0180009: live and not solid: can be pushed, driven and woken
+static bool ragdollMovable(int handle)
+{
+	return ragdollLive(handle) && !g_Ragdolls[handle].solid;
 }
 int g_UnstraddleCount = 0; // parts put back on their parent's side of a wall (unstraddleWalls)
 
@@ -1730,6 +1737,7 @@ extern "C" int pdphysRagdollCreate(const pdphysRagdollPart *parts, int numparts)
 	rd.motorsOn = false;
 	rd.lastTrackValid = false;
 	rd.keepAwake = 0.0f;
+	rd.solid = false;
 	rd.inWater = false;
 	rd.overlapPairs.clear();
 
@@ -1932,7 +1940,7 @@ extern "C" void pdphysRagdollDestroy(int handle)
 
 extern "C" void pdphysRagdollAddVelocity(int handle, int part, const float vel[3])
 {
-	if (!g_World || !ragdollLive(handle)) {
+	if (!g_World || !ragdollMovable(handle)) {
 		return;
 	}
 
@@ -1964,7 +1972,7 @@ extern "C" void pdphysRagdollCarry(int handle, int part, const float delta[3], c
 // blend while it was pulling them)
 extern "C" void pdphysRagdollClampSpeed(int handle, const float ref[3], float maxspeed)
 {
-	if (!g_World || !ragdollLive(handle) || maxspeed <= 0.0f) {
+	if (!g_World || !ragdollMovable(handle) || maxspeed <= 0.0f) {
 		return;
 	}
 
@@ -1984,7 +1992,7 @@ extern "C" void pdphysRagdollClampSpeed(int handle, const float ref[3], float ma
 
 extern "C" void pdphysRagdollPull(int handle, int part, const float target[3], float maxforce, float frequency)
 {
-	if (!g_World || !ragdollLive(handle)) {
+	if (!g_World || !ragdollMovable(handle)) {
 		return;
 	}
 
@@ -2088,7 +2096,7 @@ extern "C" int pdphysRagdollGetJoints(int handle, float (*outmtx)[16])
 // N*m; 0 switches that joint's motor off (back to plain friction).
 extern "C" void pdphysRagdollDriveToPose(int handle, const float (*targetjointmtx)[16], const float *torques, float frequency)
 {
-	if (!g_World || !ragdollLive(handle)) {
+	if (!g_World || !ragdollMovable(handle)) {
 		return;
 	}
 
@@ -2174,7 +2182,7 @@ extern "C" void pdphysRagdollDriveToPose(int handle, const float (*targetjointmt
 // animation (while still colliding). skip[i] != 0 leaves part i alone.
 extern "C" void pdphysRagdollTrackPose(int handle, const float (*targetjointmtx)[16], const int *skip, float weight, float dt, float reach)
 {
-	if (!g_World || !ragdollLive(handle) || dt <= 0.0f) {
+	if (!g_World || !ragdollMovable(handle) || dt <= 0.0f) {
 		return;
 	}
 
@@ -2279,7 +2287,7 @@ extern "C" void pdphysRagdollTrackPose(int handle, const float (*targetjointmtx)
 // part (and everything attached to it) becomes a separate piece.
 extern "C" void pdphysRagdollDetach(int handle, int part)
 {
-	if (!g_World || !ragdollLive(handle)) {
+	if (!g_World || !ragdollMovable(handle)) {
 		return;
 	}
 
@@ -2439,7 +2447,7 @@ extern "C" void pdphysPropSetNoBlock(int handle, int noblock)
 // Water around the ragdoll: its surface height (PD units), or inwater 0
 extern "C" void pdphysRagdollSetWater(int handle, int inwater, float surfacey)
 {
-	if (!g_World || !ragdollLive(handle)) {
+	if (!g_World || !ragdollMovable(handle)) {
 		return;
 	}
 
@@ -2472,10 +2480,44 @@ extern "C" void pdphysRagdollSetFriction(int handle, float friction)
 	}
 }
 
+// CE b0180009 (combat simulator ragdolls): a resting body's parts turn static
+// (still colliding, no longer simulated, woken or pushed), or dynamic again
+// (asleep)
+extern "C" void pdphysRagdollSetSolid(int handle, int solid)
+{
+	if (!g_World || !ragdollLive(handle)) {
+		return;
+	}
+
+	Ragdoll &rd = g_Ragdolls[handle];
+
+	if (rd.solid == (solid != 0)) {
+		return;
+	}
+
+	BodyInterface &bi = g_World->system.GetBodyInterface();
+
+	rd.solid = solid != 0;
+
+	for (int i = 0; i < rd.numparts; i++) {
+		bi.SetMotionType(rd.bodies[i], rd.solid ? EMotionType::Static : EMotionType::Dynamic, EActivation::DontActivate);
+	}
+
+	for (auto &c : rd.constraints) {
+		c->SetEnabled(!rd.solid);
+	}
+
+	if (rd.solid) {
+		rd.keepAwake = 0.0f;
+		rd.inWater = false;
+		rd.motorsOn = false;
+	}
+}
+
 // Keeps every part of the ragdoll awake (no sleeping) for this many seconds
 extern "C" void pdphysRagdollKeepAwake(int handle, float seconds)
 {
-	if (!g_World || !ragdollLive(handle)) {
+	if (!g_World || !ragdollMovable(handle)) {
 		return;
 	}
 
@@ -2499,11 +2541,11 @@ extern "C" void pdphysRagdollTakeNewBlocks(int handle, int *outflags)
 // GEVR: puts these parts (a bit each) to sleep now, as Jolt does by itself
 // once every point of a body is slower than 3 cm/s. A cut piece never got
 // there: on a flat floor a lone capsule or sphere settles into a steady roll
-// of about 6 cm/s and keeps it (gevr_ragdoll.c rdPiecesRest). Anything that
+// of about 6 cm/s and keeps it (gevr_ragdoll.c rdRest). Anything that
 // touches or pushes them wakes them as it wakes any sleeping body.
 extern "C" void pdphysRagdollSleepParts(int handle, unsigned mask)
 {
-	if (!g_World || !ragdollLive(handle)) {
+	if (!g_World || !ragdollMovable(handle)) {
 		return;
 	}
 
@@ -2604,7 +2646,7 @@ void unblockOverlaps(float dt)
 	for (int h = 0; h < kMaxRagdolls; h++) {
 		Ragdoll &rd = g_Ragdolls[h];
 
-		if (!rd.used || rd.overlapPairs.empty() || !rd.filter) {
+		if (!rd.used || rd.solid || rd.overlapPairs.empty() || !rd.filter) {
 			continue;
 		}
 
@@ -2800,7 +2842,7 @@ extern "C" void pdphysStep(float dt)
 		for (int h = 0; h < kMaxRagdolls; h++) {
 			Ragdoll &rd = g_Ragdolls[h];
 
-			if (!rd.used || rd.keepAwake <= 0.0f) {
+			if (!rd.used || rd.solid || rd.keepAwake <= 0.0f) {
 				continue;
 			}
 
@@ -2822,7 +2864,7 @@ extern "C" void pdphysStep(float dt)
 		for (int h = 0; h < kMaxRagdolls; h++) {
 			Ragdoll &rd = g_Ragdolls[h];
 
-			if (!rd.used || !rd.inWater) {
+			if (!rd.used || rd.solid || !rd.inWater) {
 				continue;
 			}
 

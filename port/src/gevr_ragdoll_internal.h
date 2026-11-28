@@ -78,17 +78,21 @@ typedef struct RdBody {
     unsigned lastpush;
     float colroompos[3];
     int asleep, onscreen, crossed;
-    /* each part's place last tick, and how long each cut piece has lain still (rdPiecesRest) */
+    /* each part's place last tick, and how long each cut piece has lain still (rdRest) */
     float restpos[RD_PARTS][3];
     float still[RD_PARTS];
     int restset;
+    int solid;        /* multiplayer: lying still, static in the physics (rdRest, CE Resting Bodies Turn Solid) */
+    float solidstill; /* how long every part has been slower than RD_SOLID_SPEED */
+    int dk;           /* DK Mode at death: the head and arms as chr.c draws them (rdBuildParts) */
+    u32 cutpaint[RD_PARTS]; /* Paintball Mode: each cut's paint, RGBA (rdPaintColour), 0 for blood */
     int doorhit;      /* a moving door touched it: it fades in RD_DOOR_FADE_S (gevrRagdollDoorFade) */
     float doorfade;   /* seconds since */
     u8 visrooms[16];
     RdCap caps[RD_MAXCAPS];
     int ncaps, ndiscs;
     /* Bean skin rims this view (gevr_bean_caps.inc.h), drawn as fans */
-    struct { int matrix, nedges, piece, other; const s16 (*rim)[2][3]; } bean[RD_MAXCAPS];
+    struct { int matrix, nedges, piece, other, cut; const s16 (*rim)[2][3]; } bean[RD_MAXCAPS];
     int nbean;
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
     /* rdPiece of each matrix's owner, for these cuts (gevrRagdollPiece, Remap) */
@@ -148,6 +152,8 @@ void rdMoversUpdate(float dt, RdBody *bodies, int count);
 void rdMoversReset(void);
 int rdCopyMeshes(RdBody *rd);
 int rdCut(RdBody *rd, int part);
+u32 rdPaintColour(void);
+void rdUnsolid(RdBody *rd, const char *why);
 void rdBuildCaps(RdBody *rd);
 Gfx *rdDrawCaps(RdBody *rd, Gfx *gdl);
 #endif

@@ -1019,6 +1019,16 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: kill %.0f: %d guards", (double) r, gevrKillGuards(r));
             continue;
         }
+        /* "cut<N>": CE skeleton part N (2 head, 3/4 upper arms, 5/6 forearms,
+         * 9/10 thighs, 11/12 shins) off every body within 600 units of Bond,
+         * as a shot's cut, for a test script */
+        if (strncasecmp(word, "cut", 3) == 0 && word[3] >= '0' && word[3] <= '9')
+        {
+            extern int gevrRagdollCutNear(const float at[3], float radius, int skelpart);
+            sysLogPrintf(LOG_NOTE, "cheathook: cut %d: %d bodies", atoi(word + 3),
+                         gevrRagdollCutNear(g_CurrentPlayer->prop->pos.f, 600.0f, atoi(word + 3)));
+            continue;
+        }
         /* "wound<R>": every guard within R units of Bond (600 if none) takes a
          * bullet's bruise on the chest (chrCreateBloodStain), as a shot's
          * would, without aiming from the PC; "woundhead<R>" on the head */

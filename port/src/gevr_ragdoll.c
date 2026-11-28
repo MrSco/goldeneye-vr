@@ -17,6 +17,7 @@
 #include "gun.h"
 #include "bgfog.h"
 #include "random.h"
+#include "cheat.h"
 
 extern int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance;
 extern int netHordeActive(void);
@@ -82,6 +83,22 @@ static RdSeen s_seen[512];
  * sequence, which co-op and replays depend on. */
 static unsigned s_random = 0x9e3779b9u;
 static int rdChance(float percent) { s_random = s_random * 1664525u + 1013904223u; return (float)((s_random >> 8) % 100) < percent; }
+
+/*
+ * CE dismember.c rdPaintColour (Perfect-Dark-CE b0180009): in Paintball Mode
+ * a cut gets a paint colour, red, green and blue each full or off, never
+ * black (CE: as PD's paint sparks; GoldenEye's paint splats can be black,
+ * explosion.c apptype 2, and a black cut reads as a hole). 0 when it's off:
+ * blood. Cosmetic: the ragdolls' own sequence, never the game's.
+ */
+u32 rdPaintColour(void)
+{
+    if(!cheatIsActive(CHEAT_PAINTBALL))return 0;
+    u32 c=0xff;
+    for(int k=1;k<4;k++){s_random=s_random*1664525u+1013904223u;if((s_random>>16)&1)c|=0xffu<<(k*8);}
+    if(c==0xff){s_random=s_random*1664525u+1013904223u;c|=0xffu<<(8*(1+(s_random>>16)%3));}
+    return c;
+}
 
 static float rdDamage(int weapon) { return weapon > 0 && weapon < ITEM_IDS_MAX ? gunItemGetDestructionAmount(weapon) : 0; }
 
@@ -546,6 +563,11 @@ static void rdBuildParts(RdBody *rd, pdphysRagdollPart *parts, const float vel[3
     const RdSkel *sk=&g_RdSkelHuman;
     float p[RD_SKEL][3],bone[RD_SKEL][3],a[3],b[3];
     const float torso=rd->torso,sc=torso/RD_MASS_REFTORSO;
+    /* CE create.c (RD_DK_HEADSCALE, RD_DK_ARMSCALE): DK Mode's head and arms
+     * as chr.c's joint hook draws them, 4x and 2.5x. The death pose is the
+     * drawn one, so the elbows and hands already stand that far out; the
+     * head and arms only need their size (the head sank into the floor). */
+    const float dkhead=rd->dk ? 4.0f : 1.0f,dkarm=rd->dk ? 2.5f : 1.0f;
     rdBones(rd,p,bone);
     for(int i=0;i<rd->count;i++) {
         const int j=rd->skel[i];
@@ -568,18 +590,18 @@ static void rdBuildParts(RdBody *rd, pdphysRagdollPart *parts, const float vel[3
             break;
         case 2: /* head, up the spine from the neck joint */
             pp->shape=PDPHYS_SHAPE_SPHERE;
-            rdMad(p[2],bone[1],torso*0.30f,pp->a);
-            pp->radius=torso*0.26f;
+            rdMad(p[2],bone[1],torso*0.30f*dkhead,pp->a);
+            pp->radius=torso*0.26f*dkhead;
             rdSwingTwist(pp,bone[1],localz,0.85f,0.8f,-1.0f,1.0f);
             break;
         case 3: case 4: /* upper arms */
-            rdMad(p[j],bone[j],torso*0.11f,a);
-            rdCapsule(pp,a,p[sk->child[j]],torso*0.12f);
+            rdMad(p[j],bone[j],torso*0.11f*dkarm,a);
+            rdCapsule(pp,a,p[sk->child[j]],torso*0.12f*dkarm);
             rdSwingTwist(pp,bone[j],localy,1.5f,1.3f,-0.9f,0.9f);
             break;
         case 5: case 6: /* forearms and hands */
-            rdMad(p[sk->child[j]],bone[j],torso*0.18f,b);
-            rdCapsule(pp,p[j],b,torso*0.10f);
+            rdMad(p[sk->child[j]],bone[j],torso*0.18f*dkarm,b);
+            rdCapsule(pp,p[j],b,torso*0.10f*dkarm);
             break;
         case 9: case 10: /* thighs: hips swing ~70 degrees forward and back, ~30 sideways */
             rdCapsule(pp,p[j],p[sk->child[j]],torso*0.17f);
@@ -728,6 +750,7 @@ void gevrRagdollCapture(ChrRecord *chr)
         for(int k=0;k<3;k++)velocity[k]=chr->fallspeed.f[k]*factor;
     }
     slot->torso=rdTorsoLength(slot);
+    slot->dk=cheatIsActive(CHEAT_DK_MODE);   /* chr.c: every chr, without BUGFIX_R1 */
     pdphysRagdollPart parts[RD_PARTS];
     rdBuildParts(slot,parts,velocity);
     slot->handle=pdphysRagdollCreate(parts,slot->count);
@@ -786,24 +809,52 @@ void gevrRagdollCapture(ChrRecord *chr)
  */
 #define RD_REST_SPEED 10.0f   /* units/s */
 #define RD_REST_TIME 0.3f     /* s: CE RD_SOLID_STILL60 (18 ticks) */
-static void rdPiecesRest(RdBody *b, float dt)
+/*
+ * CE ragdoll.c rdMpSolidCheck (Perfect-Dark-CE b0180009), Resting Bodies Turn
+ * Solid on its default, the Combat Simulator: in a multiplayer match a body
+ * whose every part has been slower than 40 units/s for 0.3 s turns static.
+ * Other bodies land on it and shots still hit it (blood, no push), but the
+ * physics no longer simulates it, which leaves the Quest's physics time to
+ * the bodies still falling. A moving lift under it, or a prop it lies on or
+ * against going away, makes it move again (rdUnsolid, movers.c); doors pass
+ * through it. Solo bodies stay as they were: they still react to shots.
+ */
+#define RD_SOLID_SPEED 40.0f  /* units/s: CE RD_SOLID_MAXSPEED */
+
+void rdUnsolid(RdBody *rd, const char *why)
 {
-    float fastest[RD_PARTS+1]={0};
+    if(!rd->solid)return;
+    pdphysRagdollSetSolid(rd->handle,0);
+    rd->solid=0; rd->solidstill=0;
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u moves again (no longer solid: %s)",rd->serial,why);
+}
+
+static void rdRest(RdBody *b, float dt, int asleep)
+{
+    float fastest[RD_PARTS+1]={0},all=0;
     for(int p=0;p<b->count;p++) {
         const int piece=rdPiece(b,p);
         float d=0;
         for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->restpos[p][k];d+=x*x;}
         if(b->restset && dt>0)fastest[piece]=fmaxf(fastest[piece],sqrtf(d)/dt);
+        all=fmaxf(all,fastest[piece]);
         memcpy(b->restpos[p],b->joints[p].m[3],sizeof(b->restpos[p]));
     }
     if(!b->restset){b->restset=1;return;}
-    for(int c=0;c<b->count;c++) {
+    for(int c=0;c<b->count && !asleep && !b->solid;c++) {
         if(!(b->cuts&(1u<<c)))continue;
         if(fastest[c+1]>RD_REST_SPEED){b->still[c]=0;continue;}
         if((b->still[c]+=dt)<RD_REST_TIME)continue;
         unsigned mask=0;
         for(int p=0;p<b->count;p++)if(rdPiece(b,p)==c+1)mask|=1u<<p;
         pdphysRagdollSleepParts(b->handle,mask);
+    }
+    if(b->solid || !gevrMpRules())return;
+    b->solidstill=all>RD_SOLID_SPEED ? 0 : b->solidstill+dt;
+    if(b->solidstill>=RD_REST_TIME) {
+        pdphysRagdollSetSolid(b->handle,1);
+        b->solid=1;
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u lying still: solid now",b->serial);
     }
 }
 
@@ -887,7 +938,7 @@ void gevrRagdollTick(int ticks60)
         float before[3];memcpy(before,b->joints[b->root].m[3],sizeof(before));
         if(!(b->asleep && asleep))pdphysRagdollGetJoints(b->handle,(float (*)[16])b->joints);
         b->asleep=asleep;
-        if(b->cuts && !asleep)rdPiecesRest(b,dt);
+        rdRest(b,dt,asleep);
         rdCrossCheck(b,before,dt);
         /* Fell out of the level (CE :1708) */
         if(b->joints[b->root].m[3][1]<RD_KILLFLOOR_Y) {
@@ -918,6 +969,22 @@ void gevrRagdollTick(int ticks60)
  * everyone online and in ghost runs (owner, 2026-11-23).
  */
 int gevrRagdollBodies(void) { return VrRagdolls ? RD_BODIES : 0; }
+
+/* Test hook (bondview2.c "cut<N>"): CE skeleton part N off every body within
+ * radius of a point (Bond), as a shot's cut (rdCut). Returns how many were cut. */
+int gevrRagdollCutNear(const float at[3], float radius, int skelpart)
+{
+    int n=0;
+    if(skelpart<0 || skelpart>=RD_SKEL)return 0;
+    for(int i=0;i<RD_BODIES;i++) {
+        RdBody *b=&s_bodies[i];
+        if(!b->used || b->body[skelpart]<0)continue;
+        float d=0;
+        for(int k=0;k<3;k++){float x=b->joints[b->root].m[3][k]-at[k];d+=x*x;}
+        if(d<=radius*radius && rdCut(b,b->body[skelpart]))n++;
+    }
+    return n;
+}
 
 int gevrRagdollBodyParts(int body, coord3d *pos, int max)
 {
@@ -1100,6 +1167,7 @@ void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int
         if(d>reach*reach)return;
     }
     b->bean[b->nbean].matrix=matrix; b->bean[b->nbean].nedges=nedges; b->bean[b->nbean].rim=rim;
+    b->bean[b->nbean].cut=cut;
     b->bean[b->nbean].piece=piece; b->bean[b->nbean++].other=other;
 }
 int gevrRagdollPiece(const Model *model,int matrix)
