@@ -83,7 +83,7 @@ static void gevrWaitSeqStopped(ALCSPlayer *seqp)
  * counts need more space, and MEMPOOL_PERMANENT is too small, so the AL heap
  * comes from sysMemAlloc instead of memp.
  */
-#define MUSIC_ALLOCATION_BYTES   0x100000
+#define MUSIC_ALLOCATION_BYTES   0x100000   /* 389 KB used with the 4x sound capacity below */
 #else
 #define MUSIC_ALLOCATION_BYTES   0x2E000
 #endif
@@ -94,16 +94,30 @@ static void gevrWaitSeqStopped(ALCSPlayer *seqp)
  */
 #define ROM_MUSIC_START_OFFSET 0x10000U
 
-#define MUSIC_SYN_CONFIG_MAX_P_VOICES   0x18
-#define MUSIC_SYN_CONFIG_MAX_UPDATES    0x80
+#ifdef GEVR
+/*
+ * Sound capacity (Perfect Dark CE, src/lib/snd.c SND_SCALE): the PC and Quest
+ * have memory and time to spare, so the sound system's limits are four times
+ * the N64's: voices, sounds playing at once, events, sound states and synth
+ * updates (and audi.c's command lists). With the N64's, eight sound effects
+ * at once shared 24 voices with three music tracks of up to 16: a burst of
+ * gunfire, casings and footsteps left a looping sound waiting for a voice,
+ * silent meanwhile (user, 2026-11-28: the Dam truck's engine cutting out).
+ */
+#define MUSIC_SND_SCALE 4
+#else
+#define MUSIC_SND_SCALE 1
+#endif
+#define MUSIC_SYN_CONFIG_MAX_P_VOICES   (0x18 * MUSIC_SND_SCALE)
+#define MUSIC_SYN_CONFIG_MAX_UPDATES    (0x80 * MUSIC_SND_SCALE)
 
 #define MUSIC_SEQ_CONFIG_MAX_VOICES     0x10
 #define MUSIC_SEQ_CONFIG_MAX_EVENTS     0x40
 #define MUSIC_SEQ_CONFIG_MAX_CHANNELS     16
 
-#define MUSIC_SFX_SEQ_CONFIG_MAYBE_SND_STATE_COUNT  0x40
-#define MUSIC_SFX_SEQ_CONFIG_MAX_EVENTS             0x40
-#define MUSIC_SFX_SEQ_MAYBE_MAX_SOUNDS                 8
+#define MUSIC_SFX_SEQ_CONFIG_MAYBE_SND_STATE_COUNT  (0x40 * MUSIC_SND_SCALE)
+#define MUSIC_SFX_SEQ_CONFIG_MAX_EVENTS             (0x40 * MUSIC_SND_SCALE)
+#define MUSIC_SFX_SEQ_MAYBE_MAX_SOUNDS                 (8 * MUSIC_SND_SCALE)
 
 // 
 // carnivorous shared default midi allocations from editor:
@@ -962,6 +976,9 @@ void musicSeqPlayerInit(void)
     sndNewPlayerInit(&sfxSeqpConfig);
     amStartAudioThread();
 #ifdef GEVR
+    sysLogPrintf(LOG_NOTE, "music: AL heap %d of %d KB used (%d voices, %d sound effects at once)",
+                 (s32)(g_musicHeap.cur - g_musicHeap.base) / 1024, MUSIC_ALLOCATION_BYTES / 1024,
+                 MUSIC_SYN_CONFIG_MAX_P_VOICES, MUSIC_SFX_SEQ_MAYBE_MAX_SOUNDS);
     gevrAudioMarkReady();
     musicTrack1ApplySeqpVol(musicTrack1GetVolume());
     musicTrack2ApplySeqpVol(musicTrack2GetVolume());
