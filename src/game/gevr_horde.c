@@ -1024,10 +1024,15 @@ static void hordeRecoverGuard(s32 slot,s32 ticks)
             && tile==target->stan) {s_stall_ticks[slot]=0;return;}
     }
     /* A guard fighting from cover stays. An unseen, immobile guard gets a
-     * fresh path attempt, then a replacement under the same wave quota. */
+     * fresh path attempt, then a replacement under the same wave quota.
+     * The stand goes through the game's own chrStand: the action union still
+     * holds the last action (a stuck run's act_runpos puts its y, z and
+     * neardist where act_stand reads face type, face id and reaim), and a
+     * bare ACT_STAND had chrlvTickStand look up a float as a pad
+     * (reports#49, SIGSEGV in chrlvGetChrOrPresetLocation). */
     if (s_stall_ticks[slot]<18*60) {
         if (s_stall_ticks[slot]-ticks<6*60) {
-            chrStopFiring(chr);chr->actiontype=ACT_STAND;
+            chrlvMergeKneelToStand(chr,16.0f);
             chr->ailist=ailistFindById(GAILIST_PERSISTENTLY_CHASE_AND_ATTACK_BOND);chr->aioffset=0;
         }
     } else chr->hidden|=CHRHIDDEN_REMOVE;
