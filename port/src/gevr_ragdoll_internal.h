@@ -81,6 +81,8 @@ typedef struct RdBody {
     /* each part's place last tick, and how long each cut piece has lain still (rdRest) */
     float restpos[RD_PARTS][3];
     float still[RD_PARTS];
+    float anchor[RD_PARTS][3];   /* where each part of a piece was when it started lying still */
+    float stillbody;             /* the same for the body itself (the piece of no cut) */
     int restset;
     int solid;        /* multiplayer: lying still, static in the physics (rdRest, CE Resting Bodies Turn Solid) */
     float solidstill; /* how long every part has been slower than RD_SOLID_SPEED */

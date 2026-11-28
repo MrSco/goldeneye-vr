@@ -809,6 +809,7 @@ void gevrRagdollCapture(ChrRecord *chr)
  */
 #define RD_REST_SPEED 10.0f   /* units/s */
 #define RD_REST_TIME 0.3f     /* s: CE RD_SOLID_STILL60 (18 ticks) */
+#define RD_REST_BODY 1.0f     /* s: the body itself, within the same 3 units */
 /*
  * CE ragdoll.c rdMpSolidCheck (Perfect-Dark-CE b0180009), Resting Bodies Turn
  * Solid on its default, the Combat Simulator: in a multiplayer match a body
@@ -841,12 +842,32 @@ static void rdRest(RdBody *b, float dt, int asleep)
         memcpy(b->restpos[p],b->joints[p].m[3],sizeof(b->restpos[p]));
     }
     if(!b->restset){b->restset=1;return;}
-    for(int c=0;c<b->count && !asleep && !b->solid;c++) {
-        if(!(b->cuts&(1u<<c)))continue;
-        if(fastest[c+1]>RD_REST_SPEED){b->still[c]=0;continue;}
-        if((b->still[c]+=dt)<RD_REST_TIME)continue;
+    /* A piece lies still while none of its parts strays more than RD_REST_TIME
+     * at RD_REST_SPEED from where it was when the count started: a speed test
+     * alone kept a forearm shaking against a wall awake for good, every tick
+     * fast and the piece going nowhere (user, 2026-11-28) */
+    /* The body itself too, over RD_REST_BODY: on the PC a guard slumped against
+     * the Dam barrier stayed awake for good at zero speed, its parts never let
+     * sleep however still (2026-11-28), costing the physics every tick */
+    for(int c=-1;c<b->count && !asleep && !b->solid;c++) {
+        if(c>=0 && !(b->cuts&(1u<<c)))continue;
+        float *still=c>=0 ? &b->still[c] : &b->stillbody;
+        const float wait=c>=0 ? RD_REST_TIME : RD_REST_BODY;
         unsigned mask=0;
-        for(int p=0;p<b->count;p++)if(rdPiece(b,p)==c+1)mask|=1u<<p;
+        float stray=0;
+        for(int p=0;p<b->count;p++) {
+            if(rdPiece(b,p)!=c+1)continue;
+            mask|=1u<<p;
+            float d=0;
+            for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->anchor[p][k];d+=x*x;}
+            stray=fmaxf(stray,d);
+        }
+        if(*still<=0 || stray>RD_REST_SPEED*RD_REST_TIME*RD_REST_SPEED*RD_REST_TIME) {
+            for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->anchor[p],b->joints[p].m[3],sizeof(b->anchor[p]));
+            *still=dt>0 ? dt*0.5f : 1e-3f;
+            continue;
+        }
+        if((*still+=dt)<wait)continue;
         pdphysRagdollSleepParts(b->handle,mask);
     }
     if(b->solid || !gevrMpRules())return;
