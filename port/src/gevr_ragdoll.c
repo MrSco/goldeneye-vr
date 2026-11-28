@@ -1033,19 +1033,23 @@ static void rdCrossCheck(RdBody *b, const float before[3], float dt)
  * the 8 s rdRest reports: a cut piece jittered on the Quest with no report
  * (user, 2026-11-28). Every third waking within 10 s, what moved and what
  * woke it, for a headset log. */
+/* Every waking now, the first eight of a body and then every tenth: one shook
+ * for 30 s and more on the headset (user, 2026-11-28) with no report, each
+ * waking further apart than 10 s / 3 would have shown. rewakes counts them
+ * all; rewakefrom is the age it last fell asleep (gevrRagdollTick). */
 static void rdRewakeLog(RdBody *b)
 {
-    if(b->age-b->rewakefrom>10.0f){b->rewakefrom=b->age;b->rewakes=0;}
-    if(++b->rewakes%3)return;
-    char line[200];int n=0;
-    for(int p=0;p<b->count && n<(int)sizeof(line)-24;p++) {
+    const int n=++b->rewakes;
+    if(n>8 && n%10)return;
+    char line[200];int len=0;
+    for(int p=0;p<b->count && len<(int)sizeof(line)-24;p++) {
         float d=0;
         for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->restpos[p][k];d+=x*x;}
-        if(d>0.01f)n+=snprintf(line+n,sizeof(line)-n," %d(piece %d):%.1f",p,rdPiece(b,p),sqrtf(d));
+        if(d>0.01f)len+=snprintf(line+len,sizeof(line)-len," %d(piece %d):%.1f",p,rdPiece(b,p),sqrtf(d));
     }
-    sysLogPrintf(LOG_NOTE,"ragdoll: body %u woke again, %d times in %.1f s, cuts 0x%x, %d prop wakes (last type %d at %d %d %d); moved:%s",
-                 b->serial,b->rewakes,b->age-b->rewakefrom,b->cuts,b->moverwakes,b->mover[0],b->mover[1],b->mover[2],b->mover[3],
-                 n ? line : " nothing");
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u woke again (%d times), at %.1f s old after %.1f s asleep, cuts 0x%x, %d prop wakes (last type %d at %d %d %d); moved:%s",
+                 b->serial,n,b->age,b->age-b->rewakefrom,b->cuts,b->moverwakes,b->mover[0],b->mover[1],b->mover[2],b->mover[3],
+                 len ? line : " nothing");
 }
 
 static float rdCameraDistance2(const float pos[3])
@@ -1104,6 +1108,7 @@ void gevrRagdollTick(int ticks60)
         float before[3];memcpy(before,b->joints[b->root].m[3],sizeof(before));
         if(!(b->asleep && asleep))pdphysRagdollGetJoints(b->handle,(float (*)[16])b->joints);
         if(b->asleep && !asleep)rdRewakeLog(b);
+        if(!b->asleep && asleep)b->rewakefrom=b->age;
         b->asleep=asleep;
         rdRest(b,dt,asleep);
         rdCrossCheck(b,before,dt);
