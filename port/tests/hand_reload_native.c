@@ -61,6 +61,7 @@ static int lastSound, lastChopItem, chopResult;
 static float lastNeed = -1;
 static void sndPlaySfx(void *buffer, int sound, void *state)
 { (void)buffer; (void)state; lastSound = sound; whiffs++; }
+s32 g_gevrChopBleeds;   /* chrprop.c: the Blood patch's melee blood, set around the chop */
 s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item,
                 const f32 velocity[3], f32 need, s32 land, f32 *into)
 {
@@ -175,6 +176,15 @@ s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration)
     return 1;
 }
 int vr_haptics_ready(void) { return 1; }
+/* the reload spots' pulse (gevrReloadHoverBuzz): counted apart from the grips' */
+static int hoverBuzzes;
+void vrHapticsGetRumble(int id, float *amp, float *dur, float *freq) { (void)id; *amp = 0.5f; *dur = 0.04f; *freq = 160.0f; }
+s32 trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency)
+{
+    (void)hand_index; (void)amplitude; (void)duration; (void)frequency;
+    hoverBuzzes++;
+    return 1;
+}
 /* body slots (src/game/gevr_bodyslots.c): off unless a case turns them on;
  * the belt's wait is the production arithmetic (port/src/gevr_bodyslot.c) */
 #include "gevr_bodyslot.h"
@@ -1860,8 +1870,19 @@ static void pumpReload(void)
         assert(gevrRackFitDistance(&dist) && dist < 0.01f);
         rackHand(0, 0);                       /* the old guess, 17 cm from the fitted place */
         assert(!gevrGexClaimsOffHand());
+        assert(!gevrRackPointHover(GUNRIGHT));
+        gevrHandReloadTick();                 /* away from the spot a tick, so arriving is fresh */
         memcpy(poses[0], ring, sizeof(ring));
         assert(gevrGexClaimsOffHand());
+        /* the hand at the ring, not yet gripping: the ring is green and one pulse says so */
+        {
+            const int before = hoverBuzzes;
+            assert(gevrRackPointHover(GUNRIGHT));
+            gevrHandReloadTick();
+            assert(hoverBuzzes == before + 1);
+            gevrHandReloadTick();
+            assert(hoverBuzzes == before + 1);   /* once on arriving, not every tick */
+        }
         gripHeld[0] = 1; gevrHandReloadTick();
         assert(s_gevrRack[GUNRIGHT].held && gevrRackPointShown(GUNRIGHT, ring, &held) && held);
         poses[0][2] += (GEVR_RACK_BOLT_CM + 0.2f) * cm; gevrHandReloadTick();

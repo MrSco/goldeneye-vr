@@ -1,6 +1,7 @@
 #ifndef GEVR_BEAN_H
 #define GEVR_BEAN_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 struct ModelFileHeader;
@@ -16,6 +17,15 @@ typedef struct GevrBeanCuts {
     void (*cap)(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);
     /* The body's own number, never another's (optional) */
     unsigned (*body)(const struct Model *model);
+    /* A point of a cut body in its death pose, from matrix's space (optional) */
+    void (*death)(const struct Model *model, int matrix, const float local[3], float out[3]);
+    /* Of two pieces one cut apart, the one on whose side of that cut's plane
+     * (through the joint at death, square to the bone) a death-pose point lies;
+     * -1 when no single cut divides them (optional) */
+    int (*side)(const struct Model *model, int piece, int other, const float p[3]);
+    /* Of a piece cut off: the matrix of the part it was cut from, and *own
+     * that of the part cut; -1 for the body's own piece (optional) */
+    int (*from)(const struct Model *model, int piece, int *own);
 } GevrBeanCuts;
 void gevrBeanSetCuts(const GevrBeanCuts *cuts);
 struct fontchar;
@@ -52,6 +62,7 @@ void gevrBeanForgetModel(struct ModelFileHeader *header);
 void gevrBeanForgetModelStorage(const void *base, u32 size);
 /* An instance's runtime records are about to be initialized or reused. */
 void gevrBeanForgetWounds(struct Model *model);
+void gevrBeanCopyWounds(const struct Model *from, struct Model *to, size_t bytes);
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name);
 /* Load a model's Bean mesh now, ahead of its first use (the watch arm at level load) */
 void gevrBeanPrewarm(const char *name);

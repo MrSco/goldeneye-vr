@@ -747,8 +747,22 @@ int main(int argc, char **argv)
 	}
 	s_want = s_available = 1;
     FILE *legacy=fopen("gevr_body_batch.txt","w");assert(legacy);fputs("0",legacy);fclose(legacy);
+	/* a guard's body lays out under a head file without its own head section (beanOwnNeck) */
+	s_ownNeckBody = kind == BEAN_CHR;
+	for (unsigned i = 0; s_ownNeckBody && i < sizeof(s_files) / sizeof(s_files[0]); i++)
+		s_ownNeckBody = s_files[i].kind != BEAN_HEADBODY || strcmp(s_files[i].source, source) != 0;
 	applyMesh(&header, mesh, kind, fitForName(argv[2]));
     remove("gevr_body_batch.txt");
+	if (s_ownNeckBody && s_ownNeckMesh == mesh) {
+		int sec = 0, off = 0;
+		for (int t = 0; t < mesh->ntris; t++) {
+			sec += mesh->tris[t].headsec;
+			off += s_ownNeckOff[t];
+			/* the head section is left out, but for the neck stub kept collapsed for a cut body */
+			assert(!mesh->tris[t].headsec || s_ownNeckStub[t] || !triWanted(mesh, &mesh->tris[t], BEAN_CHR, 1));
+		}
+		printf("OWNNECK %s head section %d left out %d\n", argv[2], sec, off);
+	}
 	/* DAB beanGunFlashDraws(): a gun pickup's painted muzzle flash, left out */
 	if (kind == BEAN_PROP && header.Skeleton == &skeleton_prop_weapon && mesh->draws && mesh->triSrc) {
 		const uint64_t flash = beanGunFlashDraws(mesh);
@@ -980,7 +994,9 @@ int main(int argc, char **argv)
                     triangles++;
             assert(s_swap[i].skin->nverts == triangles * 3);
         }
-        assert(seen == 0xfff7u); /* Base, back, neck and all four full limbs. */
+        /* Base, back, neck and all four full limbs (a guard's neck list holds only
+         * the stub a cut body draws once its head is off, beanOwnNeck) */
+        assert(seen == 0xfff7u);
     }
 	printf("REGISTERED %s %d lists %d skinned %d bones\n", argv[2], lists, skin, mesh->nbones);
 	if (!lists) {
@@ -1130,6 +1146,11 @@ int main(int argc, char **argv)
 		fflush(stdout);
 	}
 	combinedBodyCheck(&header,mesh,kind,fitForName(argv[2]));
+	/* the batched layout leaves the same triangles out */
+	free(s_ownNeckOff);
+	s_ownNeckOff = NULL;
+	s_ownNeckMesh = NULL;
+	s_ownNeckBody = 0;
 	if (kind != BEAN_GUN)
 		gevrBeanMeshFree(mesh);
 	gevrBeanReset();

@@ -382,25 +382,33 @@ void bossEntry(void) {
  * sight stalled a frame through the fly-in), and the watch arm's mesh (the
  * first pause, and the GEVR menu's, loaded it mid-frame). Before netStageLoaded
  * and netCoopStageLoaded, so an online player says it has loaded once it has
- * all of it.
+ * all of it. The level, sky and arm are CPU work, built on a thread of their
+ * own so the screen keeps moving (gevrLoadingBehind); the pictures are GL
+ * work, on this thread.
  */
+static void gevrStageFrontBuild(void *world)
+{
+    extern int gevrBeanWorldPrepare(void);
+    extern void gevrBeanPrewarm(const char *name);
+    *(s32 *)world = gevrBeanWorldPrepare();
+    gevrBeanPrewarm("Csuit_lf_handZ");
+}
+
 static void gevrStageFrontLoad(void)
 {
     extern int gevrBeanIsEnabled(void);
     extern void gevrBeanLoadingBegin(void);
     extern void gevrBeanLoadingEnd(void);
-    extern int gevrBeanWorldPrepare(void);
-    extern void gevrBeanPrewarm(const char *name);
     extern int gfx_prewarm_bean_textures(void);
     extern void gevrLoadingBegin(void);     /* port/vr/gevr_loading.cpp: the loading screen */
+    extern void gevrLoadingBehind(void (*work)(void *), void *arg);
     extern void gevrLoadingEnd(void);
     const u64 t0 = sysGetMicroseconds();
     s32 world = 0, uploaded = 0;
     gevrLoadingBegin();
     if (gevrBeanIsEnabled()) {
         gevrBeanLoadingBegin();
-        world = gevrBeanWorldPrepare();
-        gevrBeanPrewarm("Csuit_lf_handZ");
+        gevrLoadingBehind(gevrStageFrontBuild, &world);
         uploaded = gfx_prewarm_bean_textures();
         gevrBeanLoadingEnd();
     }

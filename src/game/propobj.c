@@ -4207,6 +4207,7 @@ s32 chrobjTestPointPolygonCollision(struct coord3d *point, f32 collision_radius,
 
 #ifdef GEVR
 #include "gevr_ragdoll.h"   /* a moving door fades the ragdoll bodies it touches */
+#include "gevr_blood.h"   /* the Blood patch: a thrown knife's wound sprays */
 #endif
 
 /**
@@ -4270,10 +4271,16 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
 
             for (part = 0; part < count; part++)
             {
+                /* inside its outline, not within 10 units of it: two bodies lying
+                 * along Dam's door, 8 units off its face, faded as it slid past
+                 * them (headset log, 2026-11-28) */
                 if ((parts[part].f[1] >= chrBottom - 30.0f) && (parts[part].f[1] <= chrTop)
-                    && (chrpropTestPointInPolygon(&parts[part], polygon2, edges2)
-                        || chrobjTestPointPolygonCollision(&parts[part], 10.0f, polygon2, edges2)))
+                    && chrpropTestPointInPolygon(&parts[part], polygon2, edges2))
                 {
+                    /* what touched it and where, for a headset log: a body flying
+                     * after a blast and one behind boxes faded (user, 2026-11-28) */
+                    gevrRagdollDoorFadeLog(body, part, parts[part].f, gevrTruck ? 1 : 0, argProp->pos.f,
+                                           (const f32 *)polygon2->points, edges2, chrBottom, chrTop);
                     gevrRagdollDoorFade(body);
                     break;
                 }
@@ -5285,6 +5292,13 @@ s32 objTick(struct PropRecord *prop)
 										mtx4TransformVecInPlace(&inverseNodeMatrix, &bloodStainPos);
 										chrCreateBloodStain(g_CurrentProjectileModel, bodypartshot, dword_CODE_bss_80075B74, &bloodStainPos);
 									}
+#ifdef GEVR
+									/* the Blood patch: a thrown knife's wound sprays as a shot's does (gevr_blood.c) */
+									if (bodypartshot != HIT_GUN && bodypartshot != HIT_HAT)
+									{
+										gevrBloodChrHit((ChrRecord *) temp_s0_13, &collisionPoint, &flt_CODE_bss_80075B78);
+									}
+#endif
 								}
 							}
 						}

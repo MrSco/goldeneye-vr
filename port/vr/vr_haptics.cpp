@@ -97,10 +97,19 @@ static HapticProfile s_profiles[] = {
     { GEVR_ACTION_DAMAGE_EXPLOSION, "Damage (Explosion)",  "Damage_Explosion",HAPTIC_CAT_DAMAGE,     9, 9, 280, 280,  90.0f },
     // body slots: Quake VR's and RTCWQuest's holster pulses (a light hint on
     // entering, a firm one on taking, a refusal in between)
-    { GEVR_ACTION_SLOT_HOVER,       "Body Slot (Reach)",   "Slot_Hover",      HAPTIC_CAT_DAMAGE,     3, 3,  30,  30, 160.0f },
+    // (a firmer reach than the first 3 for 30 ms, under a key of its own so a
+    // saved 3,30 doesn't keep it: user, 2026-11-28, "some feedback on the
+    // holster, body slots ... so you know that you're doing some stuff")
+    { GEVR_ACTION_SLOT_HOVER,       "Body Slot (Reach)",   "Slot_Reach",      HAPTIC_CAT_DAMAGE,     5, 5,  40,  40, 160.0f },
     { GEVR_ACTION_SLOT_TAKE,        "Body Slot (Take)",    "Slot_Take",       HAPTIC_CAT_DAMAGE,     8, 8,  80,  80, 120.0f },
     { GEVR_ACTION_SLOT_DENY,        "Body Slot (Refused)", "Slot_Deny",       HAPTIC_CAT_DAMAGE,     5, 5, 100, 100,  90.0f },
     { GEVR_ACTION_SLOT_STEP,        "Body Slot (Step)",    "Slot_Step",       HAPTIC_CAT_DAMAGE,     2, 2,  20,  20, 200.0f },
+    // hand reload: a light pulse as a hand comes onto a spot the grip takes
+    // something from (user, 2026-11-28: "haptic feedback when we hover on the
+    // reload points, the pump to shotgun, or magazines by our hip")
+    { GEVR_ACTION_RELOAD_HOVER,     "Reload Spot (Reach)", "Reload_Reach",    HAPTIC_CAT_DAMAGE,     5, 5,  40,  40, 160.0f },
+    // the weapon wheel: a tick each time its highlight moves
+    { GEVR_ACTION_WHEEL_STEP,       "Weapon Wheel (Step)", "Wheel_Step",      HAPTIC_CAT_DAMAGE,     3, 3,  20,  20, 200.0f },
 };
 
 static const int kNumProfiles = sizeof(s_profiles) / sizeof(s_profiles[0]);

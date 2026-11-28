@@ -8,47 +8,91 @@
  * cut set, so they are cached; the rim is the posed skin itself, so the cap
  * stays on the edge of the hole. The ragdoll draws the fans. */
 
-/* The skin's vertices that are the same vertex, by their source data */
+static int beanCapFind(int *uf, int x)
+{
+	while (uf[x] != x)
+		x = uf[x] = uf[uf[x]];
+	return x;
+}
+
+/* The skin's vertices that are the same point, as CE welds by position
+ * (dismember.c): two corners are one when a bone they both hang from holds
+ * them at the same place in its own space. Matching the whole source record
+ * (every weight) kept apart a point Bean repeats with other weights where
+ * two of its meshes meet, and a hole's rim fell into open chains, each fanned
+ * from its own centre: a sliver of the cap missing at a shoulder (2026-11-28). */
 static const int *beanSkinWeld(struct beanSkin *skin)
 {
 	if (skin->weld || skin->nverts <= 0)
 		return skin->weld;
 	int *weld = malloc((size_t)skin->nverts * sizeof(int));
 	int size = 1;
-	while (size < skin->nverts * 2)
+	while (size < skin->nverts * 8)
 		size <<= 1;
-	int *table = malloc((size_t)size * sizeof(int));
+	int (*table)[2] = malloc((size_t)size * sizeof(*table)); /* vertex, influence */
 	if (!weld || !table) {
 		free(weld);
 		free(table);
 		return NULL;
 	}
 	for (int i = 0; i < size; i++)
-		table[i] = -1;
-	for (int v = 0; v < skin->nverts; v++) {
-		const struct beanSkinVert *s = &skin->verts[v];
-		uint32_t h = 2166136261u;
-		const uint8_t *bytes[3] = { (const uint8_t *)s->p, s->weight, (const uint8_t *)s->matrix };
-		const size_t lens[3] = { sizeof(s->p), sizeof(s->weight), sizeof(s->matrix) };
-		for (int b = 0; b < 3; b++)
-			for (size_t i = 0; i < lens[b]; i++)
-				h = (h ^ bytes[b][i]) * 16777619u;
-		int slot = (int)(h & (uint32_t)(size - 1));
+		table[i][0] = -1;
+	for (int v = 0; v < skin->nverts; v++)
 		weld[v] = v;
-		for (;; slot = (slot + 1) & (size - 1)) {
-			const int other = table[slot];
+	for (int v = 0; v < skin->nverts; v++) {
+		const struct beanSkinVert *s = beanSkinReal(skin, v);   /* a neck stub corner as it is */
+		for (int w = 0; w < 4; w++) {
+			if (!s->weight[w])
+				continue;
+			uint32_t h = 2166136261u;
+			const uint8_t *bytes[2] = { (const uint8_t *)s->p[w], (const uint8_t *)&s->matrix[w] };
+			const size_t lens[2] = { sizeof(s->p[w]), sizeof(s->matrix[w]) };
+			for (int b = 0; b < 2; b++)
+				for (size_t i = 0; i < lens[b]; i++)
+					h = (h ^ bytes[b][i]) * 16777619u;
+			for (int slot = (int)(h & (uint32_t)(size - 1));; slot = (slot + 1) & (size - 1)) {
+				const int other = table[slot][0];
+				if (other < 0) {
+					table[slot][0] = v;
+					table[slot][1] = w;
+					break;
+				}
+				const struct beanSkinVert *o = beanSkinReal(skin, other);
+				const int ow = table[slot][1];
+				if (o->matrix[ow] == s->matrix[w] && !memcmp(o->p[ow], s->p[w], sizeof(s->p[w]))) {
+					weld[beanCapFind(weld, v)] = beanCapFind(weld, other);
+					break;
+				}
+			}
+		}
+	}
+	/* And two corners at one place in the bind pose (the skin's own vertices,
+	 * a neck stub corner's as it is): a seam between two of Bean's meshes,
+	 * each on its own bone - a coat's collar on the back and the guard's own
+	 * neck on the neck share no bone, and the collar's rim stayed open */
+	const int *at = skin->vtx ? beanSkinStubAt(skin) : NULL;
+	for (int i = 0; skin->vtx && i < size; i++)
+		table[i][0] = -1;
+	for (int v = 0; skin->vtx && v < skin->nverts; v++) {
+		const s16 *ob = at && at[v] >= 0 ? skin->stub[at[v]].ob : skin->vtx[v].v.ob;
+		uint32_t h = 2166136261u;
+		for (size_t i = 0; i < 3 * sizeof(s16); i++)
+			h = (h ^ ((const uint8_t *)ob)[i]) * 16777619u;
+		for (int slot = (int)(h & (uint32_t)(size - 1));; slot = (slot + 1) & (size - 1)) {
+			const int other = table[slot][0];
 			if (other < 0) {
-				table[slot] = v;
+				table[slot][0] = v;
 				break;
 			}
-			const struct beanSkinVert *o = &skin->verts[other];
-			if (!memcmp(o->p, s->p, sizeof(s->p)) && !memcmp(o->weight, s->weight, sizeof(s->weight)) &&
-			    !memcmp(o->matrix, s->matrix, sizeof(s->matrix))) {
-				weld[v] = other;
+			const s16 *o = at && at[other] >= 0 ? skin->stub[at[other]].ob : skin->vtx[other].v.ob;
+			if (!memcmp(o, ob, 3 * sizeof(s16))) {
+				weld[beanCapFind(weld, v)] = beanCapFind(weld, other);
 				break;
 			}
 		}
 	}
+	for (int v = 0; v < skin->nverts; v++)
+		weld[v] = beanCapFind(weld, v);
 	free(table);
 	/* The weld belongs to this level just like the skin it indexes. */
 	if (!keepAlloc(weld)) {
@@ -59,7 +103,10 @@ static const int *beanSkinWeld(struct beanSkin *skin)
 	return weld;
 }
 
-#define BEAN_CAP_LOOPS 16
+/* A body blown apart again and again has many holes: past 16 the rest had no
+ * rim of their own, the ragdoll's plain disc stood in and the coat stayed
+ * hollow round it (user, 2026-11-28, grenade launcher on the bodies) */
+#define BEAN_CAP_LOOPS 48
 struct beanCapLoop { int piece, other, first, nedges; };
 struct beanCapCache {
 	const struct beanSkin *skin;
@@ -143,6 +190,7 @@ static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, 
 		e = end;
 	}
 	free(edges);
+	int *uf = malloc((size_t)skin->nverts * sizeof(int));
 	struct beanCapCache *cache = &s_capCache[s_capNext];
 	s_capNext = (s_capNext + 1) % (int)(sizeof(s_capCache) / sizeof(*s_capCache));
 	free(cache->edges);
@@ -152,28 +200,56 @@ static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, 
 	cache->cuts = cuts;
 	cache->edges = malloc((size_t)(nborder > 0 ? nborder : 1) * sizeof(*cache->edges));
 	int stored = 0;
-	/* One loop per pair of pieces: one side of one cut */
-	for (int i = 0; cache->edges && i < nborder && cache->nloops < BEAN_CAP_LOOPS; i++) {
+	/* One loop per hole: each side of a cut (a pair of pieces), split into
+	 * its border loops by shared vertices as CE's ragdollBuildCaps does
+	 * (union-find, dismember.c). One fan over all of a side spanned every
+	 * hole there from their common centre: a Bean guard's hip has two (24
+	 * and 9 edges), and stray edges well off the joint pulled it out
+	 * further - red flaps standing off a severed leg (2026-11-27). */
+#define SAME(x) (border[x].piece == border[i].piece && border[x].other == border[i].other)
+	for (int i = 0; uf && cache->edges && i < nborder && cache->nloops < BEAN_CAP_LOOPS; i++) {
 		int seen = 0;
 		for (int j = 0; j < i && !seen; j++)
-			seen = border[j].piece == border[i].piece && border[j].other == border[i].other;
+			seen = SAME(j);
 		if (seen)
 			continue;
-		struct beanCapLoop *loop = &cache->loops[cache->nloops];
-		loop->piece = border[i].piece;
-		loop->other = border[i].other;
-		loop->first = stored;
+		for (int v = 0; v < skin->nverts; v++)
+			uf[v] = v;
 		for (int j = i; j < nborder; j++)
-			if (border[j].piece == loop->piece && border[j].other == loop->other) {
-				cache->edges[stored][0] = border[j].va;
-				cache->edges[stored++][1] = border[j].vb;
-			}
-		loop->nedges = stored - loop->first;
-		if (loop->nedges >= 3)
-			cache->nloops++;
-		else
-			stored = loop->first; /* a stray edge, not a hole */
+			if (SAME(j))
+				uf[beanCapFind(uf, border[j].a)] = beanCapFind(uf, border[j].b);
+		for (int j = i; j < nborder && cache->nloops < BEAN_CAP_LOOPS; j++) {
+			if (!SAME(j))
+				continue;
+			const int root = beanCapFind(uf, border[j].a);
+			int done = 0;
+			for (int k = i; k < j && !done; k++)
+				done = SAME(k) && beanCapFind(uf, border[k].a) == root;
+			if (done)
+				continue;
+			struct beanCapLoop *loop = &cache->loops[cache->nloops];
+			loop->piece = border[i].piece;
+			loop->other = border[i].other;
+			loop->first = stored;
+			for (int k = j; k < nborder; k++)
+				if (SAME(k) && beanCapFind(uf, border[k].a) == root) {
+					cache->edges[stored][0] = border[k].va;
+					cache->edges[stored++][1] = border[k].vb;
+				}
+			loop->nedges = stored - loop->first;
+			if (loop->nedges >= 3)
+				cache->nloops++;
+			else
+				stored = loop->first; /* a stray edge, not a hole */
+		}
 	}
+#undef SAME
+	if (cache->nloops == BEAN_CAP_LOOPS) {
+		static int warned;
+		if (!warned++)
+			GEVR_BEAN_LOG("bean caps: a skin's cut set has more than %d holes; the rest go uncapped", BEAN_CAP_LOOPS);
+	}
+	free(uf);
 	free(border);
 	return cache;
 }

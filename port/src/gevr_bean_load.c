@@ -130,6 +130,7 @@ struct beanDraw {
 	uint32_t colour;
 	int8_t cuff;
 	int8_t piece;   /* record 0x30's fourth word, -1 for a 0x01 draw (DAB beandraw.piece) */
+	uint8_t headsec; /* drawn in the 0x17 section of kind 0: a body file's head and neck */
 };
 
 /*
@@ -1895,6 +1896,13 @@ static int levelPick(struct levelDecals *l, int i, int redo, int *bystrip)
 				}
 				if (!inside)
 					continue;
+				/* DAB 3c176f90 (gebeanstage.c decalPick): two cut-outs overlapping
+				 * along a strip are two see-through sheets meeting, not a picture
+				 * on its base: Cradle's ramp railing runs into the platform's in
+				 * its plane, and as its decal the whole railing was drawn in a
+				 * blended decal mode, a grey sheet where its bars were */
+				if (alphai && alphau)
+					continue;
 				strip = 1;
 			}
 			if (redo && strip && l->decal[o] && l->base[o] != i)
@@ -3466,6 +3474,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				struct beanDraw *d = &draws[ndraws++];
 				d->cuff = -1;
 				d->piece = (int8_t)(part < 0 ? -1 : part > 127 ? 127 : part);
+				d->headsec = section == 0;
 				if (triggerCuffs) {
 					static const int pieces[3] = {3, 1, 2}, sections[3] = {4, 0, 5};
 					if ((type == 0x01 && section < 0 && afterpieces) ||
@@ -3874,6 +3883,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 mesh->tris[mesh->ntris - 1].reflectionColour=d->reflectionColour;
                 mesh->tris[mesh->ntris - 1].reflectionAlphaBase=d->reflectionAlphaBase;
 				mesh->tris[mesh->ntris - 1].cuff = d->cuff;
+				mesh->tris[mesh->ntris - 1].headsec = d->headsec;
 				if (mesh->draws && mesh->ntris > triSrcCap) {
 					int cap = mesh->tricaps > mesh->ntris ? mesh->tricaps : mesh->ntris;
 					struct gevrBeanTriSrc *grown = realloc(mesh->triSrc, (size_t)cap * sizeof(*grown));

@@ -11,6 +11,7 @@
 #include <ultra64.h>
 #ifdef GEVR
 #include "gevr_ragdoll.h"
+#include "gevr_blood.h"
 #endif
 #include <assert.h>
 #include <bondgame.h>
@@ -1937,6 +1938,27 @@ static void gevrPunchDir(f32 dx, f32 dy, f32 dz, f32 sintheta, f32 costheta, coo
 }
 #endif
 
+#ifdef GEVR
+/*
+ * The Blood patch's melee blood (gevr_blood.c gevrBloodMeleeHit): a knife's
+ * slash or a gun butt's blow bleeds; a fist, a karate chop and the taser
+ * don't. g_gevrChopBleeds: the headset's swing (bondview2.c), which hands
+ * gevrChopHit the fist's damage for a gun butt.
+ */
+s32 g_gevrChopBleeds = 0;
+
+static s32 gevrMeleeBleeds(s32 item_id)
+{
+    const s32 held = getCurrentWeaponOrItem();
+
+    if (GEVR_ITEM_AS(item_id) == ITEM_TASER || GEVR_ITEM_AS(held) == ITEM_TASER)
+    {
+        return 0;
+    }
+    return item_id == ITEM_KNIFE || (held != ITEM_UNARMED && held != ITEM_FIST);
+}
+#endif
+
 void chraiFistAttackHandler(s32 hand, s32 item_id)
 {
     PropRecord *playerprop;
@@ -2067,6 +2089,9 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
         {
             recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
             hit = 1;
+#ifdef GEVR
+            if (gevrMeleeBleeds(item_id)) gevrBloodMeleeHit(chr, hitpart, &vector);
+#endif
         }
     }
 
@@ -2109,6 +2134,7 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
                 {
                     recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
                     hit = 1;
+                    if (gevrMeleeBleeds(item_id)) gevrBloodMeleeHit(prop->chr, HIT_CHEST, &vector);
                     break;
                 }
             }
@@ -2327,6 +2353,8 @@ s32 gevrChopHit(const f32 fromview[3], const f32 toview[3], f32 touchview, const
         {
             recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
             hit = 2;
+            /* the Blood patch: a blade's or a gun butt's blow bleeds, a fist's not */
+            if (item_id == ITEM_KNIFE || g_gevrChopBleeds) gevrBloodMeleeHit(chr, hitpart, &vector);
         }
     }
 
@@ -5014,7 +5042,14 @@ void sub_GAME_7F03ECC0(f32 x1, f32 x2, f32 y1, f32 y2, f32 z1, f32 z2, Mtxf *m, 
     s32 maxxi = 0;
     s32 minzi;
     s32 maxzi = 0;
+#ifdef GEVR
+    /* GoldenEye PC D490: coincident extrema leave more than four candidates.
+     * The N64's stack padding absorbed the extra writes. On ARM64 they
+     * overwrite pts[0] and can put a phantom edge in a collision hull. */
+    s32 rem[8];
+#else
     s32 rem[4];
+#endif
     s32 cnt;
     f64 x1d = x1;
     f64 x2d = x2;

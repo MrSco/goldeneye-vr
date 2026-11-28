@@ -17,6 +17,7 @@
 #include "gun.h"
 #include "bgfog.h"
 #include "random.h"
+#include "cheat.h"
 
 extern int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance;
 extern int netHordeActive(void);
@@ -68,6 +69,8 @@ const RdSkel g_RdSkelHuman = {
 #define RD_KILLFLOOR_Y -32000.0f
 #define RD_DOOR_FADE_S 0.5f   /* a body a moving door touched is gone this soon */
 #define RD_COLROOM_MOVE 12.0f
+#define RD_WALL_RAYS 8          /* rdRooms: rays out level from the pelvis and each cut piece ... */
+#define RD_WALL_REACH 60.0f     /* ... this far, for walls of rooms no portal joins */
 #define RD_FAR 2000.0f
 
 typedef struct RdSeen {
@@ -82,6 +85,22 @@ static RdSeen s_seen[512];
  * sequence, which co-op and replays depend on. */
 static unsigned s_random = 0x9e3779b9u;
 static int rdChance(float percent) { s_random = s_random * 1664525u + 1013904223u; return (float)((s_random >> 8) % 100) < percent; }
+
+/*
+ * CE dismember.c rdPaintColour (Perfect-Dark-CE b0180009): in Paintball Mode
+ * a cut gets a paint colour, red, green and blue each full or off, never
+ * black (CE: as PD's paint sparks; GoldenEye's paint splats can be black,
+ * explosion.c apptype 2, and a black cut reads as a hole). 0 when it's off:
+ * blood. Cosmetic: the ragdolls' own sequence, never the game's.
+ */
+u32 rdPaintColour(void)
+{
+    if(!cheatIsActive(CHEAT_PAINTBALL))return 0;
+    u32 c=0xff;
+    for(int k=1;k<4;k++){s_random=s_random*1664525u+1013904223u;if((s_random>>16)&1)c|=0xffu<<(k*8);}
+    if(c==0xff){s_random=s_random*1664525u+1013904223u;c|=0xffu<<(8*(1+(s_random>>16)%3));}
+    return c;
+}
 
 static float rdDamage(int weapon) { return weapon > 0 && weapon < ITEM_IDS_MAX ? gunItemGetDestructionAmount(weapon) : 0; }
 
@@ -366,7 +385,10 @@ static int rdClone(RdBody *rd, ChrRecord *chr)
         if(!rdInverse(&rd->initial[rd->owner[i]],&inv))return 0;
         rdMul(&rd->bind[i],&inv,&rd->offset[i]);
     }
-    return rdCopyMeshes(rd);
+    if (!rdCopyMeshes(rd)) return 0;
+    /* the bruises on a Bean body come down with him (gevr_bean_wounds.inc.h) */
+    gevrBeanCopyWounds(src,&rd->model,(size_t)words*4);
+    return 1;
 }
 
 /* CE rdHitpartPart (rd_internal.h:683): the skeleton part with a physics
@@ -440,6 +462,23 @@ static void rdRooms(RdBody *body)
         int a=g_BgPortals[i].connectedRoom1,b=g_BgPortals[i].connectedRoom2;
         if(a<MAXROOMCOUNT && b<MAXROOMCOUNT) { if(include[a])nearby[b]=1; if(include[b])nearby[a]=1; }
     }
+    /* And the rooms whose walls are near it, portal or not: a body a blast
+     * threw at 600 units/s through Dam's room 111 went through a wall of room
+     * 119, which no portal joins to it, and fell out of the level (headset
+     * log, 2026-11-28). Rays out level from its pelvis and each cut piece
+     * find them; a floor or ceiling met (a stacked room's) is left out, as
+     * rdCrossCheck leaves it. */
+    for(int part=0;part<body->count;part++) {
+        if(part!=body->root && !(body->cuts&(1u<<part)))continue;
+        const float *at=body->joints[part].m[3];
+        for(int d=0;d<RD_WALL_RAYS;d++) {
+            const float a=(float)d*(2.0f*(float)M_PI/RD_WALL_RAYS);
+            float to[3]={at[0]+cosf(a)*RD_WALL_REACH,at[1],at[2]+sinf(a)*RD_WALL_REACH},hit[3],normal[3];
+            int room=-1;
+            if(pdphysRaycastAnyRoom(at,to,hit,normal,&room) && room>=0 && room<MAXROOMCOUNT && fabsf(normal[1])<=0.7f)
+                nearby[room]=1;
+        }
+    }
     for(int i=0;i<MAXROOMCOUNT && count<64;i++)if(nearby[i])rooms[count++]=i;
     pdphysRagdollSetRooms(body->handle,rooms,count?count:-1);
     /* The rooms its pieces are in decide whether it is drawn */
@@ -472,7 +511,8 @@ static int rdStart(void)
     if(pdphysIsReady())return 1;
     if(s_failed || !VrRagdolls || lvlGetCurrentStageToLoad()==LEVELID_TITLE)return 0;
     if(!pdphysInit(rdLog)) { s_failed=1; return 0; }
-    const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap,gevrRagdollBeanCap,gevrRagdollModelBody};
+    const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap,gevrRagdollBeanCap,gevrRagdollModelBody,
+                             gevrRagdollDeathPos,gevrRagdollCutSide,gevrRagdollCutFrom};
     gevrBeanSetCuts(&cuts);
     rdWorldInit();
     return 1;
@@ -543,6 +583,11 @@ static void rdBuildParts(RdBody *rd, pdphysRagdollPart *parts, const float vel[3
     const RdSkel *sk=&g_RdSkelHuman;
     float p[RD_SKEL][3],bone[RD_SKEL][3],a[3],b[3];
     const float torso=rd->torso,sc=torso/RD_MASS_REFTORSO;
+    /* CE create.c (RD_DK_HEADSCALE, RD_DK_ARMSCALE): DK Mode's head and arms
+     * as chr.c's joint hook draws them, 4x and 2.5x. The death pose is the
+     * drawn one, so the elbows and hands already stand that far out; the
+     * head and arms only need their size (the head sank into the floor). */
+    const float dkhead=rd->dk ? 4.0f : 1.0f,dkarm=rd->dk ? 2.5f : 1.0f;
     rdBones(rd,p,bone);
     for(int i=0;i<rd->count;i++) {
         const int j=rd->skel[i];
@@ -565,18 +610,18 @@ static void rdBuildParts(RdBody *rd, pdphysRagdollPart *parts, const float vel[3
             break;
         case 2: /* head, up the spine from the neck joint */
             pp->shape=PDPHYS_SHAPE_SPHERE;
-            rdMad(p[2],bone[1],torso*0.30f,pp->a);
-            pp->radius=torso*0.26f;
+            rdMad(p[2],bone[1],torso*0.30f*dkhead,pp->a);
+            pp->radius=torso*0.26f*dkhead;
             rdSwingTwist(pp,bone[1],localz,0.85f,0.8f,-1.0f,1.0f);
             break;
         case 3: case 4: /* upper arms */
-            rdMad(p[j],bone[j],torso*0.11f,a);
-            rdCapsule(pp,a,p[sk->child[j]],torso*0.12f);
+            rdMad(p[j],bone[j],torso*0.11f*dkarm,a);
+            rdCapsule(pp,a,p[sk->child[j]],torso*0.12f*dkarm);
             rdSwingTwist(pp,bone[j],localy,1.5f,1.3f,-0.9f,0.9f);
             break;
         case 5: case 6: /* forearms and hands */
-            rdMad(p[sk->child[j]],bone[j],torso*0.18f,b);
-            rdCapsule(pp,p[j],b,torso*0.10f);
+            rdMad(p[sk->child[j]],bone[j],torso*0.18f*dkarm,b);
+            rdCapsule(pp,p[j],b,torso*0.10f*dkarm);
             break;
         case 9: case 10: /* thighs: hips swing ~70 degrees forward and back, ~30 sideways */
             rdCapsule(pp,p[j],p[sk->child[j]],torso*0.17f);
@@ -725,6 +770,7 @@ void gevrRagdollCapture(ChrRecord *chr)
         for(int k=0;k<3;k++)velocity[k]=chr->fallspeed.f[k]*factor;
     }
     slot->torso=rdTorsoLength(slot);
+    slot->dk=cheatIsActive(CHEAT_DK_MODE);   /* chr.c: every chr, without BUGFIX_R1 */
     pdphysRagdollPart parts[RD_PARTS];
     rdBuildParts(slot,parts,velocity);
     slot->handle=pdphysRagdollCreate(parts,slot->count);
@@ -769,6 +815,196 @@ void gevrRagdollCapture(ChrRecord *chr)
         rdHingeAlongBone(slot,11,bone),rdHingeAlongBone(slot,12,bone),rdHingeAlongBone(slot,5,bone),rdHingeAlongBone(slot,6,bone));
 }
 
+/*
+ * CE's Resting Bodies Turn Solid (ragdoll.c rdMpSolidCheck, newer than the
+ * pinned port: every part slower than RD_SOLID_MAXSPEED for RD_SOLID_STILL60
+ * ticks and the body stops being simulated), for cut pieces, and as sleep
+ * rather than static: a piece lying still sleeps, and a shot or a touch wakes
+ * it as before. Jolt's own sleep wants every point under 3 cm/s, and a cut
+ * forearm or head settled into a steady 6 units/s roll on a flat floor and
+ * kept it, rolling and turning until the body went (user, 2026-11-27: a cut
+ * leg "still jittering on the ground"; PC trace: 50 s at 6.1 units/s). Slower
+ * than CE's 40 units/s, which stopped a rolling forearm dead at 30: the piece
+ * slows down first and stops at the crawl.
+ */
+#define RD_REST_SPEED 10.0f   /* units/s */
+#define RD_REST_TIME 0.3f     /* s: CE RD_SOLID_STILL60 (18 ticks) */
+#define RD_REST_BODY 1.0f     /* s: the body itself, within the same 3 units */
+#define RD_SHAKE_REACH 12.0f  /* units: a piece rocking in place within this... */
+#define RD_SHAKE_TIME 1.0f    /* s: ...this long lies still too (the body: twice) */
+#define RD_SHAKE_LATE 6.0f    /* s: awake this long, a body rocks in place within twice the reach, */
+#define RD_LATE_SPEED 240.0f  /* units/s: and a piece slower than this rocks however far it swings */
+/*
+ * A piece shaking in place, its parts' steps turning back on themselves tick
+ * after tick within a small space, lies still at once: a limb thrown by a
+ * grenade launcher jittered on landing (user, 2026-11-28), wider than
+ * RD_SHAKE_REACH, until RD_SHAKE_LATE let it rest, with nothing in the log
+ * (every body asleep within 8 s). A piece rolling, sliding, falling or
+ * swinging doesn't turn back that often; a bounce turns back once a hop.
+ */
+#define RD_JITTER_WINDOW 0.5f /* s */
+#define RD_JITTER_FLIPS 5     /* steps turned back within the window */
+#define RD_JITTER_REACH 48.0f /* units: no part strays farther than this from the window's start */
+#define RD_JITTER_STEP 0.5f   /* units: a smaller step (the piece's parts together) isn't counted */
+/*
+ * CE ragdoll.c rdMpSolidCheck (Perfect-Dark-CE b0180009), Resting Bodies Turn
+ * Solid on its default, the Combat Simulator: in a multiplayer match a body
+ * whose every part has been slower than 40 units/s for 0.3 s turns static.
+ * Other bodies land on it and shots still hit it (blood, no push), but the
+ * physics no longer simulates it, which leaves the Quest's physics time to
+ * the bodies still falling. A moving lift under it, or a prop it lies on or
+ * against going away, makes it move again (rdUnsolid, movers.c); doors pass
+ * through it. Solo bodies stay as they were: they still react to shots.
+ */
+#define RD_SOLID_SPEED 40.0f  /* units/s: CE RD_SOLID_MAXSPEED */
+
+void rdUnsolid(RdBody *rd, const char *why)
+{
+    if(!rd->solid)return;
+    pdphysRagdollSetSolid(rd->handle,0);
+    rd->solid=0; rd->solidstill=0;
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u moves again (no longer solid: %s)",rd->serial,why);
+}
+
+/* rdRest: piece (0 the body, cut+1), its parts mask, each part's step this
+ * tick. 1 once it has shaken in place long enough and is put to sleep. */
+static int rdJitter(RdBody *b, int piece, unsigned mask, const float step[][3], float dt)
+{
+    float turn=0,len=0,wide=0;
+    for(int p=0;p<b->count;p++) {
+        if(!(mask&(1u<<p)))continue;
+        float w=0;
+        for(int k=0;k<3;k++) {
+            float x=b->joints[p].m[3][k]-b->jitanchor[p][k];
+            turn+=step[p][k]*b->jitstep[p][k]; len+=step[p][k]*step[p][k]; w+=x*x;
+            b->jitstep[p][k]=step[p][k];
+        }
+        wide=fmaxf(wide,w);
+    }
+    float *t=&b->jittime[piece];
+    if(*t<=0 || wide>RD_JITTER_REACH*RD_JITTER_REACH) {
+        for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->jitanchor[p],b->joints[p].m[3],sizeof(b->jitanchor[p]));
+        *t=dt>0 ? dt*0.5f : 1e-3f;
+        b->jitflips[piece]=0;
+        return 0;
+    }
+    if(turn<0 && len>RD_JITTER_STEP*RD_JITTER_STEP)b->jitflips[piece]++;    if((*t+=dt)<RD_JITTER_WINDOW)return 0;
+    const int flips=b->jitflips[piece];
+    *t=0;
+    if(flips<RD_JITTER_FLIPS)return 0;
+    pdphysRagdollSleepParts(b->handle,mask);
+    if(b->jitlogs<3) {
+        b->jitlogs++;
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u piece %d shook in place (%d turns in %.1f s within %.0f units, awake %.1f s): asleep",
+                     b->serial,piece,flips,RD_JITTER_WINDOW,sqrtf(wide),b->awake);
+    }
+    return 1;
+}
+
+static void rdRest(RdBody *b, float dt, int asleep)
+{
+    float fastest[RD_PARTS+1]={0},all=0,step[RD_PARTS][3];
+    for(int p=0;p<b->count;p++) {
+        const int piece=rdPiece(b,p);
+        float d=0;
+        for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->restpos[p][k];d+=x*x;step[p][k]=x;}
+        if(b->restset && dt>0)fastest[piece]=fmaxf(fastest[piece],sqrtf(d)/dt);
+        all=fmaxf(all,fastest[piece]);
+        memcpy(b->restpos[p],b->joints[p].m[3],sizeof(b->restpos[p]));
+    }
+    if(!b->restset){b->restset=1;return;}
+    /* A piece lies still while none of its parts strays more than RD_REST_TIME
+     * at RD_REST_SPEED from where it was when the count started: a speed test
+     * alone kept a forearm shaking against a wall awake for good, every tick
+     * fast and the piece going nowhere (user, 2026-11-28) */
+    /* The body itself too, over RD_REST_BODY: on the PC a guard slumped against
+     * the Dam barrier stayed awake for good at zero speed, its parts never let
+     * sleep however still (2026-11-28), costing the physics every tick */
+    /* Each piece put to sleep on its own was woken by the next one still
+     * rocking against it: a cut head at 234 units/s, a forearm at 78, for good
+     * (headset log, 2026-11-28, the arms jittering). Once every piece is
+     * resting or rocking in place they sleep together; and a body awake past
+     * RD_SHAKE_LATE rocks in place within twice the reach. */
+    unsigned every=0;
+    int ready=1;
+    const float reach=b->awake>=RD_SHAKE_LATE ? RD_SHAKE_REACH*2 : RD_SHAKE_REACH;
+    for(int c=-1;c<b->count && !asleep && !b->solid;c++) {
+        if(c>=0 && !(b->cuts&(1u<<c)))continue;
+        float *still=c>=0 ? &b->still[c] : &b->stillbody;
+        const float wait=c>=0 ? RD_REST_TIME : RD_REST_BODY;
+        unsigned mask=0;
+        float stray=0,wide=0;
+        for(int p=0;p<b->count;p++) {
+            if(rdPiece(b,p)!=c+1)continue;
+            mask|=1u<<p;
+            float d=0,w=0;
+            for(int k=0;k<3;k++) {
+                float x=b->joints[p].m[3][k]-b->anchor[p][k],y=b->joints[p].m[3][k]-b->shakeanchor[p][k];
+                d+=x*x; w+=y*y;
+            }
+            stray=fmaxf(stray,d); wide=fmaxf(wide,w);
+        }
+        /* A piece rocking in place by a little more than that lies still too
+         * once it has kept within RD_SHAKE_REACH for RD_SHAKE_TIME: a cut
+         * forearm on the Quest went 10 units/s, now and then 3 units off its
+         * anchor, and stayed awake for good (headset log, 2026-11-28) */
+        every|=mask;
+        if(rdJitter(b,c+1,mask,step,dt))continue;
+        float *shake=&b->shake[c+1];
+        /* Late, a slow piece counts as rocking however far its joint swings: a
+         * cut head spinning on the floor swung its neck joint past the reach
+         * and went on at 140 units/s past 8 s (headset log, 2026-11-28) */
+        const int lateslow=b->awake>=RD_SHAKE_LATE && fastest[c+1]<RD_LATE_SPEED;
+        if(*shake<=0 || (wide>reach*reach && !lateslow)) {
+            for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->shakeanchor[p],b->joints[p].m[3],sizeof(b->shakeanchor[p]));
+            *shake=dt>0 ? dt*0.5f : 1e-3f;
+        } else if((*shake+=dt)>=(c>=0 ? RD_SHAKE_TIME : RD_SHAKE_TIME*2)) {
+            pdphysRagdollSleepParts(b->handle,mask);
+            continue;
+        }
+        if(*still<=0 || stray>RD_REST_SPEED*RD_REST_TIME*RD_REST_SPEED*RD_REST_TIME) {
+            for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->anchor[p],b->joints[p].m[3],sizeof(b->anchor[p]));
+            *still=dt>0 ? dt*0.5f : 1e-3f;
+            ready=0;
+            continue;
+        }
+        if((*still+=dt)<wait){ready=0;continue;}
+        pdphysRagdollSleepParts(b->handle,mask);
+    }
+    if(every && ready && !asleep && !b->solid)pdphysRagdollSleepParts(b->handle,every);
+    /* Awake long after it fell: why, now and then, for a headset log. Cut
+     * pieces jittered for good on the Quest (user, 2026-11-28) and slept within
+     * 4 s on the PC, the same throws and floors. Per piece: its top speed this
+     * tick, how far it strayed from its anchor, how long it has lain still. */
+    /* how long the slow ones took, which the 8 s report never sees */
+    if((asleep || b->solid) && b->awake>=3.0f)
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u asleep after %.1f s awake, cuts 0x%x",b->serial,b->awake,b->cuts);
+    if(asleep || b->solid){b->awake=0;b->awakelog=0;b->moverwakes=0;}
+    else if((b->awake+=dt)>=8.0f && (b->awakelog-=dt)<=0) {
+        char line[200];int n=0;
+        for(int c=-1;c<b->count && n<(int)sizeof(line)-32;c++) {
+            if(c>=0 && !(b->cuts&(1u<<c)))continue;
+            float stray=0;
+            for(int p=0;p<b->count;p++)if(rdPiece(b,p)==c+1) {
+                float d=0;
+                for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->anchor[p][k];d+=x*x;}
+                stray=fmaxf(stray,d);
+            }
+            n+=snprintf(line+n,sizeof(line)-n," %d:%.1f/%.1f/%.2f/%.2f",c+1,fastest[c+1],sqrtf(stray),c>=0 ? b->still[c] : b->stillbody,b->shake[c+1]);
+        }
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u awake %.0f s, cuts 0x%x, %d prop wakes (last type %d at %d %d %d), pieces speed/stray/still/rocking:%s",
+                     b->serial,b->awake,b->cuts,b->moverwakes,b->mover[0],b->mover[1],b->mover[2],b->mover[3],line);
+        b->awakelog=5.0f; b->moverwakes=0;
+    }
+    if(b->solid || !gevrMpRules())return;
+    b->solidstill=all>RD_SOLID_SPEED ? 0 : b->solidstill+dt;
+    if(b->solidstill>=RD_REST_TIME) {
+        pdphysRagdollSetSolid(b->handle,1);
+        b->solid=1;
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u lying still: solid now",b->serial);
+    }
+}
+
 /* Diagnostics for bodies seen in walls: the pelvis moved through level
  * geometry this step. In its own rooms it went through a wall it collides
  * with; only in other rooms, the room filter left that wall out. Once per
@@ -791,6 +1027,29 @@ static void rdCrossCheck(RdBody *b, const float before[3], float dt)
         b->serial,own?"its own":"another room's",room,state==1?"walls":state==2?"floor-only":"no walls",normal[1],
         sqrtf(moved)/dt,b->visrooms[0]==255?-1:b->visrooms[0],b->visrooms[1]==255?-1:b->visrooms[1],
         b->visrooms[2]==255?-1:b->visrooms[2],b->visrooms[3]==255?-1:b->visrooms[3]);
+}
+
+/* A body that falls asleep and is woken again and again never stays awake
+ * the 8 s rdRest reports: a cut piece jittered on the Quest with no report
+ * (user, 2026-11-28). Every third waking within 10 s, what moved and what
+ * woke it, for a headset log. */
+/* Every waking now, the first eight of a body and then every tenth: one shook
+ * for 30 s and more on the headset (user, 2026-11-28) with no report, each
+ * waking further apart than 10 s / 3 would have shown. rewakes counts them
+ * all; rewakefrom is the age it last fell asleep (gevrRagdollTick). */
+static void rdRewakeLog(RdBody *b)
+{
+    const int n=++b->rewakes;
+    if(n>8 && n%10)return;
+    char line[200];int len=0;
+    for(int p=0;p<b->count && len<(int)sizeof(line)-24;p++) {
+        float d=0;
+        for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->restpos[p][k];d+=x*x;}
+        if(d>0.01f)len+=snprintf(line+len,sizeof(line)-len," %d(piece %d):%.1f",p,rdPiece(b,p),sqrtf(d));
+    }
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u woke again (%d times), at %.1f s old after %.1f s asleep, cuts 0x%x, %d prop wakes (last type %d at %d %d %d); moved:%s",
+                 b->serial,n,b->age,b->age-b->rewakefrom,b->cuts,b->moverwakes,b->mover[0],b->mover[1],b->mover[2],b->mover[3],
+                 len ? line : " nothing");
 }
 
 static float rdCameraDistance2(const float pos[3])
@@ -848,8 +1107,23 @@ void gevrRagdollTick(int ticks60)
         const int asleep=pdphysRagdollIsAsleep(b->handle);
         float before[3];memcpy(before,b->joints[b->root].m[3],sizeof(before));
         if(!(b->asleep && asleep))pdphysRagdollGetJoints(b->handle,(float (*)[16])b->joints);
+        if(b->asleep && !asleep)rdRewakeLog(b);
+        if(!b->asleep && asleep)b->rewakefrom=b->age;
         b->asleep=asleep;
+        rdRest(b,dt,asleep);
         rdCrossCheck(b,before,dt);
+        /* A piece cut off that fell out of the level sleeps where it is: one
+         * fell on at 9000 units/s and kept its body awake for good, every
+         * other piece lying still (headset log, 2026-11-28) */
+        for(int c=0;c<b->count && !asleep;c++) {
+            if(!(b->cuts&(1u<<c)))continue;
+            unsigned mask=0; int out=1;
+            for(int p=0;p<b->count;p++)if(rdPiece(b,p)==c+1) {
+                mask|=1u<<p;
+                if(b->joints[p].m[3][1]>=RD_KILLFLOOR_Y)out=0;
+            }
+            if(mask && out)pdphysRagdollSleepParts(b->handle,mask);
+        }
         /* Fell out of the level (CE :1708) */
         if(b->joints[b->root].m[3][1]<RD_KILLFLOOR_Y) {
             sysLogPrintf(LOG_NOTE,"ragdoll: body %u fell out of the level, removing it",b->serial);
@@ -880,14 +1154,46 @@ void gevrRagdollTick(int ticks60)
  */
 int gevrRagdollBodies(void) { return VrRagdolls ? RD_BODIES : 0; }
 
+static void rdPushPiece(RdBody *b, int part, const float v[3]);
+
+/* Test hook (bondview2.c "cut<N>"): CE skeleton part N off every body within
+ * radius of a point (Bond), as a shot's cut (rdCut). Returns how many were cut. */
+int gevrRagdollCutNear(const float at[3], float radius, int skelpart)
+{
+    int n=0;
+    if(skelpart<0 || skelpart>=RD_SKEL)return 0;
+    for(int i=0;i<RD_BODIES;i++) {
+        RdBody *b=&s_bodies[i];
+        if(!b->used || b->body[skelpart]<0)continue;
+        float d=0;
+        for(int k=0;k<3;k++){float x=b->joints[b->root].m[3][k]-at[k];d+=x*x;}
+        if(d<=radius*radius && rdCut(b,b->body[skelpart])) {
+            /* thrown clear, as a shot's push throws it, so both ends show */
+            const float up[3]={0,260,0};
+            rdPushPiece(b,b->body[skelpart],up);
+            n++;
+        }
+    }
+    return n;
+}
+
+/* The parts of a body's biggest piece, the one a door or the truck fades it
+ * for: a leg the grenade launcher threw into a doorway faded the torso lying
+ * behind boxes far from it (user, 2026-11-28). A piece cut off and in the way
+ * is left to the door. */
 int gevrRagdollBodyParts(int body, coord3d *pos, int max)
 {
     if (body<0 || body>=RD_BODIES || !pos || max<=0) return 0;
-    const RdBody *b=&s_bodies[body];
+    RdBody *b=&s_bodies[body];
     if (!b->used || b->doorhit) return 0;
-    const int n=b->count<max?b->count:max;
-    for (int i=0;i<n;i++)
-        for (int k=0;k<3;k++) pos[i].f[k]=b->joints[i].m[3][k];
+    int size[RD_PARTS+1]={0},biggest=rdPiece(b,b->root),n=0;
+    for (int i=0;i<b->count;i++) size[rdPiece(b,i)]++;
+    for (int p=0;p<=RD_PARTS;p++) if (size[p]>size[biggest]) biggest=p;
+    for (int i=0;i<b->count && n<max;i++) {
+        if (rdPiece(b,i)!=biggest) continue;
+        for (int k=0;k<3;k++) pos[n].f[k]=b->joints[i].m[3][k];
+        n++;
+    }
     return n;
 }
 
@@ -912,6 +1218,20 @@ void gevrRagdollDoorFade(int body)
     b->doorhit=1;
     b->doorfade=0;
     sysLogPrintf(LOG_NOTE,"ragdoll: body %u is in a moving door's way; it fades",b->serial);
+}
+
+void gevrRagdollDoorFadeLog(int body, int part, const float at[3], int truck, const float by[3],
+                            const float *outline, int edges, float bottom, float top)
+{
+    if (body<0 || body>=RD_BODIES || !s_bodies[body].used || s_bodies[body].doorhit) return;
+    float lo[2]={1e30f,1e30f},hi[2]={-1e30f,-1e30f};
+    for (int e=0;e<edges && outline;e++)for (int k=0;k<2;k++) {
+        lo[k]=fminf(lo[k],outline[e*2+k]); hi[k]=fmaxf(hi[k],outline[e*2+k]);
+    }
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u's part %d at %.0f %.0f %.0f is in the way of a moving %s at %.0f %.0f %.0f: "
+                 "its outline x %.0f..%.0f z %.0f..%.0f (%d edges), y %.0f..%.0f",
+                 s_bodies[body].serial,part,at[0],at[1],at[2],truck ? "truck" : "door",by[0],by[1],by[2],
+                 lo[0],hi[0],lo[1],hi[1],edges,bottom,top);
 }
 
 /* A shot body bleeds where it was hit, as a living guard does
@@ -1031,12 +1351,113 @@ static const u8 *rdPieces(RdBody *b)
 }
 int gevrRagdollModelCut(const Model *model) { RdBody *b=rdModel(model); return b ? (int)b->cuts : 0; }
 unsigned gevrRagdollModelBody(const Model *model) { RdBody *b=rdModel(model); return b ? b->serial : 0; }
+
+/* A point of the body as it was at death (rd->bind: each matrix's world frame then) */
+void gevrRagdollDeathPos(const Model *model, int matrix, const float local[3], float out[3])
+{
+    RdBody *b=rdModel(model);
+    memcpy(out,local,3*sizeof(float));
+    if(b && matrix>=0 && matrix<b->matrices)rdTransform(&b->bind[matrix],out,1);
+}
+
+/*
+ * Bean's skin is split at a cut by triangle, each to the piece that moves it
+ * most; a long coat's skirt or front mixes the two across a wide band, and
+ * the split zigzagged through it, red caps filling the teeth (user,
+ * 2026-11-28: the coats after a leg or the waist was cut). A triangle across
+ * the cut goes instead to the side of the cut's plane its middle is on: the
+ * plane through the joint at death, square to the bone below it (or, at the
+ * end of a limb, the bone above).
+ */
+int gevrRagdollCutSide(const Model *model, int piece, int other, const float p[3])
+{
+    RdBody *b=rdModel(model);
+    if(!b)return -1;
+    for(int j=0;j<b->count;j++) {
+        if(!(b->cuts&(1u<<j)) || b->parent[j]<0)continue;
+        const int child=rdPiece(b,j),parent=rdPiece(b,b->parent[j]);
+        if(!((child==piece && parent==other) || (child==other && parent==piece)))continue;
+        int below=-1;
+        for(int k=0;k<b->count && below<0;k++)if(b->parent[k]==j)below=k;
+        const float *at=b->initial[j].m[3];
+        const float *from=below>=0 ? at : b->initial[b->parent[j]].m[3];
+        const float *to=below>=0 ? b->initial[below].m[3] : at;
+        float n[3],l=0,d=0;
+        for(int k=0;k<3;k++){n[k]=to[k]-from[k];l+=n[k]*n[k];}
+        if(l<1e-6f)return -1;
+        for(int k=0;k<3;k++)d+=(p[k]-at[k])*n[k];
+        return d>0 ? child : parent;
+    }
+    return -1;
+}
+/* Of a piece cut off, the matrix of the part it was cut from and *own that of
+ * the part cut: the bones either side of the cut, where Bean holds a skin's
+ * weight from across it (gevr_bean_pose.inc.h beanCutFrame); -1 for the
+ * body's own piece */
+int gevrRagdollCutFrom(const Model *model, int piece, int *own)
+{
+    RdBody *b=rdModel(model);
+    if(!b)return -1;
+    for(int j=0;j<b->count;j++) {
+        if(!(b->cuts&(1u<<j)) || b->parent[j]<0 || rdPiece(b,j)!=piece || rdPiece(b,b->parent[j])==piece)continue;
+        if(own)*own=b->primary[j];
+        return b->primary[b->parent[j]];
+    }
+    return -1;
+}
 /* Bean's skin found a hole's rim (gevr_bean_caps.inc.h): drawn after the body */
 void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int nedges,int piece,int other)
 {
     RdBody *b=rdModel(model);
-    if(!b || b->nbean==RD_MAXCAPS || nedges<3 || matrix<0 || matrix>=b->matrices)return;
+    if(b && b->nbean==RD_MAXBEAN) {
+        static int warned;
+        if(!warned++)sysLogPrintf(LOG_WARNING,"ragdoll: body %u has more than %d Bean rims this view; the rest go uncapped",b->serial,RD_MAXBEAN);
+        return;
+    }
+    if(!b || nedges<3 || matrix<0 || matrix>=b->matrices)return;
+    /* CE's reach (ragdollBuildCaps, dismember.c): a hole is closed only within
+     * 1.6 cut radii of its joint, on this side's frame. Bean's skin has open
+     * rims far off on triangles with a trace of the other piece's weight - a
+     * sleeve's cuff at the wrist after a shoulder cut, 2.5 cut radii away.
+     * A rim is closed when any of it comes that near, not its middle: a coat's
+     * opening after a thigh cut runs from the hip down to the hem, its middle
+     * out of reach, and stayed open - a hollow coat, the hip's disc floating
+     * inside it (user, 2026-11-28, Quest). */
+    const int childside=piece>0 && rdPiece(b,b->parent[piece-1])==other;
+    const int cut=childside ? piece-1 : other>0 && rdPiece(b,b->parent[other-1])==piece ? other-1 : -1;
+    int hashub=0;
+    float hub[3]={0,0,0};
+    if(cut>=0 && b->parent[cut]>=0) {
+        float joint[3];
+        Mtxf world,inverse; rdMul(&b->offset[matrix],&b->joints[b->owner[matrix]],&world);
+        /* the parent's side: where the joint was on that piece (its hole) */
+        if(childside) memcpy(joint,b->joints[cut].m[3],sizeof(joint));
+        else {
+            memcpy(joint,b->initial[cut].m[3],sizeof(joint));
+            if(!rdInverse(&b->initial[b->parent[cut]],&inverse))return;
+            rdTransform(&inverse,joint,1); rdTransform(&b->joints[b->parent[cut]],joint,1);
+        }
+        const float reach=g_RdSkelHuman.cutradius[b->skel[cut]]*b->torso*1.6f;
+        float nearest=1e30f;
+        for(int e=0;e<nedges;e++)for(int k=0;k<2;k++) {
+            float at[3]={rim[e][k][0],rim[e][k][1],rim[e][k][2]},d=0;
+            rdTransform(&world,at,1);
+            for(int j=0;j<3;j++){float x=at[j]-joint[j];d+=x*x;}
+            nearest=fminf(nearest,d);
+        }
+        if(nearest>reach*reach)return;
+        /* fanned from the joint: a hole's rim often comes as arcs, not one loop
+         * (open where it runs along the mesh's own edge), and each arc fanned
+         * from its own middle left a red ring round an open middle, the body
+         * hollow through it (user, 2026-11-28, a torso and an arm blown apart) */
+        Mtxf local;
+        hashub=rdInverse(&world,&local);
+        if(hashub){memcpy(hub,joint,sizeof(hub));rdTransform(&local,hub,1);}
+    }
     b->bean[b->nbean].matrix=matrix; b->bean[b->nbean].nedges=nedges; b->bean[b->nbean].rim=rim;
+    b->bean[b->nbean].cut=cut;
+    b->bean[b->nbean].hashub=hashub;
+    memcpy(b->bean[b->nbean].hub,hub,sizeof(hub));
     b->bean[b->nbean].piece=piece; b->bean[b->nbean++].other=other;
 }
 int gevrRagdollPiece(const Model *model,int matrix)

@@ -11,11 +11,13 @@
 
 /* chrHandleBulletHit: a shot that wounded chr at hitpos (world units) */
 void gevrBloodChrHit(ChrRecord *chr, const coord3d *hitpos, const coord3d *shotdir);
+/* chraiFistAttackHandler, gevrChopHit: a blade's or a gun butt's blow (dir in world axes) */
+void gevrBloodMeleeHit(ChrRecord *chr, s32 hitpart, const coord3d *dir);
 /* lvlTick, once a frame: growth, drips and pools */
 void gevrBloodTick(int ticks);
 /* lvlStageLoad */
 void gevrBloodReset(void);
 /* explosionRenderBulletImpactOnProp: the splats to draw with the bullet holes */
 int gevrBloodDecals(void);
-const Vtx *gevrBloodDecal(int i, s32 *room);
+const Vtx *gevrBloodDecal(int i, s32 *room, s32 *floor);
 #endif

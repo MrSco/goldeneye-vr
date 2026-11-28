@@ -3068,7 +3068,13 @@ s32 chrlvStanRoomRelated(ChrRecord *self, coord3d *arg1, StandTile *tile)
     {
         for (i=0; i<tile_something; i++)
         {
+#ifdef GEVR
+            /* Extended draw distance can render rooms outside the original
+             * patrol and GoPos visibility range. */
+            if (gevrRoomIsRenderedN64(sp48[i]))
+#else
             if (getROOMID_isRendered(sp48[i]) != 0)
+#endif
             {
                 return 0;
             }
@@ -9798,6 +9804,33 @@ void chrlvTickGoPos(ChrRecord *self)
 }
 
 
+#ifdef GEVR
+/*
+ * Test hook (bondview2.c "chrtrace<N>", -1 off): chr N's patrol twice a second
+ * in the log - the next pad, where he is, the way mode (6 magic), whether the
+ * game thinks him onscreen and the rooms between unrendered (the magic test)
+ * (the Dam tower guard that circles his top room in the headset, 2026-11-28)
+ */
+s32 g_gevrChrTrace = -1;
+static void gevrChrTracePatrol(ChrRecord *self, PadRecord *pad, s32 started)
+{
+    PropRecord *prop = self->prop;
+
+    if (self->chrnum != g_gevrChrTrace || (g_GlobalTimer % 30) != 0 || prop == NULL || pad == NULL)
+    {
+        return;
+    }
+    sysLogPrintf(LOG_NOTE, "chrtrace %d t=%d step %d/%d pad (%.0f %.0f %.0f) pos (%.0f %.0f %.0f) room %d "
+                 "wmode %d seg %.0f/%.0f onscreen %d lastvis %d related %d magicstart %d action %d",
+                 self->chrnum, g_GlobalTimer, self->act_patrol.nextstep, self->act_patrol.forward,
+                 pad->pos.x, pad->pos.y, pad->pos.z, prop->pos.x, prop->pos.y, prop->pos.z,
+                 prop->stan != NULL ? (s32) prop->stan->room : -1, self->act_patrol.waydata.mode,
+                 self->act_patrol.waydata.segdistdone, self->act_patrol.waydata.segdisttotal,
+                 (prop->flags & PROPFLAG_ONSCREEN) != 0, self->act_patrol.lastvisible60,
+                 chrlvStanRoomRelatedPad(self, pad), started, self->actiontype);
+}
+#endif
+
 /**
  * Address 0x7F032548.
 */
@@ -9850,6 +9883,9 @@ void chrlvTickPatrol(ChrRecord *self)
 
         chrlvTravelTick(self, &temp_v0->pos, temp_v0->stan, &self->act_patrol.waydata);
     }
+#ifdef GEVR
+    gevrChrTracePatrol(self, temp_v0, sp34);
+#endif
 }
 
 

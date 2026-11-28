@@ -145,6 +145,13 @@ ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand) {(void)hand;return ITEM_WPPK;}
 void gunRequestHandWeaponChange(enum GUNHAND hand,s32 next,s32 dir) {(void)hand;(void)next;(void)dir;}
 void netHordeRequestAction(unsigned action,unsigned item) {gevrHordeHandleAction(0,action,item);}
 void chrStopFiring(ChrRecord *chr) {(void)chr;}
+/* chraction.c's stand: every act_stand field set, as the engine does */
+static int stands;
+void chrlvMergeKneelToStand(ChrRecord *chr,f32 mergetime) {
+    (void)mergetime;stands++;chr->actiontype=ACT_STAND;
+    chr->act_stand.prestand=chr->act_stand.face_entitytype=chr->act_stand.face_entityid=0;
+    chr->act_stand.reaim=chr->act_stand.checkfacingwall=0;chr->act_stand.turning=2;
+}
 AIRecord *ailistFindById(s32 id) {(void)id;static AIRecord list;return &list;}
 s32 sizepropdef(PropDefHeaderRecord *p) {assert(p->type==PROPDEF_GUARD);return sizeof(GuardRecord)/4;}
 s32 chrGetNumFree(void) {
@@ -465,6 +472,16 @@ int main(void)
     far.x=8000;ChrRecord *odd=chrSpawnAtCoord(BODY_Oddjob,-1,&far,&tile,0,NULL,0)->chr;
     odd->maxdamage=10;gevrHordeSetGuardId(odd,104);gevrHordeDecorateGuard(odd,BODY_Oddjob);
     assert(!gevrHordeBossNoStun(odd));
+    /* 2026-11-28 (reports#49): an unseen guard stuck mid-run gets a real
+     * stand. Its act_runpos (y 85.7, z -2012.05, neardist 30) overlays
+     * act_stand's face type, face id and reaim; a bare ACT_STAND left them
+     * there and chrlvTickStand looked up pad 0xc4fb8183 (SIGSEGV). */
+    odd->actiontype=ACT_RUNPOS;odd->act_runpos.pos=(coord3d){.x=620,.y=85.7f,.z=-2012.05f};
+    odd->act_runpos.neardist=30;path_clear=0;stands=0;
+    for(int i=0;i<25;i++)gevrHordeTick(15);   /* past the 6 s stall */
+    assert(stands>=1 && odd->actiontype==ACT_STAND && !odd->act_stand.prestand);
+    assert(!odd->act_stand.face_entitytype && !odd->act_stand.face_entityid && !odd->act_stand.reaim);
+    puts("PASS: a stalled guard's fresh path attempt starts a full stand, not the old action's fields");
     puts("PASS: explosive counters and gun limit, grip holds, boss stun classification, Xenia fallback, Ourumov death and all three powers");
     puts("PASS: production Horde setup, safe pads, armed spawn publication, hit/headshot points, Mystery Box, Wall Buys, slot pressure, takeover reconciliation, death idempotency, despawn replacement, bounded shared ammo drops, doorway recovery, defeat and the companion kept out of wave accounting");
     puts("PASS: 45 simulated minutes of wave progression with bounded/recycled actors");

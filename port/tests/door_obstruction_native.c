@@ -74,6 +74,11 @@ int gevrRagdollBodyParts(int body, coord3d *pos, int max)
     return i;
 }
 void gevrRagdollDoorFade(int body) { ragdollFaded[body]++; }
+void gevrRagdollDoorFadeLog(int body, int part, const float at[3], int truck, const float by[3],
+                            const float *outline, int edges, float bottom, float top)
+{
+    (void)body; (void)part; (void)at; (void)truck; (void)by; (void)outline; (void)edges; (void)bottom; (void)top;
+}
 
 s32 chrobjTestPolygonsTouchingOrOverlap2D(struct rect4f *a, s32 na, struct rect4f *b, s32 nb)
 {

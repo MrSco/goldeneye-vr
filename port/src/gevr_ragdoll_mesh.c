@@ -78,11 +78,16 @@ static void rdPatch(RdBody *rd,RdMesh *m)
 int rdCut(RdBody *rd,int part)
 {
     if(part<0 || part>=rd->count || rd->parent[part]<0 || g_RdSkelHuman.cutradius[rd->skel[part]]<=0 || (rd->cuts&(1u<<part)))return 0;
+    /* CE dismember.c: a solid body (multiplayer) stays whole */
+    if(rd->solid)return 0;
     /* A nested list could still load the other piece's matrices. Leave that
      * model joined rather than allow a cut with an unpatched seam. */
     for(int i=0;i<rd->nmeshes;i++)for(int j=0;j<rd->meshes[i].ncommands;j++)
         if(((rd->meshes[i].originalCommands[j].words.w0>>24)&255)==(G_DL&255))return 0;
     rd->cuts|=1u<<part;
+    rd->still[part]=0;
+    rd->shake[part+1]=0;
+    rd->cutpaint[part]=rdPaintColour();
     for(int i=0;i<rd->nmeshes;i++)rdPatch(rd,&rd->meshes[i]);
     rdBuildCaps(rd);
     pdphysRagdollDetach(rd->handle,part);
@@ -167,11 +172,53 @@ static void rdDiscCap(RdBody *rd, int cut, int childside)
     rd->ncaps++; rd->ndiscs++;
 }
 
+/*
+ * CE dismember.c ragdollMergeSharedHoles (Perfect-Dark-CE b0180009): a hole
+ * two cuts share (both legs off on some models: the pelvis is open from hip
+ * to hip, the crotch went with the legs) was split between the two cuts by
+ * nearest cut into two open halves, and each half's fan left the middle
+ * open. Where a cut's border edges don't close into loops of their own (a
+ * vertex used an odd number of times), its hole is joined with the others it
+ * touches and capped as one (group rewritten; merged[cut] = the cut it was
+ * joined to).
+ */
+static void rdMergeSharedHoles(const RdBody *rd, const RdCapBuild *mb, RdEdge **border, int nborder, int *group,
+                               int *uf, int *merged)
+{
+    int *deg = malloc((mb->nverts + 1) * sizeof(int));
+    unsigned char open[RD_PARTS] = {0};
+    if (!deg) return;
+    for (int g = 0; g < rd->count; g++) {
+        if (!(rd->cuts & (1u << g))) continue;
+        memset(deg, 0, mb->nverts * sizeof(int));
+        for (int i = 0; i < nborder; i++) if (group[i] == g) { deg[border[i]->a]++; deg[border[i]->b]++; }
+        for (int i = 0; i < mb->nverts && !open[g]; i++) open[g] = (deg[i] & 1) != 0;
+    }
+    free(deg);
+    for (int i = 0; i < mb->nverts; i++) uf[i] = i;
+    for (int i = 0; i < nborder; i++) uf[rdFind(uf, border[i]->a)] = rdFind(uf, border[i]->b);
+    for (int i = 0; i < nborder; i++) {
+        const int root = rdFind(uf, border[i]->a);
+        int into = -1, anyopen = 0;
+        for (int j = 0; j < nborder; j++) if (group[j] >= 0 && rdFind(uf, border[j]->a) == root) {
+            anyopen |= open[group[j]];
+            if (into < 0) into = group[j];
+        }
+        if (!anyopen || into < 0) continue;
+        for (int j = 0; j < nborder; j++) if (group[j] >= 0 && group[j] != into && rdFind(uf, border[j]->a) == root) {
+            merged[group[j]] = into;
+            group[j] = into;
+        }
+    }
+}
+
 void rdBuildCaps(RdBody *rd)
 {
     rd->ncaps = rd->ndiscs = 0;
     if (!rd->cuts) return;
     unsigned char covered[RD_PARTS][2] = {{0}};
+    int merged[RD_PARTS];   /* a cut whose hole was capped with another's (that one), else -1 */
+    for (int i = 0; i < RD_PARTS; i++) merged[i] = -1;
     RdCapBuild mb = {0};
     int *uf = NULL;
     mb.maxverts = 4096; mb.maxedges = 3 * 4096;
@@ -264,6 +311,7 @@ void rdBuildCaps(RdBody *rd)
                 if (dist < best) { best = dist; group[i] = j; }
             }
         }
+        rdMergeSharedHoles(rd, &mb, border, nborder, group, uf, merged);
         for (int cut = 0; cut < rd->count; cut++) {
             if (!(rd->cuts & (1u << cut))) continue;
             for (int i = 0; i < mb.nverts; i++) uf[i] = i;
@@ -316,6 +364,11 @@ void rdBuildCaps(RdBody *rd)
     }
 done:
     free(uf); free(mb.pos); free(mb.edges);
+    /* A hole capped with another cut's is covered on that side too */
+    for (int cut = 0; cut < rd->count; cut++) if (merged[cut] >= 0) {
+        covered[cut][0] |= covered[merged[cut]][0];
+        covered[cut][1] |= covered[merged[cut]][1];
+    }
     for (int cut = 0; cut < rd->count; cut++) if (rd->cuts & (1u << cut)) {
         if (!covered[cut][1]) rdDiscCap(rd, cut, 1);
         if (!covered[cut][0]) rdDiscCap(rd, cut, 0);
@@ -335,6 +388,7 @@ static int rdBeanCovers(const RdBody *rd, const RdCap *cap)
 
 static Gfx *rdFan(const RdBody *rd, const RdCap *cap, Gfx *gdl)
 {
+    const u32 paint=cap->cut>=0 && cap->cut<rd->count ? rd->cutpaint[cap->cut] : 0;
     Vtx *vertices=dynAllocate((size_t)cap->numedges*3*sizeof(Vtx));
     if(!vertices)return gdl;
     memset(vertices,0,(size_t)cap->numedges*3*sizeof(Vtx));
@@ -345,7 +399,10 @@ static Gfx *rdFan(const RdBody *rd, const RdCap *cap, Gfx *gdl)
             const int matrix=k ? cap->edges[e][k-1].mtx : cap->matrix;
             const s16 *xyz=k ? cap->edges[e][k-1].v : cap->centre;
             for(int j=0;j<3;j++)v->v.ob[j]=xyz[j];
-            v->v.cn[0]=k?90:120; v->v.cn[1]=6; v->v.cn[2]=6; v->v.cn[3]=(u8)rd->alpha;
+            if(paint) {   /* CE: the cut's paint, the centre a little darker (190/255) */
+                for(int j=0;j<3;j++){const u32 c=(paint>>(24-8*j))&255;v->v.cn[j]=(u8)(k ? c : c*190/255);}
+            } else { v->v.cn[0]=k?90:120; v->v.cn[1]=6; v->v.cn[2]=6; }
+            v->v.cn[3]=(u8)rd->alpha;
             if(matrix!=current) {
                 gSPMatrix(gdl++,(void *)(uintptr_t)(0x03000000u+matrix*sizeof(Mtx)),G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
                 current=matrix;
@@ -375,7 +432,7 @@ Gfx *rdDrawCaps(RdBody *rd,Gfx *gdl)
     /* Bean's rims: a fan from their centre, in the skin's anchor space */
     for(int i=0;i<rd->nbean;i++) {
         RdCap cap={0};
-        cap.matrix=rd->bean[i].matrix; cap.numedges=rd->bean[i].nedges;
+        cap.matrix=rd->bean[i].matrix; cap.numedges=rd->bean[i].nedges; cap.cut=rd->bean[i].cut;
         cap.edges=dynAllocate((size_t)cap.numedges*sizeof(*cap.edges));
         if(!cap.edges)continue;
         float centre[3]={0,0,0};
@@ -383,7 +440,7 @@ Gfx *rdDrawCaps(RdBody *rd,Gfx *gdl)
             cap.edges[e][k].mtx=(s16)cap.matrix;
             for(int j=0;j<3;j++){cap.edges[e][k].v[j]=rd->bean[i].rim[e][k][j];centre[j]+=rd->bean[i].rim[e][k][j];}
         }
-        for(int j=0;j<3;j++)cap.centre[j]=(s16)roundf(centre[j]/(cap.numedges*2));
+        for(int j=0;j<3;j++)cap.centre[j]=(s16)roundf(rd->bean[i].hashub ? rd->bean[i].hub[j] : centre[j]/(cap.numedges*2));
         gdl=rdFan(rd,&cap,gdl);
     }
     return gdl;

@@ -2949,6 +2949,46 @@ static Mtx *gevrImpactFineMtx(s32 fine)
 }
 #endif
 
+#ifdef GEVR
+/* The Blood patch's splats on walls (floors 0) or on floors (floors 1), see below */
+static Gfx *gevrBloodDecalsDraw(Gfx *gdl, s32 floors)
+{
+    const s32 count = gevrBloodDecals();
+    s32 lastroom = -1, lastfine = 0, selected = 0, i;
+
+    for (i = 0; i < count; i++)
+    {
+        s32 room, floor;
+        const Vtx *vtx = gevrBloodDecal(i, &room, &floor);
+        s32 fine;
+
+        if (vtx == NULL || floor != floors || !getROOMID_isRendered(room))
+        {
+            continue;
+        }
+        fine = vtx[0].v.flag > 1 ? vtx[0].v.flag : 1;
+        if (room != lastroom || fine != lastfine)
+        {
+            gdl = applyRoomMatrixToDisplayList(gdl, room);
+            if (fine > 1)
+            {
+                gSPMatrix(gdl++, osVirtualToPhysical(gevrImpactFineMtx(fine)), G_MTX_NOPUSH | G_MTX_MUL | G_MTX_MODELVIEW);
+            }
+            lastroom = room;
+            lastfine = fine;
+        }
+        if (!selected)
+        {
+            texSelect(&gdl, &impactimages[GEVR_BLOOD_IMPACT_TYPE], g_ImpactTypes[GEVR_BLOOD_IMPACT_TYPE].unk1, g_ImpactTypes[GEVR_BLOOD_IMPACT_TYPE].unk2, 2U);
+            selected = 1;
+        }
+        gSPVertex(gdl++, osVirtualToPhysical(vtx), 4, 0);
+        gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
+    }
+    return gdl;
+}
+#endif
+
 Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
 {
     s32 padding1;
@@ -3067,43 +3107,25 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
      * with the rooms' pass. They are wall hits of their own ring, drawn as
      * the ones above: the room's matrix, the corners' fine scale, the
      * Paintball splat's picture.
+     *
+     * Those on walls draw in the band with the bullet holes: a splat is flat
+     * and a rock wall is not, and with the plain decal offset the wall cut
+     * them off along a line that moved with the view (user, 2026-11-28).
+     * Those on floors draw after it, with the plain offset a room's decals
+     * take (gfx_opengl.cpp): the band draws a decal over anything within 3
+     * view units (15 cm on the Dam), and a pool is broad and lies under a
+     * body; it painted over the guard lying in it, its edge where his body
+     * left the band sliding as the head moved (user, 2026-11-27).
      */
     if (arg1 == NULL && arg2 == 0)
     {
-        const s32 count = gevrBloodDecals();
-        s32 lastroom = -1, lastfine = 0, selected = 0;
-
-        for (i = 0; i < count; i++)
-        {
-            s32 room;
-            const Vtx *vtx = gevrBloodDecal(i, &room);
-            s32 fine;
-
-            if (vtx == NULL || !getROOMID_isRendered(room))
-            {
-                continue;
-            }
-            fine = vtx[0].v.flag > 1 ? vtx[0].v.flag : 1;
-            if (room != lastroom || fine != lastfine)
-            {
-                gdl = applyRoomMatrixToDisplayList(gdl, room);
-                if (fine > 1)
-                {
-                    gSPMatrix(gdl++, osVirtualToPhysical(gevrImpactFineMtx(fine)), G_MTX_NOPUSH | G_MTX_MUL | G_MTX_MODELVIEW);
-                }
-                lastroom = room;
-                lastfine = fine;
-            }
-            if (!selected)
-            {
-                texSelect(&gdl, &impactimages[GEVR_BLOOD_IMPACT_TYPE], g_ImpactTypes[GEVR_BLOOD_IMPACT_TYPE].unk1, g_ImpactTypes[GEVR_BLOOD_IMPACT_TYPE].unk2, 2U);
-                selected = 1;
-            }
-            gSPVertex(gdl++, osVirtualToPhysical(vtx), 4, 0);
-            gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
-        }
+        gdl = gevrBloodDecalsDraw(gdl, 0);
     }
     gDPNoOpTag(gdl++, 0x56610001);   /* VR_IMPACT_DL_END */
+    if (arg1 == NULL && arg2 == 0)
+    {
+        gdl = gevrBloodDecalsDraw(gdl, 1);
+    }
 #endif
     gDPSetColorDither(gdl++, G_CD_BAYER);
 

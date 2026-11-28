@@ -30,17 +30,24 @@ Gfx *gevrRagdollRender(Gfx *gdl);
  * their triangle's chosen piece at the captured pose, so skin cannot stretch. */
 int gevrRagdollModelCut(const struct Model *model);
 unsigned gevrRagdollModelBody(const struct Model *model);
+void gevrRagdollDeathPos(const struct Model *model, int matrix, const float local[3], float out[3]);
+int gevrRagdollCutSide(const struct Model *model, int piece, int other, const float p[3]);
+int gevrRagdollCutFrom(const struct Model *model, int piece, int *own);
 int gevrRagdollPiece(const struct Model *model, int matrix);
 int gevrRagdollRemap(const struct Model *model, int owner, int matrix, float p[3], float n[3]);
 void gevrRagdollBeanCap(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);
 /* A moving door (propobj.c sub_GAME_7F0448A8): the body slots to look at (0 with ragdolls
  * off), a body's part positions in world units (0 when the slot is empty or already
- * fading), and the half-second fade of one it touched. The door never waits: doors keep
+ * fading; only its biggest piece's, a limb cut off and in the way left to the door),
+ * and the half-second fade of one it touched. The door never waits: doors keep
  * the original timing with ragdolls on or off (chraction.c gevrBodyDoorHit). */
 #define GEVR_RAGDOLL_PARTS_MAX 16
 int gevrRagdollBodies(void);
 int gevrRagdollBodyParts(int body, struct coord3d *pos, int max);
 void gevrRagdollDoorFade(int body);
+/* the log's line for it: the part that touched, the door (0) or truck (1), its outline (x, z pairs) and height */
+void gevrRagdollDoorFadeLog(int body, int part, const float at[3], int truck, const float by[3],
+                            const float *outline, int edges, float bottom, float top);
 /* the Blood patch's pools (gevr_blood.c): a body's serial, root and rest */
 unsigned gevrRagdollBodyRest(int body, struct coord3d *root, int *resting);
 #ifdef __cplusplus

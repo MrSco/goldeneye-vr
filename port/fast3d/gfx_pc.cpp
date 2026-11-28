@@ -5163,6 +5163,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         params.num_wounds = skin->numWounds < 0 ? 0 : skin->numWounds > GEVR_SKIN_WOUNDS ? GEVR_SKIN_WOUNDS : skin->numWounds;
         memcpy(params.wounds, skin->wounds, sizeof(params.wounds));
         params.cull = (geometry & G_CULL_BACK) ? 1 : (geometry & G_CULL_FRONT) ? 2 : 0;
+        // a cut body draws both faces (GevrSkinDraw.twoSided)
+        if (skin->twoSided) params.cull = 0;
         // Mirrored controller roles reverse winding just as the CPU path does.
         if (params.cull && gevrCullMirror) params.cull = params.cull == 1 ? 2 : 1;
         // The MP uniform negates y on an inverted target, reversing winding.
@@ -5999,9 +6001,17 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_RDPLOADSYNC:
             case G_RDPTILESYNC:
                 break;
-            default:
-                sysFatalError("Unknown GBI opcode 0x%02x at %p.\nw0 %08x\nw1 %08x", opcode, cmd, cmd->words.w0, cmd->words.w1);
-                break;
+            default: {
+                /* DAB e4a2de95 (gfx_pc.cpp gfx_unknown_opcode): a list that runs into
+                 * something that is not GBI is ended there instead of the game stopped
+                 * (a ROM hack's or a pack's bad list); the rest of the frame draws. The
+                 * first few of a session are logged: after that it is the same list. */
+                static int s_unknownOpcodes;
+                if (++s_unknownOpcodes <= 4)
+                    sysLogPrintf(LOG_ERROR, "Unknown GBI opcode 0x%02x at %p (w0 %08x w1 %08x): the list was ended there",
+                                 opcode, (void*)cmd, cmd->words.w0, cmd->words.w1);
+                return;
+            }
         }
         ++cmd;
     }

@@ -75,21 +75,10 @@ static const struct beanSkin *beanWoundHead(ModelNode *node, int depth, ModelNod
 	return NULL;
 }
 
-void gevrBeanNoteWound(Model *model, s32 hitpart, ModelNode *hitnode, ModelNode *stained, const void *vertices,
-                       const coord3d *local, s32 alpha)
+/* The model's wound slot, or the least recently wounded one made its */
+static int beanWoundSlot(const Model *model)
 {
 	int pick = -1;
-	if (!model || !hitnode || !stained || !vertices || !local)
-		return;
-	const int matrix = modelFindNodeMtxIndex(hitnode, 0);
-	if (matrix < 0)
-		return;
-	/* Head nodes are shared. Their Parent is rewired for each body; looking up
-	 * stained again while drawing can use a different body's head rwdata index
-	 * (53f092b3). Capture this instance's record while the hit walk owns it. */
-	const union ModelRwData *rwdata = modelGetNodeRwData(model, stained);
-	if (!rwdata)
-		return;
 	for (int i = 0; i < BEAN_WOUND_MODELS && pick < 0; i++)
 		if (s_wounds[i].model == model)
 			pick = i;
@@ -106,6 +95,66 @@ void gevrBeanNoteWound(Model *model, s32 hitpart, ModelNode *hitnode, ModelNode 
 		memset(&s_wounds[pick], 0, sizeof(s_wounds[pick]));
 		s_wounds[pick].model = model;
 	}
+	return pick;
+}
+
+/*
+ * A Ragdolls body (gevr_ragdoll.c rdClone) is a copy of the chr's Model: its
+ * own rwdata block, the chr's at the same offsets (bytes long), and its own
+ * vertex copies, the stains' alpha carried over. The chr's bruises move onto
+ * it, or a guard shot or stabbed before he fell came down clean on a Bean
+ * body (user, 2026-11-27). Call once the body's vertices are its own.
+ */
+void gevrBeanCopyWounds(const Model *from, Model *to, size_t bytes)
+{
+	int src = -1;
+	if (!from || !to || !from->datas || !to->datas || from == to)
+		return;
+	for (int i = 0; i < BEAN_WOUND_MODELS && src < 0; i++)
+		if (s_wounds[i].model == from)
+			src = i;
+	gevrBeanForgetWounds(to);
+	if (src < 0)
+		return;
+	const unsigned serial = s_wounds[src].serial;
+	const unsigned first = serial > GEVR_SKIN_WOUNDS ? serial - GEVR_SKIN_WOUNDS : 0;
+	int dst = -1;
+	for (unsigned s = first; s < serial; s++) {
+		const struct beanWound *w = &s_wounds[src].ring[s % GEVR_SKIN_WOUNDS];
+		const uint8_t *base = (const uint8_t *)from->datas, *rw = (const uint8_t *)w->rwdata;
+		if (!w->rwdata || w->rwdata->DisplayListCollisions.Vertices != w->vertices)
+			continue;   /* gone from the chr: gone from the body */
+		if (rw < base || (size_t)(rw - base) + sizeof(ModelRwData_DisplayList_CollisionRecord) > bytes)
+			continue;
+		const union ModelRwData *copy = (const union ModelRwData *)((uint8_t *)to->datas + (rw - base));
+		if (!copy->DisplayListCollisions.Vertices)
+			continue;
+		if (dst < 0)
+			dst = beanWoundSlot(to);
+		struct beanWound *n = &s_wounds[dst].ring[s_wounds[dst].serial++ % GEVR_SKIN_WOUNDS];
+		*n = *w;
+		n->rwdata = copy;
+		n->vertices = copy->DisplayListCollisions.Vertices;
+	}
+	if (dst >= 0)
+		s_wounds[dst].used = ++s_woundUse;
+}
+
+void gevrBeanNoteWound(Model *model, s32 hitpart, ModelNode *hitnode, ModelNode *stained, const void *vertices,
+                       const coord3d *local, s32 alpha)
+{
+	if (!model || !hitnode || !stained || !vertices || !local)
+		return;
+	const int matrix = modelFindNodeMtxIndex(hitnode, 0);
+	if (matrix < 0)
+		return;
+	/* Head nodes are shared. Their Parent is rewired for each body; looking up
+	 * stained again while drawing can use a different body's head rwdata index
+	 * (53f092b3). Capture this instance's record while the hit walk owns it. */
+	const union ModelRwData *rwdata = modelGetNodeRwData(model, stained);
+	if (!rwdata)
+		return;
+	const int pick = beanWoundSlot(model);
 	float at[3] = { local->x, local->y, local->z };
 	uint8_t kinds = BEAN_WOUND_BODY;
 	int snapped = 0;

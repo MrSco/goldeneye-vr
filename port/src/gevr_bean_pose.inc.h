@@ -112,6 +112,136 @@ static int beanCutBone(struct beanCutKept *k, int matrix)
 	return k->nbones++;
 }
 
+/* The piece a cut skin's triangle goes with. A body's skin is cut triangle by
+ * triangle, each to the piece most of its weight follows. A head goes whole
+ * with its own (the anchor's), as CE's rdPatch carries a native list - and
+ * GoldenEye's head is one - with the piece of its owner matrix: cut triangle
+ * by triangle, the ring a Bean head blends to the back stayed on the shoulders
+ * after a head shot, a second chin over the head beside them and jagged flaps
+ * on the stump (2026-11-27). *best becomes the triangle's own entry in
+ * pieces (-1 for none), the others' strongest is the piece across the cut. */
+static int beanCutHead(const struct beanSkin *skin, const Model *model, int anchorIndex, const int *pieces, int n,
+                       int *best, int *owner)
+{
+	if (!skin->head)
+		return n ? pieces[*best] : s_cuts.piece(model, anchorIndex);
+	const int own = s_cuts.piece(model, anchorIndex);
+	for (*best = 0; *best < n && pieces[*best] != own; ++*best) {}
+	if (*best == n)
+		*best = -1;
+	*owner = anchorIndex;
+	return own;
+}
+
+/* Of a triangle the cut divides between pieces a and b, the one whose side of
+ * the cut's plane its middle lies on, in the death pose (gevrRagdollCutSide);
+ * -1 when the ragdoll can't tell */
+static int beanCutPlaneSide(const struct beanSkin *skin, Model *model, int first, int anchorIndex, int backIndex,
+                            ModelNode *neck, int a, int b)
+{
+	if (!s_cuts.side || !s_cuts.death || first + 2 >= skin->nverts)
+		return -1;
+	const int count = model->obj->numMatrices;
+	float mid[3] = {0, 0, 0};
+	for (int c = first; c < first + 3; c++) {
+		const struct beanSkinVert *src = &skin->verts[c];
+		float at[3] = {0, 0, 0}, total = 0;
+		for (int w = 0; w < 4; w++) {
+			int matrix = src->matrix[w], back = matrix == -3;
+			if (matrix == -2)
+				matrix = anchorIndex;
+			if (back)
+				matrix = backIndex >= 0 ? backIndex : anchorIndex;
+			if (!src->weight[w] || matrix < 0 || matrix >= count)
+				continue;
+			float local[3], world[3];
+			for (int k = 0; k < 3; k++)
+				local[k] = src->p[w][k] + (back && neck ? neck->Data->Group.Origin.f[k] : 0);
+			s_cuts.death(model, matrix, local, world);
+			for (int k = 0; k < 3; k++)
+				at[k] += src->weight[w] * world[k];
+			total += src->weight[w];
+		}
+		if (total <= 0)
+			return -1;
+		for (int k = 0; k < 3; k++)
+			mid[k] += at[k] / total / 3.0f;
+	}
+	return s_cuts.side(model, a, b, mid);
+}
+
+/* The matrix of the group above the one drawn with matrix m (the back above
+ * the neck), -1 none */
+static int beanParentMatrix(Model *model, int m)
+{
+	ModelNode *n = model->obj->RootNode;
+	while (n) {
+		if (nodeOp(n) == MODELNODE_OPCODE_GROUP && n->Data && n->Data->Group.MatrixIDs[0] == m)
+			return n->Parent ? nodeMatrix(n->Parent) : -1;
+		if (n->Child) {
+			n = n->Child;
+			continue;
+		}
+		while (n && !n->Next)
+			n = n->Parent;
+		if (n)
+			n = n->Next;
+	}
+	return -1;
+}
+
+/* The head's piece once the head is off, -1 while it is on: from the body's
+ * own head section (its corners as they are), the triangle that hangs from
+ * a matrix whose parent is on another piece. All of the section goes with
+ * it, whatever bone a triangle hangs from: those on the back stayed on the
+ * body, and the rim ran between two collapsed parts (every edge of length
+ * 0), the collar left open (2026-11-28). */
+static int beanStubHeadPiece(struct beanSkin *skin, Model *model, const int *stubAt)
+{
+	const int count = model->obj->numMatrices;
+	for (int i = 0; stubAt && i + 2 < skin->nverts; i += 3) {
+		if (stubAt[i] < 0)
+			continue;
+		int neckM = -1, most = -1;
+		for (int c = i; c < i + 3; c++) {
+			const struct beanSkinVert *r = beanSkinReal(skin, c);
+			for (int w = 0; w < 4; w++)
+				if (r->weight[w] > most && r->matrix[w] >= 0 && r->matrix[w] < count) {
+					most = r->weight[w];
+					neckM = r->matrix[w];
+				}
+		}
+		const int backM = neckM >= 0 ? beanParentMatrix(model, neckM) : -1;
+		if (backM >= 0 && backM < count && s_cuts.piece(model, neckM) != s_cuts.piece(model, backM))
+			return s_cuts.piece(model, neckM);
+	}
+	return -1;
+}
+
+/* The frame a skin's weight from across a cut is held in: the bone at the cut
+ * on the triangle's side (the part a limb was cut from, or the limb's own
+ * part), the same for every triangle there. Each triangle's own strongest
+ * bone held it before, and corners two triangles share came apart: a coat's
+ * skirt, one triangle held by the pelvis and the next by the other thigh,
+ * opened at the seam, a red slit of cap behind it (2026-11-28). Elsewhere,
+ * and on a head's section or skin, the triangle's own (owner). */
+static int beanCutFrame(const struct beanSkin *skin, Model *model, int piece, int owner, int matrix, int stub)
+{
+	if (!s_cuts.from || skin->head || stub)
+		return owner;
+	const int across = s_cuts.piece(model, matrix);
+	int own = -1;
+	if (across == piece)
+		return owner;
+	int from = s_cuts.from(model, across, &own);
+	if (from >= 0 && s_cuts.piece(model, from) == piece)
+		return from;   /* the limb's weight on the body: held by the part it was cut from */
+	from = s_cuts.from(model, piece, &own);
+	if (from >= 0 && own >= 0 && s_cuts.piece(model, from) == across)
+		return own;    /* the body's weight on the limb: held by the limb's own part */
+	return owner;
+}
+
 static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, unsigned body, int cuts,
                                         int anchorIndex, int backIndex, ModelNode *neck)
 {
@@ -128,9 +258,17 @@ static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, uns
 		goto fail;
 	int *triother = tripiece + skin->nverts / 3 + 1;
 	int owner = anchorIndex;
+	/* the body's own head section (struct beanSkin), collapsed to nothing:
+	 * once the head is off it goes with the head's piece, so its seam with the
+	 * coat is a rim of the cut and the collar is capped there */
+	const int *stubAt = beanSkinStubAt(skin);
+	const int stubHead = beanStubHeadPiece(skin, model, stubAt);
 	for (int i = 0; i < skin->nverts; i++) {
-		/* as the CPU pose: one piece for the whole triangle */
-		if (i % 3 == 0) {
+		if (i % 3 == 0 && stubHead >= 0 && stubAt[i] >= 0) {
+			tripiece[i / 3] = stubHead;
+			triother[i / 3] = -1;
+		} else if (i % 3 == 0) {
+			/* as the CPU pose: one piece for the whole triangle */
 			int matrices[12], pieces[12], scores[12] = {0}, n = 0, best = 0;
 			for (int c = i; c < i + 3 && c < skin->nverts; c++) for (int w = 0; w < 4; w++) {
 				int matrix = skin->verts[c].matrix[w];
@@ -144,10 +282,20 @@ static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, uns
 				if (scores[at] > scores[best]) best = at;
 			}
 			owner = n ? matrices[best] : anchorIndex;
+			if (n >= 2) {   /* across a cut: by the side of its plane (beanCutPlaneSide) */
+				int other = -1;
+				for (int at = 0; at < n; at++)
+					if (at != best && (other < 0 || scores[at] > scores[other])) other = at;
+				if (beanCutPlaneSide(skin, model, i, anchorIndex, backIndex, neck, pieces[best], pieces[other]) == pieces[other]) {
+					best = other;
+					owner = matrices[other];
+				}
+			}
+			const int mine = beanCutHead(skin, model, anchorIndex, pieces, n, &best, &owner);
 			int second = -1;
 			for (int at = 0; at < n; at++)
 				if (at != best && (second < 0 || scores[at] > scores[second])) second = at;
-			tripiece[i / 3] = n ? pieces[best] : s_cuts.piece(model, anchorIndex);
+			tripiece[i / 3] = mine;
 			triother[i / 3] = second >= 0 ? pieces[second] : -1;
 		}
 		const struct beanSkinVert *src = &skin->verts[i];
@@ -165,7 +313,8 @@ static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, uns
 			for (int c = 0; c < 3; c++)
 				p[c] = src->p[w][c] + (back && neck ? neck->Data->Group.Origin.f[c] : 0);
 			memcpy(n, src->n[w], sizeof(n));
-			const int bone = beanCutBone(k, s_cuts.remap(model, owner, matrix, p, n));
+			const int frame = beanCutFrame(skin, model, tripiece[i / 3], owner, matrix, stubHead >= 0 && stubAt[i - i % 3] >= 0);
+			const int bone = beanCutBone(k, s_cuts.remap(model, frame, matrix, p, n));
 			if (bone < 0)
 				goto fail;
 			memcpy(v[i].p[w], p, sizeof(p));
@@ -252,6 +401,10 @@ static Gfx *beanCutGpuDraw(struct beanSkin *skin, Model *model, int cuts, int an
 	memset(draw, 0, sizeof(*draw));
 	draw->mesh = k->mesh;
 	draw->authoredColor = 1;
+	/* A cut opens the skin, and Bean's clothes have no inside: a coat's skirt
+	 * that went with a thigh left its side open, and the ground showed through
+	 * the body where the culled inside should be (user, 2026-11-28, Quest). */
+	draw->twoSided = 1;
 	draw->bindVertices = skin->vtx;
 	draw->pose = beanSkinPose;
 	const float (*anchor)[4] = model->render_pos[anchorIndex].pos.m;
@@ -324,14 +477,24 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 	if (!vertices || !commands)
 		return current;
 	memcpy(vertices, skin->vtx, skin->nverts * sizeof(Vtx));
-	int owner = anchorIndex;
+	int owner = anchorIndex, ownPiece = -1;
 	int *tripiece = cut ? beanFrameAllocate((size_t)(skin->nverts / 3 + 1) * sizeof(int) * 2) : NULL;
 	int *triother = tripiece ? tripiece + skin->nverts / 3 + 1 : NULL;
+	const int *stubAt = cut ? beanSkinStubAt(skin) : NULL;   /* the own head section, as beanCutBuild */
+	const int stubHead = cut ? beanStubHeadPiece(skin, model, stubAt) : -1;
+	int restore = 0;
 	for (int v = 0; v < skin->nverts; v++) {
+        if (v % 3 == 0) {
+            restore = stubHead >= 0 && stubAt[v] >= 0;
+            if (restore && tripiece) {
+                tripiece[v / 3] = stubHead;   /* collapsed, with the head: the collar is the rim */
+                triother[v / 3] = -1;
+            }
+        }
         /* Skin vertices are emitted as independent triangle triples. Choose
          * one piece for the whole triangle, then rehome cross-cut weights in
          * the captured pose. Per-vertex choices would leave stretched edges. */
-        if (cut && v % 3 == 0) {
+        if (cut && v % 3 == 0 && !restore) {
             int matrices[12], pieces[12], scores[12] = {0}, count = 0, best = 0;
             for (int c = v; c < v + 3 && c < skin->nverts; c++) for (int w = 0; w < 4; w++) {
                 int matrix = skin->verts[c].matrix[w];
@@ -345,11 +508,22 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
                 if (scores[at] > scores[best]) best = at;
             }
             owner = count ? matrices[best] : anchorIndex;
+            if (count >= 2) {   /* across a cut: by the side of its plane (beanCutPlaneSide) */
+                int other = -1;
+                for (int at = 0; at < count; at++)
+                    if (at != best && (other < 0 || scores[at] > scores[other])) other = at;
+                if (beanCutPlaneSide(skin, model, v, anchorIndex, backIndex, neck, pieces[best], pieces[other]) == pieces[other]) {
+                    best = other;
+                    owner = matrices[other];
+                }
+            }
+            const int mine = beanCutHead(skin, model, anchorIndex, pieces, count, &best, &owner);
+            ownPiece = mine;
             if (tripiece) {
                 int second = -1;
                 for (int at = 0; at < count; at++)
                     if (at != best && (second < 0 || scores[at] > scores[second])) second = at;
-                tripiece[v / 3] = count ? pieces[best] : s_cuts.piece(model, anchorIndex);
+                tripiece[v / 3] = mine;
                 triother[v / 3] = second >= 0 ? pieces[second] : -1;
             }
         }
@@ -369,7 +543,7 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 			for (int k = 0; k < 3; k++)
 				local[k] = src->p[w][k] + (back && neck ? neck->Data->Group.Origin.f[k] : 0);
             memcpy(normalLocal, src->n[w], sizeof(normalLocal));
-            if (cut) matrix = s_cuts.remap(model, owner, matrix, local, normalLocal);
+            if (cut) matrix = s_cuts.remap(model, beanCutFrame(skin, model, ownPiece, owner, matrix, restore), matrix, local, normalLocal);
             const float (*m)[4] = model->render_pos[matrix].pos.m;
 			for (int k = 0; k < 3; k++) {
 				p[k] += weight * (local[0] * m[0][k] + local[1] * m[1][k] + local[2] * m[2][k] + m[3][k]);

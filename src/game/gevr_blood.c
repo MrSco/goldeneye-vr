@@ -37,6 +37,7 @@
 #include <string.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
+#include <bondaicommands.h>
 #include "bg.h"
 #include "bgroomtrans.h"
 #include "bondview.h"
@@ -44,6 +45,7 @@
 #include "chrai.h"
 #include "chrobjdata.h"
 #include "matrixmath.h"
+#include "model.h"
 #include "stan.h"
 #include "image_bank.h"
 #include "gevr_blood.h"
@@ -82,6 +84,7 @@ typedef struct BloodDecal {
     s16 room;
     s16 fine;
     u8 rgb[3], alpha;
+    u8 floor;                           /* facing up: drawn after the bullet holes' band (explosion.c) */
 } BloodDecal;
 
 typedef struct BloodChr {
@@ -250,6 +253,7 @@ static void bloodDecalCreate(const float pos[3], const float normal[3], int room
     /* too far from the room's origin for a vertex: leave the slot's splat be */
     if (most > 32000.0f) return;
     memset(d, 0, sizeof(*d));
+    d->floor = normal[1] > 0.7f;
     for (k = 0; k < 3; k++) {
         d->centre[k] = pos[k] * roomscale - roompos->f[k];
         d->across[k] = across[k] * w * roomscale;
@@ -545,6 +549,50 @@ static void bloodSpread(const float dir[3], float out[3])
 }
 
 /* splat0f149274 + splat0f14986c: one splat from from along dir. */
+/*
+ * Kept on the surface it hit: a splat lies flat on the face the blood met,
+ * and on Dam's faceted rock the faces round it stood in front of it or fell
+ * away behind, so it came out cut at an angle (user, Quest, 2026-11-28).
+ * Eight points round its corners' circle are traced back onto the level along
+ * the face's normal; while one lands off the plane by more than a little, or
+ * on nothing, the splat shrinks. Neither PD's wall hits nor GoldenEye's
+ * bullet holes fit the wall (flat quads, flat walls): this is the port's.
+ * Returns the scale that fits, else the smallest tried.
+ */
+#define SPLAT_FIT_TRIES  3
+#define SPLAT_FIT_SHRINK 0.65f
+static float bloodFit(const float hit[3], const float normal[3], int room, float w, float h)
+{
+    float across[3], up[3], scale = 1.0f;
+    int t, i, k;
+
+    bloodSurfaceAxes(normal, 0.0f, across, up);
+    for (t = 0; t < SPLAT_FIT_TRIES; t++, scale *= SPLAT_FIT_SHRINK) {
+        const float r = sqrtf(w * w + h * h) * scale;
+        const float depth = r * 0.5f + 2.0f, tol = r * 0.06f + 0.5f;
+        int fits = 1;
+        for (i = 0; i < 8 && fits; i++) {
+            const float a = (float)i * (BLOOD_PI / 4.0f), ca = cosf(a), sa = sinf(a);
+            float p[3], q[3], n[3], off = 0.0f;
+            coord3d from, to;
+            int qroom = 0;
+            for (k = 0; k < 3; k++) {
+                p[k] = hit[k] + (across[k] * ca + up[k] * sa) * r;
+                from.f[k] = p[k] + normal[k] * depth;
+                to.f[k] = p[k] - normal[k] * depth;
+            }
+            if (!bloodTrace(&from, &to, room, q, n, &qroom)) {
+                fits = 0;
+                break;
+            }
+            for (k = 0; k < 3; k++) off += (q[k] - p[k]) * normal[k];
+            fits = fabsf(off) <= tol;
+        }
+        if (fits) return scale;
+    }
+    return scale / SPLAT_FIT_SHRINK;
+}
+
 static int bloodSplat(const coord3d *from, const float dir[3], int room, int type)
 {
     static const float scales[3] = { 0.8f, 1.1f, 0.3f };
@@ -578,7 +626,10 @@ static int bloodSplat(const coord3d *from, const float dir[3], int room, int typ
         const float r3 = bloodFrac();
         bloodSplatSize(distance, scales[type], r1, r2, r3, &w, &h);
     }
-    if (onlevel) bloodDecalCreate(hit, normal, hitroom, w, h, timers[type]);
+    if (onlevel) {
+        const float fit = bloodFit(hit, normal, hitroom, w, h);
+        bloodDecalCreate(hit, normal, hitroom, w * fit, h * fit, timers[type]);
+    }
     else bloodDecalOnObject(&object, w, h);
     return 1;
 }
@@ -641,6 +692,55 @@ void gevrBloodChrHit(ChrRecord *chr, const coord3d *hitpos, const coord3d *shotd
         s->tickssincesplat = 0;
         s->lastdroppos = chr->prop->pos;
     }
+}
+
+/*
+ * A blade's or a gun butt's blow (chrprop.c chraiFistAttackHandler, the
+ * headset's gevrChopHit): neither GoldenEye nor PD bleeds for a melee hit, so
+ * the Blood patch adds what a shot leaves. The stain goes on the struck
+ * part's box, on its face toward the blow, as the "wound" cheat lays one
+ * (bondview2.c gevrWoundGuards); the splats spray on from the part's middle
+ * along the blow, as a shot's do. The chr is on screen (both look through the
+ * on-screen list), so its matrices are this frame's. Fists stay clean.
+ */
+void gevrBloodMeleeHit(ChrRecord *chr, s32 hitpart, const coord3d *dir)
+{
+    extern ModelNode *gevrWoundChest(ModelNode *node, s32 part);   /* bondview2.c */
+    ModelNode *root, *node;
+    Mtxf *mtx, inv;
+    coord3d vdir, local, world;
+    const struct bbox *box;
+    float lo[3], hi[3], d[3];
+    int k, axis = 2;
+    s32 part;
+
+    if (!BLOOD_ON || !bloodChrBleeds(chr) || !dir || !chr->model->obj || !chr->model->render_pos) return;
+    if (chr->prop->type != PROP_TYPE_CHR && chr->prop->type != PROP_TYPE_VIEWER) return;
+    if (!(chr->prop->flags & PROPFLAG_ONSCREEN)) return;
+    /* the crouched blows' general parts have no box of their own */
+    part = hitpart == HIT_GENERALHALF ? HIT_PELVIS : hitpart == HIT_GENERAL ? HIT_CHEST : hitpart;
+    root = chr->model->obj->RootNode;
+    node = gevrWoundChest(root, part);
+    if (!node) node = gevrWoundChest(root, part = HIT_CHEST);
+    if (!node || !(mtx = modelFindNodeMtx(chr->model, node, 0))) return;
+
+    /* the blow in the part's own axes: it lands on the face it comes from */
+    vdir = *dir;
+    mtx4RotateVecInPlace(camGetWorldToScreenMtxf(), &vdir);
+    matrix_4x4_set_inverse_rotation_and_translation(mtx, &inv);
+    mtx4RotateVecInPlace(&inv, &vdir);
+    box = &node->Data->BoundingBox.Bounds;
+    lo[0] = box->xmin; lo[1] = box->ymin; lo[2] = box->zmin;
+    hi[0] = box->xmax; hi[1] = box->ymax; hi[2] = box->zmax;
+    for (k = 0; k < 3; k++) d[k] = vdir.f[k];
+    if (fabsf(d[0]) > fabsf(d[axis])) axis = 0;
+    for (k = 0; k < 3; k++) local.f[k] = (lo[k] + hi[k]) * 0.5f;
+    local.f[axis] = d[axis] < 0.0f ? hi[axis] : lo[axis];
+    chrCreateBloodStain(chr->model, part, node, &local);
+
+    for (k = 0; k < 3; k++) world.f[k] = mtx->m[3][k];
+    mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &world);
+    gevrBloodChrHit(chr, &world, dir);
 }
 
 static int bloodChrDownEnough(ChrRecord *chr)
@@ -768,10 +868,11 @@ void gevrBloodReset(void)
 
 int gevrBloodDecals(void) { return BLOOD_ON ? BLOOD_DECALS : 0; }
 
-const Vtx *gevrBloodDecal(int i, s32 *room)
+const Vtx *gevrBloodDecal(int i, s32 *room, s32 *floor)
 {
     if (i < 0 || i >= BLOOD_DECALS || s_decals[i].room <= 0) return NULL;
     *room = s_decals[i].room;
+    *floor = s_decals[i].floor;
     return s_decals[i].vtx;
 }
 #endif

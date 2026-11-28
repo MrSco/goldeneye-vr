@@ -50,6 +50,7 @@ typedef struct RdMesh {
  * rim edges, each rim vertex drawn with the matrix and coordinates the mesh
  * uses there, so the cap stays on the edge of the hole */
 #define RD_MAXCAPS 24
+#define RD_MAXBEAN 64   /* Bean rims a view: 24 ran out on a body blown apart again and again (2026-11-28) */
 typedef struct RdCapVtx { s16 mtx, v[3]; } RdCapVtx;
 typedef struct RdCap {
     int matrix, numedges;   /* the centre is drawn with this matrix */
@@ -78,13 +79,35 @@ typedef struct RdBody {
     unsigned lastpush;
     float colroompos[3];
     int asleep, onscreen, crossed;
+    /* each part's place last tick, and how long each cut piece has lain still (rdRest) */
+    float restpos[RD_PARTS][3];
+    float still[RD_PARTS];
+    float anchor[RD_PARTS][3];   /* where each part of a piece was when it started lying still */
+    float stillbody;             /* the same for the body itself (the piece of no cut) */
+    float shake[RD_PARTS+1];     /* per piece (0 the body, cut+1): how long it has kept within RD_SHAKE_REACH */
+    float shakeanchor[RD_PARTS][3];
+    /* shaking in place (rdRest, RD_JITTER_*): each part's last step, and per
+     * piece the window's start, its age, and the reversals counted in it */
+    float jitstep[RD_PARTS][3], jitanchor[RD_PARTS][3];
+    float jittime[RD_PARTS+1];
+    int jitflips[RD_PARTS+1], jitlogs;
+    int restset;
+    float awake, awakelog;  /* awake this long; the next awake report in (rdRest) */
+    int moverwakes, mover[4];  /* props that kept it awake since the last report, the last one's type and place */
+    int rewakes;            /* asleep, then awake again, every time (rdRewakeLog) */
+    float rewakefrom;       /* the body's age when it last fell asleep */
+    int solid;        /* multiplayer: lying still, static in the physics (rdRest, CE Resting Bodies Turn Solid) */
+    float solidstill; /* how long every part has been slower than RD_SOLID_SPEED */
+    int dk;           /* DK Mode at death: the head and arms as chr.c draws them (rdBuildParts) */
+    u32 cutpaint[RD_PARTS]; /* Paintball Mode: each cut's paint, RGBA (rdPaintColour), 0 for blood */
     int doorhit;      /* a moving door touched it: it fades in RD_DOOR_FADE_S (gevrRagdollDoorFade) */
     float doorfade;   /* seconds since */
     u8 visrooms[16];
     RdCap caps[RD_MAXCAPS];
     int ncaps, ndiscs;
     /* Bean skin rims this view (gevr_bean_caps.inc.h), drawn as fans */
-    struct { int matrix, nedges, piece, other; const s16 (*rim)[2][3]; } bean[RD_MAXCAPS];
+    /* hub: the fan's middle, the cut's joint in matrix's space (hashub), else the rim's centre */
+    struct { int matrix, nedges, piece, other, cut, hashub; float hub[3]; const s16 (*rim)[2][3]; } bean[RD_MAXBEAN];
     int nbean;
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
     /* rdPiece of each matrix's owner, for these cuts (gevrRagdollPiece, Remap) */
@@ -144,6 +167,8 @@ void rdMoversUpdate(float dt, RdBody *bodies, int count);
 void rdMoversReset(void);
 int rdCopyMeshes(RdBody *rd);
 int rdCut(RdBody *rd, int part);
+u32 rdPaintColour(void);
+void rdUnsolid(RdBody *rd, const char *why);
 void rdBuildCaps(RdBody *rd);
 Gfx *rdDrawCaps(RdBody *rd, Gfx *gdl);
 #endif

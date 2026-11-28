@@ -40,7 +40,11 @@
 
 #define NUMBER_OUTPUT_BUFFERS               3
 #define NUMBER_ACMD_LISTS                   2
+#ifdef GEVR
+#define MAX_ACMD_SIZE                    (3000 * 4)   /* 4 x the voices (music.c MUSIC_SND_SCALE) */
+#else
 #define MAX_ACMD_SIZE                    3000
+#endif
 #define NUMBER_DMA_BUFFERS                 64
 #define EXTRA_SAMPLES                    0x25
 #define AUDIO_FRAME_MESSAGE_QUEUE_SIZE      8

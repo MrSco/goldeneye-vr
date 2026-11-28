@@ -73,6 +73,22 @@ spawned bodies, so it makes no pools. Also in #363, for the release notes:
 a shot's hit node stays a pointer through chrpropAddBulletHit (64-bit cut it),
 so a CCTV camera's glass takes the N64's 100x damage again and a door
 window's holes clear when it breaks - a gameplay change, protocol 30 covers it.
+**Unreleased (PR #367, t3/melee-blood, headset rounds 2026-11-28):** Bean
+ragdoll fixes from the user's Quest rounds: no head inside the head (the body
+keeps its own head section collapsed under a head file, Dab's headsecskel); a
+beheading takes it with the head, so the cap fills the collar flat; a coat
+splits along the cut's plane; cap rims weld by bone + local or bind position
+(a shoulder's rim was open chains: slivers); bodies draw after bullet holes;
+wall splats inside the impact band, floor ones after it, shrunk to fit rock. Cut pieces
+rest (CE Resting Bodies, as sleep); MP bodies turn solid. CE ports: DK sizes,
+Paintball cuts, pelvis shared hole, settings 512, sound limits x4 (Dam truck
+cut-outs). Dab's: Cradle railing decal, Doak's face, unknown GBI opcode not
+fatal. Dam tower guard: a prop hull's corner list overran on ARM64 (rem[4], GE PC
+D490) and a window's phantom edge blocked pad 304; also an unseen patrol
+skips ahead by the N64's rooms (both Codex; Quest check pending). Cut pieces
+rocking in place sleep after 1 s; a body awake past 8 s logs why ("ragdoll:
+body N awake"). Open: a see-through torso seen once on the Quest, not
+reproduced; interpolation on in-between frames not started.
 **Unreleased (t3/separate-dual-hat-models):** dual throwing knives with
 Oddjob's hat on a flat screen: each hand eases 10 units out so the brims no
 longer overlap (`flat` in gevr_oddjobhat.txt, docs/oddjob-hat.md); PC-tested

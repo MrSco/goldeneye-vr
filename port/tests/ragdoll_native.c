@@ -10,6 +10,7 @@
 #include "propobj.h"
 #include "matrixmath.h"
 #include "chrai.h"
+#include "cheat.h"
 #include "gevr_ragdoll.c"
 
 int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance=40;
@@ -35,6 +36,8 @@ static struct player players[8];
 struct player *g_playerPointers[8];
 static int playerCount=1;
 s32 getPlayerCount(void) { return playerCount; }
+static int mpRules;
+s32 gevrMpRules(void) { return mpRules; }
 s32 getPlayerPointerIndex(PropRecord *prop) { return prop->chr->chrnum; }
 static Mtxf view,world;
 Mtxf *currentPlayerGetViewToWorldMtxf(void) { return &world; }
@@ -53,7 +56,10 @@ void bondviewTransformManyPosToViewMatrix(RenderPosView *p,s32 n) { memset(p,0,(
 Gfx *bgScissorCurrentPlayerViewDefault(Gfx *g) { return g; }
 void sysLogPrintf(s32 level,const char *fmt,...) { (void)level; (void)fmt; }
 void gevrBeanForgetWounds(Model *model) { (void)model; }
+void gevrBeanCopyWounds(const Model *from, Model *to, size_t bytes) { (void)from; (void)to; (void)bytes; }
 void gevrBeanSetCuts(const GevrBeanCuts *cuts) { (void)cuts; }
+static int dkMode,paintball;
+bool cheatIsActive(CHEAT_ID cheat) { return (cheat==CHEAT_DK_MODE && dkMode) || (cheat==CHEAT_PAINTBALL && paintball); }
 static int beanDraws;
 u64 g_randomSeed=12345;
 static int stains; static ModelNode *stainedNode; static s32 stainedPart;
@@ -319,6 +325,26 @@ static void portChecks(void)
         /* Bean draws its own skin: CE's discs, both sides of each cut */
         beanDraws=1;rdBuildCaps(body);beanDraws=0;
         assert(body->ndiscs==4 && body->ncaps==4);
+        /* Bean's rims: closed only within CE's reach of their cut, 1.6 cut
+         * radii from the joint on that side - not a cuff down the arm */
+        const int cut=body->body[3],m=body->primary[cut];
+        const float reach=g_RdSkelHuman.cutradius[body->skel[cut]]*body->torso*1.6f;
+        Mtxf w,inv;rdMul(&body->offset[m],&body->joints[body->owner[m]],&w);assert(rdInverse(&w,&inv));
+        for(int test=0;test<3;test++) {
+            const int far=test==1,childside=test<2;
+            s16 (*rim)[2][3]=rdAlloc(body,8*sizeof(*rim));
+            for(int e=0;e<8;e++)for(int s=0;s<2;s++) {
+                float p[3];memcpy(p,body->joints[cut].m[3],sizeof(p));
+                p[0]+=far?reach*2:0;p[1]+=4*cosf((e+s)*0.785398f);p[2]+=4*sinf((e+s)*0.785398f);
+                rdTransform(&inv,p,1);
+                for(int k=0;k<3;k++)rim[e][s][k]=(s16)roundf(p[k]);
+            }
+            const int piece=cut+1,other=rdPiece(body,body->parent[cut]);
+            body->nbean=0;
+            gevrRagdollBeanCap(&body->model,m,(const s16 (*)[2][3])rim,8,childside?piece:other,childside?other:piece);
+            assert(body->nbean==!far);
+        }
+        body->nbean=0;
     }
     /* A shot body bleeds where it was hit: the hit box of that part, the
      * game's random sequence put back; the paint survives a later cut */
@@ -348,6 +374,141 @@ static void portChecks(void)
 
 #include "ragdoll_movers_test.inc.h"
 
+/* A cut piece comes to rest and sleeps (rdPiecesRest): on this flat floor a
+ * lone forearm or head kept a steady 6 units/s roll for good. A push still
+ * moves it. */
+static void cutPiecesRest(void)
+{
+    static const int skel[2]={6,2};   /* a forearm, the head */
+    const int dismember=VrDismemberment,players=playerCount;
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;VrDismemberment=1;playerCount=1;
+    for(int n=0;n<2;n++) {
+        capture(0);
+        RdBody *b=newest();
+        const int piece=b->body[skel[n]];
+        float a[3],c[3];
+        assert(rdCut(b,piece));
+        for(int t=0;t<60*15;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+        pdphysRagdollGetPartPos(b->handle,piece,a);
+        for(int t=0;t<60*5;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+        pdphysRagdollGetPartPos(b->handle,piece,c);
+        assert(pdphysRagdollIsAsleep(b->handle));
+        assert(fabsf(a[0]-c[0])+fabsf(a[1]-c[1])+fabsf(a[2]-c[2])<0.01f);
+        /* Rocking in place by a little more than the rest stray, every tick
+         * (a cut forearm in a headset log: 10 units/s, 2.5 units off), the
+         * piece still goes to sleep: within RD_SHAKE_REACH for RD_SHAKE_TIME */
+        const float wake[3]={0,0,0};
+        pdphysRagdollAddVelocity(b->handle,piece,wake);
+        assert(!pdphysRagdollIsAsleep(b->handle));
+        float base[3];
+        memcpy(base,b->joints[piece].m[3],sizeof(base));
+        int ticks=0;
+        for(;ticks<90 && !pdphysRagdollIsAsleep(b->handle);ticks++) {
+            b->joints[piece].m[3][0]=base[0]+((ticks/2)%2 ? -2.5f : 2.5f);
+            rdRest(b,1.0f/60,0);
+        }
+        memcpy(b->joints[piece].m[3],base,sizeof(base));
+        assert(pdphysRagdollIsAsleep(b->handle) && ticks<90);
+        /* Moving on steadily (a roll, a slide) it stays awake: no step turns
+         * back. It starts out of RD_SHAKE_REACH, or the rocking it slept from
+         * puts it straight back to sleep. */
+        pdphysRagdollAddVelocity(b->handle,piece,wake);
+        b->awake=0;
+        for(ticks=0;ticks<90;ticks++) {
+            b->joints[piece].m[3][0]=base[0]+20.0f+ticks*1.0f;
+            rdRest(b,1.0f/60,0);
+        }
+        assert(!pdphysRagdollIsAsleep(b->handle));
+        /* Shaking wider than RD_SHAKE_REACH, every step turned back (a limb a
+         * grenade launcher threw, on the headset), soon after it fell: asleep
+         * within a window or two (RD_JITTER_*), long before RD_SHAKE_LATE */
+        b->awake=0;
+        for(ticks=0;ticks<90 && !pdphysRagdollIsAsleep(b->handle);ticks++) {
+            b->joints[piece].m[3][0]=base[0]+(ticks%2 ? -15.0f : 15.0f);
+            rdRest(b,1.0f/60,0);
+        }
+        memcpy(b->joints[piece].m[3],base,sizeof(base));
+        assert(pdphysRagdollIsAsleep(b->handle) && ticks<=62);
+        const float push[3]={0,0,300};
+        pdphysRagdollAddVelocity(b->handle,piece,push);
+        for(int t=0;t<10;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+        pdphysRagdollGetPartPos(b->handle,piece,a);
+        assert(fabsf(a[2]-c[2])>1.0f);
+        gevrRagdollReset();
+    }
+    VrDismemberment=dismember;playerCount=players;
+}
+
+/* DK Mode: the head's sphere 4x and the arms' capsules 2.5x, as chr.c draws them */
+static void dkModeSizes(void)
+{
+    float normal[RD_SKEL],dk[RD_SKEL];
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;
+    for(int pass=0;pass<2;pass++) {
+        dkMode=pass;
+        capture(0);
+        RdBody *b=newest();
+        assert(b->dk==pass);
+        for(int j=0;j<RD_SKEL;j++)(pass?dk:normal)[j]=b->body[j]>=0 ? b->radius[b->body[j]] : 0;
+        gevrRagdollReset();
+    }
+    dkMode=0;
+    assert(fabsf(dk[2]-normal[2]*4)<1e-3f && fabsf(dk[3]-normal[3]*2.5f)<1e-3f && fabsf(dk[6]-normal[6]*2.5f)<1e-3f);
+    assert(dk[1]==normal[1] && dk[9]==normal[9]);   /* chest, thigh as they were */
+}
+
+/* Multiplayer: a body lying still turns solid (CE Resting Bodies Turn Solid):
+ * shots no longer push it or cut it, and it moves again when let go */
+static void mpBodiesTurnSolid(void)
+{
+    const int dismember=VrDismemberment;
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;VrDismemberment=1;mpRules=1;
+    capture(0);
+    RdBody *b=newest();
+    for(int t=0;t<60*10 && !b->solid;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+    assert(b->solid && pdphysRagdollIsAsleep(b->handle));
+    float a[3],c[3];
+    pdphysRagdollGetPartPos(b->handle,b->root,a);
+    const float push[3]={0,0,300};
+    pdphysRagdollAddVelocity(b->handle,-1,push);
+    for(int t=0;t<30;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+    pdphysRagdollGetPartPos(b->handle,b->root,c);
+    assert(fabsf(a[2]-c[2])<0.01f && !rdCut(b,b->body[3]));
+    rdUnsolid(b,"the test");
+    assert(!b->solid);
+    pdphysRagdollAddVelocity(b->handle,-1,push);
+    for(int t=0;t<10;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+    pdphysRagdollGetPartPos(b->handle,b->root,c);
+    assert(fabsf(a[2]-c[2])>1.0f);
+    gevrRagdollReset();
+    /* solo bodies never turn solid */
+    mpRules=0;capture(0);b=newest();
+    for(int t=0;t<60*10;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+    assert(!b->solid);
+    gevrRagdollReset();
+    VrDismemberment=dismember;
+}
+
+/* Paintball Mode: each cut a paint colour, never black; blood without it */
+static void paintballCuts(void)
+{
+    const int dismember=VrDismemberment;
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;VrDismemberment=1;
+    capture(0);
+    RdBody *b=newest();
+    assert(rdCut(b,b->body[3]) && b->cutpaint[b->body[3]]==0);
+    paintball=1;
+    for(int n=0;n<24;n++) {
+        const u32 c=rdPaintColour();
+        assert((c&0xff)==0xff && (c&0xffffff00u));
+        for(int k=1;k<4;k++){const u32 x=(c>>(k*8))&255;assert(x==0 || x==255);}
+    }
+    assert(rdCut(b,b->body[4]) && b->cutpaint[b->body[4]]!=0);
+    paintball=0;
+    gevrRagdollReset();
+    VrDismemberment=dismember;
+}
+
 int main(void)
 {
     view=world=identity();for(int i=0;i<8;i++)g_playerPointers[i]=&players[i];
@@ -357,6 +518,10 @@ int main(void)
     portChecks();VrDismemberment=VrRagdolls=0;fflush(stdout);
     assert(!gevrRagdollNeedsPose(&sourceChr));assert(!pdphysIsReady());
     VrRagdolls=1;VrBodiesStay=RD_BODIES;
+    cutPiecesRest();
+    dkModeSizes();
+    paintballCuts();
+    mpBodiesTurnSolid();
     for(int mode=1;mode<=8;mode*=2) {
         playerCount=mode;
         for(int i=0;i<RD_BODIES+2;i++) { capture(mode>1);assert(countBodies()==(i<RD_BODIES?i+1:RD_BODIES)); }
@@ -415,6 +580,9 @@ int main(void)
         const int n=gevrRagdollBodyParts(doorBody,parts,GEVR_RAGDOLL_PARTS_MAX);
         assert(n==d->count && n>0);
         for(int i=0;i<n;i++)assert(parts[i].f[0]==d->joints[i].m[3][0] && parts[i].f[1]==d->joints[i].m[3][1]);
+        /* a leg cut off is not the body a door fades: only the biggest piece's parts */
+        assert(d->body[9]>=0 && rdCut(d,d->body[9]));
+        assert(gevrRagdollBodyParts(doorBody,parts,GEVR_RAGDOLL_PARTS_MAX)==n-2);
         gevrRagdollDoorFade(doorBody);
         assert(!gevrRagdollBodyParts(doorBody,parts,GEVR_RAGDOLL_PARTS_MAX));
         for(int i=0;i<15;i++){g_GlobalTimer++;gevrRagdollTick(1);}

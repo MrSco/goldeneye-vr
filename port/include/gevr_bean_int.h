@@ -40,6 +40,7 @@ struct gevrBeanTri {
 	uint8_t sk;
 	uint8_t flags;
 	uint8_t side;   /* GEVR_BEAN_SIDE_*, levels only */
+	uint8_t headsec; /* 1: drawn in a character file's head section (the 0x17 section of kind 0, DAB beandraw.section) */
 };
 
 /* A prop's draws as DAB gebean.c reads them for GoldenEye's monitor screens

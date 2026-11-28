@@ -1019,6 +1019,25 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: kill %.0f: %d guards", (double) r, gevrKillGuards(r));
             continue;
         }
+        /* "chrtrace<N>": chr N's patrol in the log twice a second (chraction.c
+         * gevrChrTracePatrol); "chrtrace" alone turns it off */
+        if (strncasecmp(word, "chrtrace", 8) == 0)
+        {
+            extern s32 g_gevrChrTrace;
+            g_gevrChrTrace = word[8] ? atoi(word + 8) : -1;
+            sysLogPrintf(LOG_NOTE, "cheathook: chrtrace %d", g_gevrChrTrace);
+            continue;
+        }
+        /* "cut<N>": CE skeleton part N (2 head, 3/4 upper arms, 5/6 forearms,
+         * 9/10 thighs, 11/12 shins) off every body within 600 units of Bond,
+         * as a shot's cut, for a test script */
+        if (strncasecmp(word, "cut", 3) == 0 && word[3] >= '0' && word[3] <= '9')
+        {
+            extern int gevrRagdollCutNear(const float at[3], float radius, int skelpart);
+            sysLogPrintf(LOG_NOTE, "cheathook: cut %d: %d bodies", atoi(word + 3),
+                         gevrRagdollCutNear(g_CurrentPlayer->prop->pos.f, 600.0f, atoi(word + 3)));
+            continue;
+        }
         /* "wound<R>": every guard within R units of Bond (600 if none) takes a
          * bullet's bruise on the chest (chrCreateBloodStain), as a shot's
          * would, without aiming from the PC; "woundhead<R>" on the head */
@@ -1161,8 +1180,9 @@ s32 gevrBlastObjects(f32 radius)
 }
 
 /* "wound<R>" (gevrCheatProbe): a bruise on the chest (or head) of every guard
- * within radius of Bond, on the part box's front and back; returns how many */
-static ModelNode *gevrWoundChest(ModelNode *node, s32 part)
+ * within radius of Bond, on the part box's front and back; returns how many.
+ * The part's box: the Blood patch's melee stains too (gevr_blood.c). */
+ModelNode *gevrWoundChest(ModelNode *node, s32 part)
 {
     for (; node != NULL; node = node->Next)
     {
@@ -4487,7 +4507,12 @@ void gevrHandChopTick(s32 ctrl)
         {
             dir[i] = len > 1e-6f ? end[i] / len : (i == 2 ? -1.0f : 0.0f);
         }
-        got = gevrChopHit(at, end, GEVR_CHOP_TOUCH_CM * cm, dir, damage, vel, need, s_cool[ctrl] <= 0, &into);
+        {
+            extern s32 g_gevrChopBleeds;   /* chrprop.c: the Blood patch's melee blood */
+            g_gevrChopBleeds = knife || club || !bare;   /* a blade or a gun butt, not a fist */
+            got = gevrChopHit(at, end, GEVR_CHOP_TOUCH_CM * cm, dir, damage, vel, need, s_cool[ctrl] <= 0, &into);
+            g_gevrChopBleeds = 0;
+        }
         if (got == 2 && s_cool[ctrl] <= 0)
         {
             f32 d[3];
@@ -20211,6 +20236,18 @@ s32 gevrRackPointShown(s32 hand, f32 at[3], s32 *held)
     return gevrRackMeasure(hand, &dist, &along, at);
 }
 
+/* gun.c, and the reload spots' pulse: the off hand on the rack's spot, within
+ * reach of a slide or bolt handle, or anywhere on a shotgun's fore-end, where
+ * a grip takes the pump (gevrRackRun). The ring turned only once the hand had
+ * it: the shells' turned on the way in, the pump's not (user, 2026-11-28). */
+s32 gevrRackPointHover(s32 gunHand)
+{
+    f32 dist, along;
+
+    return gevrRackMeasure(gunHand, &dist, &along, NULL)
+        && (dist <= GEVR_RACK_REACH_CM || (gevrRackKind(gunHand) == GEVR_RACK_KIND_PUMP && gevrRackAtForeEnd()));
+}
+
 /* Gun fit's reload mode, the left grip: the off hand is where this gun is racked. */
 void gevrRackFitSet(void)
 {
@@ -21414,6 +21451,53 @@ static void gevrGexRoundTick(s32 gunHand, f32 cm, const f32 grip0[3], s32 grip, 
     s_gevrMagGrab=0;
 }
 
+/*
+ * A light pulse as a hand comes onto a reload spot (user, 2026-11-28: "we need
+ * some haptic feedback when we hover on the reload points, the pump to
+ * shotgun, or magazines by our hip to let you know that you're on the spot"):
+ * the rack's (a slide, a bolt handle, the pump), a shotgun's shell on its
+ * saddle, the magazine or round at either hip, and the gun's well with a
+ * magazine in the hand. The tests the rings are coloured by, once on arriving,
+ * each spot and controller. The off hand's controller has the gun's index
+ * (gevrOffHandGripBuzz).
+ */
+static void gevrReloadHoverBuzz(void)
+{
+    extern void vrHapticsGetRumble(int id, float *amp, float *dur, float *freq);
+    extern s32 trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency);
+    extern int vr_haptics_ready(void);
+    static s32 s_was[2][4];
+    const s32 gunHand = gevrReloadSupportGun();
+    s32 on[2][4] = {{FALSE}};
+    s32 ctrl, k, held, rounds, hover;
+    f32 at[3];
+
+    if (gunHand == GUNRIGHT || gunHand == GUNLEFT)
+    {
+        on[gunHand][0] = gevrRackPointShown(gunHand, at, &held) && (held || gevrRackPointHover(gunHand));
+        on[gunHand][1] = gevrReloadSaddleShown(gunHand, at, &hover) && hover;
+        on[gunHand][3] = gevrReloadSeatHover(at);
+    }
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        on[ctrl][2] = gevrReloadBeltHover(ctrl) || (gevrReloadBeltRound(ctrl, &rounds, &hover) >= 0 && hover);
+    }
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        for (k = 0; k < 4; k++)
+        {
+            if (on[ctrl][k] && !s_was[ctrl][k] && vr_haptics_ready())
+            {
+                f32 amp, dur, freq;
+
+                vrHapticsGetRumble(1008 /* GEVR_ACTION_RELOAD_HOVER, vr_haptics.h */, &amp, &dur, &freq);
+                if (amp > 0.0f && dur > 0.0f) trigger_haptic_vibration_freq_c(ctrl, amp, dur, freq);
+            }
+            s_was[ctrl][k] = on[ctrl][k];
+        }
+    }
+}
+
 void gevrHandReloadTick(void)
 {
     extern _Bool get_button_state(int hand_index, const char *button_name);
@@ -21463,6 +21547,7 @@ void gevrHandReloadTick(void)
         }
         return;
     }
+    gevrReloadHoverBuzz();
     right = getCurrentPlayerWeaponId(GUNRIGHT);
     left = getCurrentPlayerWeaponId(GUNLEFT);
     for (i = 0; i < 2; i++)
@@ -22640,8 +22725,19 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         }
         if (next != s_gevrWpIndex)
         {
+            extern void vrHapticsGetRumble(int id, float *amp, float *dur, float *freq);
+            extern s32 trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency);
+            extern int vr_haptics_ready(void);
+            f32 amp, dur, freq;
+
             s_gevrWpIndex = next;
             s_gevrWpMoved = TRUE;
+            /* a tick in the hand whose stick moves the highlight (user, 2026-11-28:
+             * "maybe even some haptic feedback when you move through the weapon
+             * wheel"); a trigger's step ticks it too. Controller 1 is the right. */
+            vrHapticsGetRumble(1009 /* GEVR_ACTION_WHEEL_STEP, vr_haptics.h */, &amp, &dur, &freq);
+            if (vr_haptics_ready() && amp > 0.0f && dur > 0.0f)
+                trigger_haptic_vibration_freq_c(hand == GUNRIGHT ? 0 : 1, amp, dur, freq);
         }
     }
 
