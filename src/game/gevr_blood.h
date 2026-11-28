@@ -19,5 +19,5 @@ void gevrBloodTick(int ticks);
 void gevrBloodReset(void);
 /* explosionRenderBulletImpactOnProp: the splats to draw with the bullet holes */
 int gevrBloodDecals(void);
-const Vtx *gevrBloodDecal(int i, s32 *room);
+const Vtx *gevrBloodDecal(int i, s32 *room, s32 *floor);
 #endif

@@ -84,6 +84,7 @@ typedef struct BloodDecal {
     s16 room;
     s16 fine;
     u8 rgb[3], alpha;
+    u8 floor;                           /* facing up: drawn after the bullet holes' band (explosion.c) */
 } BloodDecal;
 
 typedef struct BloodChr {
@@ -252,6 +253,7 @@ static void bloodDecalCreate(const float pos[3], const float normal[3], int room
     /* too far from the room's origin for a vertex: leave the slot's splat be */
     if (most > 32000.0f) return;
     memset(d, 0, sizeof(*d));
+    d->floor = normal[1] > 0.7f;
     for (k = 0; k < 3; k++) {
         d->centre[k] = pos[k] * roomscale - roompos->f[k];
         d->across[k] = across[k] * w * roomscale;
@@ -819,10 +821,11 @@ void gevrBloodReset(void)
 
 int gevrBloodDecals(void) { return BLOOD_ON ? BLOOD_DECALS : 0; }
 
-const Vtx *gevrBloodDecal(int i, s32 *room)
+const Vtx *gevrBloodDecal(int i, s32 *room, s32 *floor)
 {
     if (i < 0 || i >= BLOOD_DECALS || s_decals[i].room <= 0) return NULL;
     *room = s_decals[i].room;
+    *floor = s_decals[i].floor;
     return s_decals[i].vtx;
 }
 #endif

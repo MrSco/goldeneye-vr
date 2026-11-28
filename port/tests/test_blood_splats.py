@@ -43,11 +43,14 @@ def main():
     lv = (ROOT / "src/game/lv.c").read_text(encoding="utf-8")
     assert "gevrBloodReset();" in lv and "gevrBloodTick(g_ClockTimer);" in lv
     explosion = (ROOT / "src/game/explosion.c").read_text(encoding="utf-8")
-    draw = explosion.index("gevrBloodDecals()")
+    walls = explosion.index("gevrBloodDecalsDraw(gdl, 0)")
+    floors = explosion.index("gevrBloodDecalsDraw(gdl, 1)")
     band_end = explosion.index("VR_IMPACT_DL_END */")
-    assert band_end < draw and explosion.count("VR_IMPACT_DL_END */") == 1, \
-        "the splats draw after the bullet holes' decal band, with the plain offset " \
-        "(the band painted a pool over the body lying in it)"
+    assert walls < band_end < floors and explosion.count("VR_IMPACT_DL_END */") == 1, \
+        "wall splats draw in the bullet holes' decal band (a flat splat on a rock wall " \
+        "was cut off), floor splats after it with the plain offset (the band painted a " \
+        "pool over the body lying in it)"
+    assert "d->floor = normal[1] > 0.7f;" in (ROOT / "src/game/gevr_blood.c").read_text(encoding="utf-8")
     blood = (ROOT / "src/game/gevr_blood.c").read_text(encoding="utf-8")
     assert "randomGetNext" not in blood, "cosmetic: never the game's random sequence"
     assert "sub_GAME_7F04E9BC(prop, &shot);" in blood, \
