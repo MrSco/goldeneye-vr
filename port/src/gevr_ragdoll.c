@@ -832,7 +832,8 @@ void gevrRagdollCapture(ChrRecord *chr)
 #define RD_REST_BODY 1.0f     /* s: the body itself, within the same 3 units */
 #define RD_SHAKE_REACH 12.0f  /* units: a piece rocking in place within this... */
 #define RD_SHAKE_TIME 1.0f    /* s: ...this long lies still too (the body: twice) */
-#define RD_SHAKE_LATE 6.0f    /* s: awake this long, a body rocks in place within twice the reach */
+#define RD_SHAKE_LATE 6.0f    /* s: awake this long, a body rocks in place within twice the reach, */
+#define RD_LATE_SPEED 240.0f  /* units/s: and a piece slower than this rocks however far it swings */
 /*
  * CE ragdoll.c rdMpSolidCheck (Perfect-Dark-CE b0180009), Resting Bodies Turn
  * Solid on its default, the Combat Simulator: in a multiplayer match a body
@@ -902,7 +903,11 @@ static void rdRest(RdBody *b, float dt, int asleep)
          * anchor, and stayed awake for good (headset log, 2026-11-28) */
         every|=mask;
         float *shake=&b->shake[c+1];
-        if(*shake<=0 || wide>reach*reach) {
+        /* Late, a slow piece counts as rocking however far its joint swings: a
+         * cut head spinning on the floor swung its neck joint past the reach
+         * and went on at 140 units/s past 8 s (headset log, 2026-11-28) */
+        const int lateslow=b->awake>=RD_SHAKE_LATE && fastest[c+1]<RD_LATE_SPEED;
+        if(*shake<=0 || (wide>reach*reach && !lateslow)) {
             for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->shakeanchor[p],b->joints[p].m[3],sizeof(b->shakeanchor[p]));
             *shake=dt>0 ? dt*0.5f : 1e-3f;
         } else if((*shake+=dt)>=(c>=0 ? RD_SHAKE_TIME : RD_SHAKE_TIME*2)) {
