@@ -3062,11 +3062,18 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
     }
 
 #ifdef GEVR
+    gDPNoOpTag(gdl++, 0x56610001);   /* VR_IMPACT_DL_END */
     /*
      * Mods: the Blood patch's splats (gevr_blood.c), on the level only, so
      * with the rooms' pass. They are wall hits of their own ring, drawn as
      * the ones above: the room's matrix, the corners' fine scale, the
      * Paintball splat's picture.
+     *
+     * They draw after the band, with the plain decal offset a room's decals
+     * take (gfx_opengl.cpp). The band draws a decal over anything within 3
+     * view units of it (15 cm on the Dam), and a pool is broad and lies under
+     * a body: it painted over the guard lying in it, its edge where his body
+     * left the band sliding as the head moved (user, 2026-11-27).
      */
     if (arg1 == NULL && arg2 == 0)
     {
@@ -3103,7 +3110,6 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
             gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
         }
     }
-    gDPNoOpTag(gdl++, 0x56610001);   /* VR_IMPACT_DL_END */
 #endif
     gDPSetColorDither(gdl++, G_CD_BAYER);
 

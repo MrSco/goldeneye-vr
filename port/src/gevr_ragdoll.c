@@ -366,7 +366,10 @@ static int rdClone(RdBody *rd, ChrRecord *chr)
         if(!rdInverse(&rd->initial[rd->owner[i]],&inv))return 0;
         rdMul(&rd->bind[i],&inv,&rd->offset[i]);
     }
-    return rdCopyMeshes(rd);
+    if (!rdCopyMeshes(rd)) return 0;
+    /* the bruises on a Bean body come down with him (gevr_bean_wounds.inc.h) */
+    gevrBeanCopyWounds(src,&rd->model,(size_t)words*4);
+    return 1;
 }
 
 /* CE rdHitpartPart (rd_internal.h:683): the skeleton part with a physics

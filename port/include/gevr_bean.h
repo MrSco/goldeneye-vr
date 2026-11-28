@@ -1,6 +1,7 @@
 #ifndef GEVR_BEAN_H
 #define GEVR_BEAN_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 struct ModelFileHeader;
@@ -52,6 +53,7 @@ void gevrBeanForgetModel(struct ModelFileHeader *header);
 void gevrBeanForgetModelStorage(const void *base, u32 size);
 /* An instance's runtime records are about to be initialized or reused. */
 void gevrBeanForgetWounds(struct Model *model);
+void gevrBeanCopyWounds(const struct Model *from, struct Model *to, size_t bytes);
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name);
 /* Load a model's Bean mesh now, ahead of its first use (the watch arm at level load) */
 void gevrBeanPrewarm(const char *name);

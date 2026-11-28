@@ -98,6 +98,29 @@ int main(int argc, char **argv)
     assert(beanWoundsInAnchor(&models[0], &body, inverse, origin, out) == 0);
     assert(beanWoundsInAnchor(&models[1], &body, inverse, origin, out) == 1);
 #ifndef BASELINE
+    /* A ragdoll's copy of the body (gevr_ragdoll.c rdClone): its own rwdata at
+     * the same offsets and its own vertex copies take the chr's live bruises. */
+    {
+        _Alignas(8) u32 ragdata[128];
+        Vertex ragcopy[1] = {0};
+        Model rag = models[1];
+        memcpy(ragdata, data[1], sizeof(ragdata));
+        rag.datas = ragdata;
+        modelApplyHeadRelations(&models[1], &sockets[1]);   /* the shared head's parent: body 1's */
+        union ModelRwData *chrrw = modelGetNodeRwData(&models[1], &stain);
+        union ModelRwData *ragrw = (union ModelRwData *)((u8 *)ragdata + ((u8 *)chrrw - (u8 *)data[1]));
+        ragrw->DisplayListCollisions.Vertices = ragcopy;
+        gevrBeanCopyWounds(&models[1], &rag, sizeof(ragdata));
+        assert(beanWoundsInAnchor(&rag, &body, inverse, origin, out) == 1);
+        assert(out[0][0]==10 && out[0][1]==20 && out[0][2]==30);
+        assert(out[0][3] == 255-141+256*BEAN_WOUND_RADIUS);
+        assert(beanWoundsInAnchor(&rag, &face, inverse, origin, out) == 1);
+        assert(beanWoundsInAnchor(&models[1], &body, inverse, origin, out) == 1);
+        /* the ended bruise of model 0 stays behind */
+        gevrBeanCopyWounds(&models[0], &rag, sizeof(ragdata));
+        assert(beanWoundsInAnchor(&rag, &body, inverse, origin, out) == 0);
+        gevrBeanForgetWounds(&rag);
+    }
     /* The same instance, header, rwdata and vertex addresses can all be reused.
      * modelInit must clear the old hit before any runtime record is read. */
     modelInit(&models[1], &bodies[1], data[1]);

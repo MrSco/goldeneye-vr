@@ -44,8 +44,10 @@ def main():
     assert "gevrBloodReset();" in lv and "gevrBloodTick(g_ClockTimer);" in lv
     explosion = (ROOT / "src/game/explosion.c").read_text(encoding="utf-8")
     draw = explosion.index("gevrBloodDecals()")
-    assert draw < explosion.index("VR_IMPACT_DL_END", draw), \
-        "the splats draw inside the bullet holes' decal band"
+    band_end = explosion.index("VR_IMPACT_DL_END */")
+    assert band_end < draw and explosion.count("VR_IMPACT_DL_END */") == 1, \
+        "the splats draw after the bullet holes' decal band, with the plain offset " \
+        "(the band painted a pool over the body lying in it)"
     blood = (ROOT / "src/game/gevr_blood.c").read_text(encoding="utf-8")
     assert "randomGetNext" not in blood, "cosmetic: never the game's random sequence"
     assert "sub_GAME_7F04E9BC(prop, &shot);" in blood, \

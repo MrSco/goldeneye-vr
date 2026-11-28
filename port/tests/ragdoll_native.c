@@ -53,6 +53,7 @@ void bondviewTransformManyPosToViewMatrix(RenderPosView *p,s32 n) { memset(p,0,(
 Gfx *bgScissorCurrentPlayerViewDefault(Gfx *g) { return g; }
 void sysLogPrintf(s32 level,const char *fmt,...) { (void)level; (void)fmt; }
 void gevrBeanForgetWounds(Model *model) { (void)model; }
+void gevrBeanCopyWounds(const Model *from, Model *to, size_t bytes) { (void)from; (void)to; (void)bytes; }
 void gevrBeanSetCuts(const GevrBeanCuts *cuts) { (void)cuts; }
 static int beanDraws;
 u64 g_randomSeed=12345;
