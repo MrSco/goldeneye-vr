@@ -1357,6 +1357,8 @@ void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int
      * inside it (user, 2026-11-28, Quest). */
     const int childside=piece>0 && rdPiece(b,b->parent[piece-1])==other;
     const int cut=childside ? piece-1 : other>0 && rdPiece(b,b->parent[other-1])==piece ? other-1 : -1;
+    int hashub=0;
+    float hub[3]={0,0,0};
     if(cut>=0 && b->parent[cut]>=0) {
         float joint[3];
         Mtxf world,inverse; rdMul(&b->offset[matrix],&b->joints[b->owner[matrix]],&world);
@@ -1376,9 +1378,18 @@ void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int
             nearest=fminf(nearest,d);
         }
         if(nearest>reach*reach)return;
+        /* fanned from the joint: a hole's rim often comes as arcs, not one loop
+         * (open where it runs along the mesh's own edge), and each arc fanned
+         * from its own middle left a red ring round an open middle, the body
+         * hollow through it (user, 2026-11-28, a torso and an arm blown apart) */
+        Mtxf local;
+        hashub=rdInverse(&world,&local);
+        if(hashub){memcpy(hub,joint,sizeof(hub));rdTransform(&local,hub,1);}
     }
     b->bean[b->nbean].matrix=matrix; b->bean[b->nbean].nedges=nedges; b->bean[b->nbean].rim=rim;
     b->bean[b->nbean].cut=cut;
+    b->bean[b->nbean].hashub=hashub;
+    memcpy(b->bean[b->nbean].hub,hub,sizeof(hub));
     b->bean[b->nbean].piece=piece; b->bean[b->nbean++].other=other;
 }
 int gevrRagdollPiece(const Model *model,int matrix)

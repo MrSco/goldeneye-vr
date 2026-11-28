@@ -440,7 +440,7 @@ Gfx *rdDrawCaps(RdBody *rd,Gfx *gdl)
             cap.edges[e][k].mtx=(s16)cap.matrix;
             for(int j=0;j<3;j++){cap.edges[e][k].v[j]=rd->bean[i].rim[e][k][j];centre[j]+=rd->bean[i].rim[e][k][j];}
         }
-        for(int j=0;j<3;j++)cap.centre[j]=(s16)roundf(centre[j]/(cap.numedges*2));
+        for(int j=0;j<3;j++)cap.centre[j]=(s16)roundf(rd->bean[i].hashub ? rd->bean[i].hub[j] : centre[j]/(cap.numedges*2));
         gdl=rdFan(rd,&cap,gdl);
     }
     return gdl;

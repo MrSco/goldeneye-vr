@@ -101,7 +101,8 @@ typedef struct RdBody {
     RdCap caps[RD_MAXCAPS];
     int ncaps, ndiscs;
     /* Bean skin rims this view (gevr_bean_caps.inc.h), drawn as fans */
-    struct { int matrix, nedges, piece, other, cut; const s16 (*rim)[2][3]; } bean[RD_MAXBEAN];
+    /* hub: the fan's middle, the cut's joint in matrix's space (hashub), else the rim's centre */
+    struct { int matrix, nedges, piece, other, cut, hashub; float hub[3]; const s16 (*rim)[2][3]; } bean[RD_MAXBEAN];
     int nbean;
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
     /* rdPiece of each matrix's owner, for these cuts (gevrRagdollPiece, Remap) */
