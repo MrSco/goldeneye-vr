@@ -991,6 +991,8 @@ void gevrRagdollTick(int ticks60)
  */
 int gevrRagdollBodies(void) { return VrRagdolls ? RD_BODIES : 0; }
 
+static void rdPushPiece(RdBody *b, int part, const float v[3]);
+
 /* Test hook (bondview2.c "cut<N>"): CE skeleton part N off every body within
  * radius of a point (Bond), as a shot's cut (rdCut). Returns how many were cut. */
 int gevrRagdollCutNear(const float at[3], float radius, int skelpart)
@@ -1002,7 +1004,12 @@ int gevrRagdollCutNear(const float at[3], float radius, int skelpart)
         if(!b->used || b->body[skelpart]<0)continue;
         float d=0;
         for(int k=0;k<3;k++){float x=b->joints[b->root].m[3][k]-at[k];d+=x*x;}
-        if(d<=radius*radius && rdCut(b,b->body[skelpart]))n++;
+        if(d<=radius*radius && rdCut(b,b->body[skelpart])) {
+            /* thrown clear, as a shot's push throws it, so both ends show */
+            const float up[3]={0,260,0};
+            rdPushPiece(b,b->body[skelpart],up);
+            n++;
+        }
     }
     return n;
 }
