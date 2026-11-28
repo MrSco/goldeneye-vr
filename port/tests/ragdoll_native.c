@@ -394,6 +394,21 @@ static void cutPiecesRest(void)
         pdphysRagdollGetPartPos(b->handle,piece,c);
         assert(pdphysRagdollIsAsleep(b->handle));
         assert(fabsf(a[0]-c[0])+fabsf(a[1]-c[1])+fabsf(a[2]-c[2])<0.01f);
+        /* Rocking in place by a little more than the rest stray, every tick
+         * (a cut forearm in a headset log: 10 units/s, 2.5 units off), the
+         * piece still goes to sleep: within RD_SHAKE_REACH for RD_SHAKE_TIME */
+        const float wake[3]={0,0,0};
+        pdphysRagdollAddVelocity(b->handle,piece,wake);
+        assert(!pdphysRagdollIsAsleep(b->handle));
+        float base[3];
+        memcpy(base,b->joints[piece].m[3],sizeof(base));
+        int ticks=0;
+        for(;ticks<90 && !pdphysRagdollIsAsleep(b->handle);ticks++) {
+            b->joints[piece].m[3][0]=base[0]+((ticks/2)%2 ? -2.5f : 2.5f);
+            rdRest(b,1.0f/60,0);
+        }
+        memcpy(b->joints[piece].m[3],base,sizeof(base));
+        assert(pdphysRagdollIsAsleep(b->handle) && ticks<90);
         const float push[3]={0,0,300};
         pdphysRagdollAddVelocity(b->handle,piece,push);
         for(int t=0;t<10;t++){g_GlobalTimer++;gevrRagdollTick(1);}

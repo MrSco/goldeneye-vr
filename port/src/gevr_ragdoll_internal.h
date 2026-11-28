@@ -83,6 +83,8 @@ typedef struct RdBody {
     float still[RD_PARTS];
     float anchor[RD_PARTS][3];   /* where each part of a piece was when it started lying still */
     float stillbody;             /* the same for the body itself (the piece of no cut) */
+    float shake[RD_PARTS+1];     /* per piece (0 the body, cut+1): how long it has kept within RD_SHAKE_REACH */
+    float shakeanchor[RD_PARTS][3];
     int restset;
     float awake, awakelog;  /* awake this long; the next awake report in (rdRest) */
     int moverwakes, mover[4];  /* props that kept it awake since the last report, the last one's type and place */

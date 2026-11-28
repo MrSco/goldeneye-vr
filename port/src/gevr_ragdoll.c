@@ -811,6 +811,8 @@ void gevrRagdollCapture(ChrRecord *chr)
 #define RD_REST_SPEED 10.0f   /* units/s */
 #define RD_REST_TIME 0.3f     /* s: CE RD_SOLID_STILL60 (18 ticks) */
 #define RD_REST_BODY 1.0f     /* s: the body itself, within the same 3 units */
+#define RD_SHAKE_REACH 12.0f  /* units: a piece rocking in place within this... */
+#define RD_SHAKE_TIME 1.0f    /* s: ...this long lies still too (the body: twice) */
 /*
  * CE ragdoll.c rdMpSolidCheck (Perfect-Dark-CE b0180009), Resting Bodies Turn
  * Solid on its default, the Combat Simulator: in a multiplayer match a body
@@ -855,13 +857,28 @@ static void rdRest(RdBody *b, float dt, int asleep)
         float *still=c>=0 ? &b->still[c] : &b->stillbody;
         const float wait=c>=0 ? RD_REST_TIME : RD_REST_BODY;
         unsigned mask=0;
-        float stray=0;
+        float stray=0,wide=0;
         for(int p=0;p<b->count;p++) {
             if(rdPiece(b,p)!=c+1)continue;
             mask|=1u<<p;
-            float d=0;
-            for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->anchor[p][k];d+=x*x;}
-            stray=fmaxf(stray,d);
+            float d=0,w=0;
+            for(int k=0;k<3;k++) {
+                float x=b->joints[p].m[3][k]-b->anchor[p][k],y=b->joints[p].m[3][k]-b->shakeanchor[p][k];
+                d+=x*x; w+=y*y;
+            }
+            stray=fmaxf(stray,d); wide=fmaxf(wide,w);
+        }
+        /* A piece rocking in place by a little more than that lies still too
+         * once it has kept within RD_SHAKE_REACH for RD_SHAKE_TIME: a cut
+         * forearm on the Quest went 10 units/s, now and then 3 units off its
+         * anchor, and stayed awake for good (headset log, 2026-11-28) */
+        float *shake=&b->shake[c+1];
+        if(*shake<=0 || wide>RD_SHAKE_REACH*RD_SHAKE_REACH) {
+            for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->shakeanchor[p],b->joints[p].m[3],sizeof(b->shakeanchor[p]));
+            *shake=dt>0 ? dt*0.5f : 1e-3f;
+        } else if((*shake+=dt)>=(c>=0 ? RD_SHAKE_TIME : RD_SHAKE_TIME*2)) {
+            pdphysRagdollSleepParts(b->handle,mask);
+            continue;
         }
         if(*still<=0 || stray>RD_REST_SPEED*RD_REST_TIME*RD_REST_SPEED*RD_REST_TIME) {
             for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->anchor[p],b->joints[p].m[3],sizeof(b->anchor[p]));

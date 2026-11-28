@@ -86,6 +86,7 @@ int rdCut(RdBody *rd,int part)
         if(((rd->meshes[i].originalCommands[j].words.w0>>24)&255)==(G_DL&255))return 0;
     rd->cuts|=1u<<part;
     rd->still[part]=0;
+    rd->shake[part+1]=0;
     rd->cutpaint[part]=rdPaintColour();
     for(int i=0;i<rd->nmeshes;i++)rdPatch(rd,&rd->meshes[i]);
     rdBuildCaps(rd);
