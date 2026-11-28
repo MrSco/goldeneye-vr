@@ -13,7 +13,7 @@
 
 #define CONFIG_MAX_SECNAME 128
 #define CONFIG_MAX_KEYNAME 256
-#define CONFIG_MAX_SETTINGS 300
+#define CONFIG_MAX_SETTINGS 512 /* CE (Perfect-Dark-CE b0180009): was 300, and goldeneye.ini had reached 290; later keys were dropped with one log line */
 
 typedef enum {
 	CFG_NONE,
