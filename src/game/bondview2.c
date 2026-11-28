@@ -1019,6 +1019,15 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: kill %.0f: %d guards", (double) r, gevrKillGuards(r));
             continue;
         }
+        /* "chrtrace<N>": chr N's patrol in the log twice a second (chraction.c
+         * gevrChrTracePatrol); "chrtrace" alone turns it off */
+        if (strncasecmp(word, "chrtrace", 8) == 0)
+        {
+            extern s32 g_gevrChrTrace;
+            g_gevrChrTrace = word[8] ? atoi(word + 8) : -1;
+            sysLogPrintf(LOG_NOTE, "cheathook: chrtrace %d", g_gevrChrTrace);
+            continue;
+        }
         /* "cut<N>": CE skeleton part N (2 head, 3/4 upper arms, 5/6 forearms,
          * 9/10 thighs, 11/12 shins) off every body within 600 units of Bond,
          * as a shot's cut, for a test script */
