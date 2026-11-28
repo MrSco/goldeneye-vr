@@ -369,6 +369,36 @@ static void portChecks(void)
 
 #include "ragdoll_movers_test.inc.h"
 
+/* A cut piece comes to rest and sleeps (rdPiecesRest): on this flat floor a
+ * lone forearm or head kept a steady 6 units/s roll for good. A push still
+ * moves it. */
+static void cutPiecesRest(void)
+{
+    static const int skel[2]={6,2};   /* a forearm, the head */
+    const int dismember=VrDismemberment,players=playerCount;
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;VrDismemberment=1;playerCount=1;
+    for(int n=0;n<2;n++) {
+        capture(0);
+        RdBody *b=newest();
+        const int piece=b->body[skel[n]];
+        float a[3],c[3];
+        assert(rdCut(b,piece));
+        for(int t=0;t<60*15;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+        pdphysRagdollGetPartPos(b->handle,piece,a);
+        for(int t=0;t<60*5;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+        pdphysRagdollGetPartPos(b->handle,piece,c);
+        assert(pdphysRagdollIsAsleep(b->handle));
+        assert(fabsf(a[0]-c[0])+fabsf(a[1]-c[1])+fabsf(a[2]-c[2])<0.01f);
+        const float push[3]={0,0,300};
+        pdphysRagdollAddVelocity(b->handle,piece,push);
+        for(int t=0;t<10;t++){g_GlobalTimer++;gevrRagdollTick(1);}
+        pdphysRagdollGetPartPos(b->handle,piece,a);
+        assert(fabsf(a[2]-c[2])>1.0f);
+        gevrRagdollReset();
+    }
+    VrDismemberment=dismember;playerCount=players;
+}
+
 int main(void)
 {
     view=world=identity();for(int i=0;i<8;i++)g_playerPointers[i]=&players[i];
@@ -378,6 +408,7 @@ int main(void)
     portChecks();VrDismemberment=VrRagdolls=0;fflush(stdout);
     assert(!gevrRagdollNeedsPose(&sourceChr));assert(!pdphysIsReady());
     VrRagdolls=1;VrBodiesStay=RD_BODIES;
+    cutPiecesRest();
     for(int mode=1;mode<=8;mode*=2) {
         playerCount=mode;
         for(int i=0;i<RD_BODIES+2;i++) { capture(mode>1);assert(countBodies()==(i<RD_BODIES?i+1:RD_BODIES)); }

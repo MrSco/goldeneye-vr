@@ -78,6 +78,10 @@ typedef struct RdBody {
     unsigned lastpush;
     float colroompos[3];
     int asleep, onscreen, crossed;
+    /* each part's place last tick, and how long each cut piece has lain still (rdPiecesRest) */
+    float restpos[RD_PARTS][3];
+    float still[RD_PARTS];
+    int restset;
     int doorhit;      /* a moving door touched it: it fades in RD_DOOR_FADE_S (gevrRagdollDoorFade) */
     float doorfade;   /* seconds since */
     u8 visrooms[16];

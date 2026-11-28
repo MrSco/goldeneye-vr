@@ -261,6 +261,8 @@ void pdphysPropSetNoBlock(int handle, int noblock);
 
 // 1 if every body of the ragdoll is asleep.
 int pdphysRagdollIsAsleep(int handle);
+// Puts these parts (bit per part) to sleep now; a touch or a push wakes them
+void pdphysRagdollSleepParts(int handle, unsigned mask);
 
 // Pulls one part towards 'target' (PD units) with a critically damped spring
 // (frequency in Hz) that also holds up the part's own weight. The force is

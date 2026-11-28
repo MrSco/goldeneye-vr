@@ -2496,6 +2496,32 @@ extern "C" void pdphysRagdollTakeNewBlocks(int handle, int *outflags)
 	}
 }
 
+// GEVR: puts these parts (a bit each) to sleep now, as Jolt does by itself
+// once every point of a body is slower than 3 cm/s. A cut piece never got
+// there: on a flat floor a lone capsule or sphere settles into a steady roll
+// of about 6 cm/s and keeps it (gevr_ragdoll.c rdPiecesRest). Anything that
+// touches or pushes them wakes them as it wakes any sleeping body.
+extern "C" void pdphysRagdollSleepParts(int handle, unsigned mask)
+{
+	if (!g_World || !ragdollLive(handle)) {
+		return;
+	}
+
+	Ragdoll &rd = g_Ragdolls[handle];
+
+	if (rd.keepAwake > 0.0f) {
+		return;
+	}
+
+	BodyInterface &bi = g_World->system.GetBodyInterface();
+
+	for (int i = 0; i < rd.numparts; i++) {
+		if ((mask & (1u << i)) && bi.IsActive(rd.bodies[i])) {
+			bi.DeactivateBody(rd.bodies[i]);
+		}
+	}
+}
+
 extern "C" int pdphysRagdollIsAsleep(int handle)
 {
 	if (!g_World || !ragdollLive(handle)) {

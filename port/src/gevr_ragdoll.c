@@ -772,6 +772,41 @@ void gevrRagdollCapture(ChrRecord *chr)
         rdHingeAlongBone(slot,11,bone),rdHingeAlongBone(slot,12,bone),rdHingeAlongBone(slot,5,bone),rdHingeAlongBone(slot,6,bone));
 }
 
+/*
+ * CE's Resting Bodies Turn Solid (ragdoll.c rdMpSolidCheck, newer than the
+ * pinned port: every part slower than RD_SOLID_MAXSPEED for RD_SOLID_STILL60
+ * ticks and the body stops being simulated), for cut pieces, and as sleep
+ * rather than static: a piece lying still sleeps, and a shot or a touch wakes
+ * it as before. Jolt's own sleep wants every point under 3 cm/s, and a cut
+ * forearm or head settled into a steady 6 units/s roll on a flat floor and
+ * kept it, rolling and turning until the body went (user, 2026-11-27: a cut
+ * leg "still jittering on the ground"; PC trace: 50 s at 6.1 units/s). Slower
+ * than CE's 40 units/s, which stopped a rolling forearm dead at 30: the piece
+ * slows down first and stops at the crawl.
+ */
+#define RD_REST_SPEED 10.0f   /* units/s */
+#define RD_REST_TIME 0.3f     /* s: CE RD_SOLID_STILL60 (18 ticks) */
+static void rdPiecesRest(RdBody *b, float dt)
+{
+    float fastest[RD_PARTS+1]={0};
+    for(int p=0;p<b->count;p++) {
+        const int piece=rdPiece(b,p);
+        float d=0;
+        for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->restpos[p][k];d+=x*x;}
+        if(b->restset && dt>0)fastest[piece]=fmaxf(fastest[piece],sqrtf(d)/dt);
+        memcpy(b->restpos[p],b->joints[p].m[3],sizeof(b->restpos[p]));
+    }
+    if(!b->restset){b->restset=1;return;}
+    for(int c=0;c<b->count;c++) {
+        if(!(b->cuts&(1u<<c)))continue;
+        if(fastest[c+1]>RD_REST_SPEED){b->still[c]=0;continue;}
+        if((b->still[c]+=dt)<RD_REST_TIME)continue;
+        unsigned mask=0;
+        for(int p=0;p<b->count;p++)if(rdPiece(b,p)==c+1)mask|=1u<<p;
+        pdphysRagdollSleepParts(b->handle,mask);
+    }
+}
+
 /* Diagnostics for bodies seen in walls: the pelvis moved through level
  * geometry this step. In its own rooms it went through a wall it collides
  * with; only in other rooms, the room filter left that wall out. Once per
@@ -852,6 +887,7 @@ void gevrRagdollTick(int ticks60)
         float before[3];memcpy(before,b->joints[b->root].m[3],sizeof(before));
         if(!(b->asleep && asleep))pdphysRagdollGetJoints(b->handle,(float (*)[16])b->joints);
         b->asleep=asleep;
+        if(b->cuts && !asleep)rdPiecesRest(b,dt);
         rdCrossCheck(b,before,dt);
         /* Fell out of the level (CE :1708) */
         if(b->joints[b->root].m[3][1]<RD_KILLFLOOR_Y) {

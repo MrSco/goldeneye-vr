@@ -83,6 +83,7 @@ int rdCut(RdBody *rd,int part)
     for(int i=0;i<rd->nmeshes;i++)for(int j=0;j<rd->meshes[i].ncommands;j++)
         if(((rd->meshes[i].originalCommands[j].words.w0>>24)&255)==(G_DL&255))return 0;
     rd->cuts|=1u<<part;
+    rd->still[part]=0;
     for(int i=0;i<rd->nmeshes;i++)rdPatch(rd,&rd->meshes[i]);
     rdBuildCaps(rd);
     pdphysRagdollDetach(rd->handle,part);
