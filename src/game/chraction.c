@@ -3068,7 +3068,13 @@ s32 chrlvStanRoomRelated(ChrRecord *self, coord3d *arg1, StandTile *tile)
     {
         for (i=0; i<tile_something; i++)
         {
+#ifdef GEVR
+            /* Extended draw distance can render rooms outside the original
+             * patrol and GoPos visibility range. */
+            if (gevrRoomIsRenderedN64(sp48[i]))
+#else
             if (getROOMID_isRendered(sp48[i]) != 0)
+#endif
             {
                 return 0;
             }
