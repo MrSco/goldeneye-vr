@@ -549,6 +549,50 @@ static void bloodSpread(const float dir[3], float out[3])
 }
 
 /* splat0f149274 + splat0f14986c: one splat from from along dir. */
+/*
+ * Kept on the surface it hit: a splat lies flat on the face the blood met,
+ * and on Dam's faceted rock the faces round it stood in front of it or fell
+ * away behind, so it came out cut at an angle (user, Quest, 2026-11-28).
+ * Eight points round its corners' circle are traced back onto the level along
+ * the face's normal; while one lands off the plane by more than a little, or
+ * on nothing, the splat shrinks. Neither PD's wall hits nor GoldenEye's
+ * bullet holes fit the wall (flat quads, flat walls): this is the port's.
+ * Returns the scale that fits, else the smallest tried.
+ */
+#define SPLAT_FIT_TRIES  3
+#define SPLAT_FIT_SHRINK 0.65f
+static float bloodFit(const float hit[3], const float normal[3], int room, float w, float h)
+{
+    float across[3], up[3], scale = 1.0f;
+    int t, i, k;
+
+    bloodSurfaceAxes(normal, 0.0f, across, up);
+    for (t = 0; t < SPLAT_FIT_TRIES; t++, scale *= SPLAT_FIT_SHRINK) {
+        const float r = sqrtf(w * w + h * h) * scale;
+        const float depth = r * 0.5f + 2.0f, tol = r * 0.06f + 0.5f;
+        int fits = 1;
+        for (i = 0; i < 8 && fits; i++) {
+            const float a = (float)i * (BLOOD_PI / 4.0f), ca = cosf(a), sa = sinf(a);
+            float p[3], q[3], n[3], off = 0.0f;
+            coord3d from, to;
+            int qroom = 0;
+            for (k = 0; k < 3; k++) {
+                p[k] = hit[k] + (across[k] * ca + up[k] * sa) * r;
+                from.f[k] = p[k] + normal[k] * depth;
+                to.f[k] = p[k] - normal[k] * depth;
+            }
+            if (!bloodTrace(&from, &to, room, q, n, &qroom)) {
+                fits = 0;
+                break;
+            }
+            for (k = 0; k < 3; k++) off += (q[k] - p[k]) * normal[k];
+            fits = fabsf(off) <= tol;
+        }
+        if (fits) return scale;
+    }
+    return scale / SPLAT_FIT_SHRINK;
+}
+
 static int bloodSplat(const coord3d *from, const float dir[3], int room, int type)
 {
     static const float scales[3] = { 0.8f, 1.1f, 0.3f };
@@ -582,7 +626,10 @@ static int bloodSplat(const coord3d *from, const float dir[3], int room, int typ
         const float r3 = bloodFrac();
         bloodSplatSize(distance, scales[type], r1, r2, r3, &w, &h);
     }
-    if (onlevel) bloodDecalCreate(hit, normal, hitroom, w, h, timers[type]);
+    if (onlevel) {
+        const float fit = bloodFit(hit, normal, hitroom, w, h);
+        bloodDecalCreate(hit, normal, hitroom, w * fit, h * fit, timers[type]);
+    }
     else bloodDecalOnObject(&object, w, h);
     return 1;
 }
