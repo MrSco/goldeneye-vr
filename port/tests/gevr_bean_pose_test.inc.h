@@ -87,6 +87,23 @@ static void capChecks(void)
         for (int e = 0; e < 8; e++) x += twice[cache->edges[cache->loops[l].first + e][0]].p[0][0];
         assert(fabsf(x / 8) < 1 || fabsf(x / 8 - 100) < 1); /* one hole's rim only */
     }
+    /* A rim corner Bean repeats with other weights (where two of its meshes
+     * meet) is still the one point: the bone they share holds it at the
+     * same place. Matched on every weight, the rims fell into open chains,
+     * each fanned from its own centre, and the cap missed a sliver. */
+    struct beanSkinVert seam[16 * 3];
+    memcpy(seam, verts, sizeof(seam));
+    struct beanSkinVert *corner = &seam[4 * 3 + 1]; /* one side's copy only */
+    corner->weight[0] = 200;
+    corner->weight[1] = 55;
+    corner->matrix[1] = 1;
+    corner->p[1][0] = 3.0f;
+    struct beanSkin seamed = {0};
+    seamed.verts = seam; seamed.nverts = 48;
+    cache = beanCapLoops(&seamed, 0x4, tripiece, triother);
+    assert(cache && cache->nloops == 2);
+    for (int l = 0; l < 2; l++)
+        assert(cache->loops[l].nedges == 8);
     /* Welds are owned by the level allocation arena. */
 }
 

@@ -8,47 +8,66 @@
  * cut set, so they are cached; the rim is the posed skin itself, so the cap
  * stays on the edge of the hole. The ragdoll draws the fans. */
 
-/* The skin's vertices that are the same vertex, by their source data */
+static int beanCapFind(int *uf, int x)
+{
+	while (uf[x] != x)
+		x = uf[x] = uf[uf[x]];
+	return x;
+}
+
+/* The skin's vertices that are the same point, as CE welds by position
+ * (dismember.c): two corners are one when a bone they both hang from holds
+ * them at the same place in its own space. Matching the whole source record
+ * (every weight) kept apart a point Bean repeats with other weights where
+ * two of its meshes meet, and a hole's rim fell into open chains, each fanned
+ * from its own centre: a sliver of the cap missing at a shoulder (2026-11-28). */
 static const int *beanSkinWeld(struct beanSkin *skin)
 {
 	if (skin->weld || skin->nverts <= 0)
 		return skin->weld;
 	int *weld = malloc((size_t)skin->nverts * sizeof(int));
 	int size = 1;
-	while (size < skin->nverts * 2)
+	while (size < skin->nverts * 8)
 		size <<= 1;
-	int *table = malloc((size_t)size * sizeof(int));
+	int (*table)[2] = malloc((size_t)size * sizeof(*table)); /* vertex, influence */
 	if (!weld || !table) {
 		free(weld);
 		free(table);
 		return NULL;
 	}
 	for (int i = 0; i < size; i++)
-		table[i] = -1;
+		table[i][0] = -1;
+	for (int v = 0; v < skin->nverts; v++)
+		weld[v] = v;
 	for (int v = 0; v < skin->nverts; v++) {
 		const struct beanSkinVert *s = beanSkinReal(skin, v);   /* a neck stub corner as it is */
-		uint32_t h = 2166136261u;
-		const uint8_t *bytes[3] = { (const uint8_t *)s->p, s->weight, (const uint8_t *)s->matrix };
-		const size_t lens[3] = { sizeof(s->p), sizeof(s->weight), sizeof(s->matrix) };
-		for (int b = 0; b < 3; b++)
-			for (size_t i = 0; i < lens[b]; i++)
-				h = (h ^ bytes[b][i]) * 16777619u;
-		int slot = (int)(h & (uint32_t)(size - 1));
-		weld[v] = v;
-		for (;; slot = (slot + 1) & (size - 1)) {
-			const int other = table[slot];
-			if (other < 0) {
-				table[slot] = v;
-				break;
-			}
-			const struct beanSkinVert *o = beanSkinReal(skin, other);
-			if (!memcmp(o->p, s->p, sizeof(s->p)) && !memcmp(o->weight, s->weight, sizeof(s->weight)) &&
-			    !memcmp(o->matrix, s->matrix, sizeof(s->matrix))) {
-				weld[v] = other;
-				break;
+		for (int w = 0; w < 4; w++) {
+			if (!s->weight[w])
+				continue;
+			uint32_t h = 2166136261u;
+			const uint8_t *bytes[2] = { (const uint8_t *)s->p[w], (const uint8_t *)&s->matrix[w] };
+			const size_t lens[2] = { sizeof(s->p[w]), sizeof(s->matrix[w]) };
+			for (int b = 0; b < 2; b++)
+				for (size_t i = 0; i < lens[b]; i++)
+					h = (h ^ bytes[b][i]) * 16777619u;
+			for (int slot = (int)(h & (uint32_t)(size - 1));; slot = (slot + 1) & (size - 1)) {
+				const int other = table[slot][0];
+				if (other < 0) {
+					table[slot][0] = v;
+					table[slot][1] = w;
+					break;
+				}
+				const struct beanSkinVert *o = beanSkinReal(skin, other);
+				const int ow = table[slot][1];
+				if (o->matrix[ow] == s->matrix[w] && !memcmp(o->p[ow], s->p[w], sizeof(s->p[w]))) {
+					weld[beanCapFind(weld, v)] = beanCapFind(weld, other);
+					break;
+				}
 			}
 		}
 	}
+	for (int v = 0; v < skin->nverts; v++)
+		weld[v] = beanCapFind(weld, v);
 	free(table);
 	/* The weld belongs to this level just like the skin it indexes. */
 	if (!keepAlloc(weld)) {
@@ -86,13 +105,6 @@ static int beanCapEdgeCmp(const void *x, const void *y)
 {
 	const struct beanCapEdge *a = x, *b = y;
 	return a->a != b->a ? (a->a < b->a ? -1 : 1) : a->b != b->b ? (a->b < b->b ? -1 : 1) : 0;
-}
-
-static int beanCapFind(int *uf, int x)
-{
-	while (uf[x] != x)
-		x = uf[x] = uf[uf[x]];
-	return x;
 }
 
 static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, const int *tripiece, const int *triother)
