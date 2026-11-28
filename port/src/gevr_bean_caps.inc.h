@@ -88,6 +88,13 @@ static int beanCapEdgeCmp(const void *x, const void *y)
 	return a->a != b->a ? (a->a < b->a ? -1 : 1) : a->b != b->b ? (a->b < b->b ? -1 : 1) : 0;
 }
 
+static int beanCapFind(int *uf, int x)
+{
+	while (uf[x] != x)
+		x = uf[x] = uf[uf[x]];
+	return x;
+}
+
 static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, const int *tripiece, const int *triother)
 {
 	for (int i = 0; i < (int)(sizeof(s_capCache) / sizeof(*s_capCache)); i++)
@@ -143,6 +150,7 @@ static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, 
 		e = end;
 	}
 	free(edges);
+	int *uf = malloc((size_t)skin->nverts * sizeof(int));
 	struct beanCapCache *cache = &s_capCache[s_capNext];
 	s_capNext = (s_capNext + 1) % (int)(sizeof(s_capCache) / sizeof(*s_capCache));
 	free(cache->edges);
@@ -152,28 +160,51 @@ static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, 
 	cache->cuts = cuts;
 	cache->edges = malloc((size_t)(nborder > 0 ? nborder : 1) * sizeof(*cache->edges));
 	int stored = 0;
-	/* One loop per pair of pieces: one side of one cut */
-	for (int i = 0; cache->edges && i < nborder && cache->nloops < BEAN_CAP_LOOPS; i++) {
+	/* One loop per hole: each side of a cut (a pair of pieces), split into
+	 * its border loops by shared vertices as CE's ragdollBuildCaps does
+	 * (union-find, dismember.c). One fan over all of a side spanned every
+	 * hole there from their common centre: a Bean guard's hip has two (24
+	 * and 9 edges), and stray edges well off the joint pulled it out
+	 * further - red flaps standing off a severed leg (2026-11-27). */
+#define SAME(x) (border[x].piece == border[i].piece && border[x].other == border[i].other)
+	for (int i = 0; uf && cache->edges && i < nborder && cache->nloops < BEAN_CAP_LOOPS; i++) {
 		int seen = 0;
 		for (int j = 0; j < i && !seen; j++)
-			seen = border[j].piece == border[i].piece && border[j].other == border[i].other;
+			seen = SAME(j);
 		if (seen)
 			continue;
-		struct beanCapLoop *loop = &cache->loops[cache->nloops];
-		loop->piece = border[i].piece;
-		loop->other = border[i].other;
-		loop->first = stored;
+		for (int v = 0; v < skin->nverts; v++)
+			uf[v] = v;
 		for (int j = i; j < nborder; j++)
-			if (border[j].piece == loop->piece && border[j].other == loop->other) {
-				cache->edges[stored][0] = border[j].va;
-				cache->edges[stored++][1] = border[j].vb;
-			}
-		loop->nedges = stored - loop->first;
-		if (loop->nedges >= 3)
-			cache->nloops++;
-		else
-			stored = loop->first; /* a stray edge, not a hole */
+			if (SAME(j))
+				uf[beanCapFind(uf, border[j].a)] = beanCapFind(uf, border[j].b);
+		for (int j = i; j < nborder && cache->nloops < BEAN_CAP_LOOPS; j++) {
+			if (!SAME(j))
+				continue;
+			const int root = beanCapFind(uf, border[j].a);
+			int done = 0;
+			for (int k = i; k < j && !done; k++)
+				done = SAME(k) && beanCapFind(uf, border[k].a) == root;
+			if (done)
+				continue;
+			struct beanCapLoop *loop = &cache->loops[cache->nloops];
+			loop->piece = border[i].piece;
+			loop->other = border[i].other;
+			loop->first = stored;
+			for (int k = j; k < nborder; k++)
+				if (SAME(k) && beanCapFind(uf, border[k].a) == root) {
+					cache->edges[stored][0] = border[k].va;
+					cache->edges[stored++][1] = border[k].vb;
+				}
+			loop->nedges = stored - loop->first;
+			if (loop->nedges >= 3)
+				cache->nloops++;
+			else
+				stored = loop->first; /* a stray edge, not a hole */
+		}
 	}
+#undef SAME
+	free(uf);
 	free(border);
 	return cache;
 }

@@ -320,6 +320,26 @@ static void portChecks(void)
         /* Bean draws its own skin: CE's discs, both sides of each cut */
         beanDraws=1;rdBuildCaps(body);beanDraws=0;
         assert(body->ndiscs==4 && body->ncaps==4);
+        /* Bean's rims: closed only within CE's reach of their cut, 1.6 cut
+         * radii from the joint on that side - not a cuff down the arm */
+        const int cut=body->body[3],m=body->primary[cut];
+        const float reach=g_RdSkelHuman.cutradius[body->skel[cut]]*body->torso*1.6f;
+        Mtxf w,inv;rdMul(&body->offset[m],&body->joints[body->owner[m]],&w);assert(rdInverse(&w,&inv));
+        for(int test=0;test<3;test++) {
+            const int far=test==1,childside=test<2;
+            s16 (*rim)[2][3]=rdAlloc(body,8*sizeof(*rim));
+            for(int e=0;e<8;e++)for(int s=0;s<2;s++) {
+                float p[3];memcpy(p,body->joints[cut].m[3],sizeof(p));
+                p[0]+=far?reach*2:0;p[1]+=4*cosf((e+s)*0.785398f);p[2]+=4*sinf((e+s)*0.785398f);
+                rdTransform(&inv,p,1);
+                for(int k=0;k<3;k++)rim[e][s][k]=(s16)roundf(p[k]);
+            }
+            const int piece=cut+1,other=rdPiece(body,body->parent[cut]);
+            body->nbean=0;
+            gevrRagdollBeanCap(&body->model,m,(const s16 (*)[2][3])rim,8,childside?piece:other,childside?other:piece);
+            assert(body->nbean==!far);
+        }
+        body->nbean=0;
     }
     /* A shot body bleeds where it was hit: the hit box of that part, the
      * game's random sequence put back; the paint survives a later cut */

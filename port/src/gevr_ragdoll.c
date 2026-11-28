@@ -1039,6 +1039,30 @@ void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int
 {
     RdBody *b=rdModel(model);
     if(!b || b->nbean==RD_MAXCAPS || nedges<3 || matrix<0 || matrix>=b->matrices)return;
+    /* CE's reach (ragdollBuildCaps, dismember.c): a hole is closed only within
+     * 1.6 cut radii of its joint, on this side's frame. Bean's skin has open
+     * rims far off on triangles with a trace of the other piece's weight - a
+     * sleeve's cuff at the wrist after a shoulder cut, 2.5 cut radii away. */
+    const int childside=piece>0 && rdPiece(b,b->parent[piece-1])==other;
+    const int cut=childside ? piece-1 : other>0 && rdPiece(b,b->parent[other-1])==piece ? other-1 : -1;
+    if(cut>=0 && b->parent[cut]>=0) {
+        float centre[3]={0,0,0},joint[3];
+        for(int e=0;e<nedges;e++)for(int k=0;k<2;k++)for(int j=0;j<3;j++)centre[j]+=rim[e][k][j];
+        for(int j=0;j<3;j++)centre[j]/=nedges*2;
+        Mtxf world,inverse; rdMul(&b->offset[matrix],&b->joints[b->owner[matrix]],&world);
+        rdTransform(&world,centre,1);
+        /* the parent's side: where the joint was on that piece (its hole) */
+        if(childside) memcpy(joint,b->joints[cut].m[3],sizeof(joint));
+        else {
+            memcpy(joint,b->initial[cut].m[3],sizeof(joint));
+            if(!rdInverse(&b->initial[b->parent[cut]],&inverse))return;
+            rdTransform(&inverse,joint,1); rdTransform(&b->joints[b->parent[cut]],joint,1);
+        }
+        const float reach=g_RdSkelHuman.cutradius[b->skel[cut]]*b->torso*1.6f;
+        float d=0;
+        for(int k=0;k<3;k++){float x=centre[k]-joint[k];d+=x*x;}
+        if(d>reach*reach)return;
+    }
     b->bean[b->nbean].matrix=matrix; b->bean[b->nbean].nedges=nedges; b->bean[b->nbean].rim=rim;
     b->bean[b->nbean].piece=piece; b->bean[b->nbean++].other=other;
 }

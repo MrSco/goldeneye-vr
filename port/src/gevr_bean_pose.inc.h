@@ -112,6 +112,27 @@ static int beanCutBone(struct beanCutKept *k, int matrix)
 	return k->nbones++;
 }
 
+/* The piece a cut skin's triangle goes with. A body's skin is cut triangle by
+ * triangle, each to the piece most of its weight follows. A head goes whole
+ * with its own (the anchor's), as CE's rdPatch carries a native list - and
+ * GoldenEye's head is one - with the piece of its owner matrix: cut triangle
+ * by triangle, the ring a Bean head blends to the back stayed on the shoulders
+ * after a head shot, a second chin over the head beside them and jagged flaps
+ * on the stump (2026-11-27). *best becomes the triangle's own entry in
+ * pieces (-1 for none), the others' strongest is the piece across the cut. */
+static int beanCutHead(const struct beanSkin *skin, const Model *model, int anchorIndex, const int *pieces, int n,
+                       int *best, int *owner)
+{
+	if (!skin->head)
+		return n ? pieces[*best] : s_cuts.piece(model, anchorIndex);
+	const int own = s_cuts.piece(model, anchorIndex);
+	for (*best = 0; *best < n && pieces[*best] != own; ++*best) {}
+	if (*best == n)
+		*best = -1;
+	*owner = anchorIndex;
+	return own;
+}
+
 static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, unsigned body, int cuts,
                                         int anchorIndex, int backIndex, ModelNode *neck)
 {
@@ -144,10 +165,11 @@ static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, uns
 				if (scores[at] > scores[best]) best = at;
 			}
 			owner = n ? matrices[best] : anchorIndex;
+			const int mine = beanCutHead(skin, model, anchorIndex, pieces, n, &best, &owner);
 			int second = -1;
 			for (int at = 0; at < n; at++)
 				if (at != best && (second < 0 || scores[at] > scores[second])) second = at;
-			tripiece[i / 3] = n ? pieces[best] : s_cuts.piece(model, anchorIndex);
+			tripiece[i / 3] = mine;
 			triother[i / 3] = second >= 0 ? pieces[second] : -1;
 		}
 		const struct beanSkinVert *src = &skin->verts[i];
@@ -345,11 +367,12 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
                 if (scores[at] > scores[best]) best = at;
             }
             owner = count ? matrices[best] : anchorIndex;
+            const int mine = beanCutHead(skin, model, anchorIndex, pieces, count, &best, &owner);
             if (tripiece) {
                 int second = -1;
                 for (int at = 0; at < count; at++)
                     if (at != best && (second < 0 || scores[at] > scores[second])) second = at;
-                tripiece[v / 3] = count ? pieces[best] : s_cuts.piece(model, anchorIndex);
+                tripiece[v / 3] = mine;
                 triother[v / 3] = second >= 0 ? pieces[second] : -1;
             }
         }
