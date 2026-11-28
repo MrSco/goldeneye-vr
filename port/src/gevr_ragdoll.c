@@ -871,6 +871,27 @@ static void rdRest(RdBody *b, float dt, int asleep)
         if((*still+=dt)<wait)continue;
         pdphysRagdollSleepParts(b->handle,mask);
     }
+    /* Awake long after it fell: why, now and then, for a headset log. Cut
+     * pieces jittered for good on the Quest (user, 2026-11-28) and slept within
+     * 4 s on the PC, the same throws and floors. Per piece: its top speed this
+     * tick, how far it strayed from its anchor, how long it has lain still. */
+    if(asleep || b->solid){b->awake=0;b->awakelog=0;b->moverwakes=0;}
+    else if((b->awake+=dt)>=8.0f && (b->awakelog-=dt)<=0) {
+        char line[200];int n=0;
+        for(int c=-1;c<b->count && n<(int)sizeof(line)-32;c++) {
+            if(c>=0 && !(b->cuts&(1u<<c)))continue;
+            float stray=0;
+            for(int p=0;p<b->count;p++)if(rdPiece(b,p)==c+1) {
+                float d=0;
+                for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->anchor[p][k];d+=x*x;}
+                stray=fmaxf(stray,d);
+            }
+            n+=snprintf(line+n,sizeof(line)-n," %d:%.1f/%.1f/%.2f",c+1,fastest[c+1],sqrtf(stray),c>=0 ? b->still[c] : b->stillbody);
+        }
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u awake %.0f s, cuts 0x%x, %d prop wakes (last type %d at %d %d %d), pieces speed/stray/still:%s",
+                     b->serial,b->awake,b->cuts,b->moverwakes,b->mover[0],b->mover[1],b->mover[2],b->mover[3],line);
+        b->awakelog=5.0f; b->moverwakes=0;
+    }
     if(b->solid || !gevrMpRules())return;
     b->solidstill=all>RD_SOLID_SPEED ? 0 : b->solidstill+dt;
     if(b->solidstill>=RD_REST_TIME) {

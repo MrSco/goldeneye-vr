@@ -84,6 +84,8 @@ typedef struct RdBody {
     float anchor[RD_PARTS][3];   /* where each part of a piece was when it started lying still */
     float stillbody;             /* the same for the body itself (the piece of no cut) */
     int restset;
+    float awake, awakelog;  /* awake this long; the next awake report in (rdRest) */
+    int moverwakes, mover[4];  /* props that kept it awake since the last report, the last one's type and place */
     int solid;        /* multiplayer: lying still, static in the physics (rdRest, CE Resting Bodies Turn Solid) */
     float solidstill; /* how long every part has been slower than RD_SOLID_SPEED */
     int dk;           /* DK Mode at death: the head and arms as chr.c draws them (rdBuildParts) */

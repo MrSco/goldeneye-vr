@@ -144,6 +144,8 @@ static void rdMoverWake(RdMover *m,const float dv[3],const float velocity[3],flo
              * prop going away under it (broken glass); doors go through it */
             if(b->solid && (!dv || m->pose.m[1][1]>0.99f))rdUnsolid(b,!dv ? "a prop went away" : "a moving lift");
             pdphysRagdollKeepAwake(b->handle,0.2f);
+            b->moverwakes++; b->mover[0]=m->prop ? m->prop->type : -1;
+            for(int k=0;k<3;k++)b->mover[k+1]=(int)m->pose.m[3][k];
             /* Only a horizontal supporting surface transfers platform
              * acceleration; doors still push entirely through contacts. */
             if(m->pose.m[1][1]>0.99f && pdphysPropSupportsPart(m->handle,b->handle,p))
