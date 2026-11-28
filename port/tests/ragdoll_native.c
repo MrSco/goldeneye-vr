@@ -560,6 +560,9 @@ int main(void)
         const int n=gevrRagdollBodyParts(doorBody,parts,GEVR_RAGDOLL_PARTS_MAX);
         assert(n==d->count && n>0);
         for(int i=0;i<n;i++)assert(parts[i].f[0]==d->joints[i].m[3][0] && parts[i].f[1]==d->joints[i].m[3][1]);
+        /* a leg cut off is not the body a door fades: only the biggest piece's parts */
+        assert(d->body[9]>=0 && rdCut(d,d->body[9]));
+        assert(gevrRagdollBodyParts(doorBody,parts,GEVR_RAGDOLL_PARTS_MAX)==n-2);
         gevrRagdollDoorFade(doorBody);
         assert(!gevrRagdollBodyParts(doorBody,parts,GEVR_RAGDOLL_PARTS_MAX));
         for(int i=0;i<15;i++){g_GlobalTimer++;gevrRagdollTick(1);}

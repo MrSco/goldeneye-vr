@@ -1109,14 +1109,23 @@ int gevrRagdollCutNear(const float at[3], float radius, int skelpart)
     return n;
 }
 
+/* The parts of a body's biggest piece, the one a door or the truck fades it
+ * for: a leg the grenade launcher threw into a doorway faded the torso lying
+ * behind boxes far from it (user, 2026-11-28). A piece cut off and in the way
+ * is left to the door. */
 int gevrRagdollBodyParts(int body, coord3d *pos, int max)
 {
     if (body<0 || body>=RD_BODIES || !pos || max<=0) return 0;
-    const RdBody *b=&s_bodies[body];
+    RdBody *b=&s_bodies[body];
     if (!b->used || b->doorhit) return 0;
-    const int n=b->count<max?b->count:max;
-    for (int i=0;i<n;i++)
-        for (int k=0;k<3;k++) pos[i].f[k]=b->joints[i].m[3][k];
+    int size[RD_PARTS+1]={0},biggest=rdPiece(b,b->root),n=0;
+    for (int i=0;i<b->count;i++) size[rdPiece(b,i)]++;
+    for (int p=0;p<=RD_PARTS;p++) if (size[p]>size[biggest]) biggest=p;
+    for (int i=0;i<b->count && n<max;i++) {
+        if (rdPiece(b,i)!=biggest) continue;
+        for (int k=0;k<3;k++) pos[n].f[k]=b->joints[i].m[3][k];
+        n++;
+    }
     return n;
 }
 
