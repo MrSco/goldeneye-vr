@@ -4275,6 +4275,10 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
                     && (chrpropTestPointInPolygon(&parts[part], polygon2, edges2)
                         || chrobjTestPointPolygonCollision(&parts[part], 10.0f, polygon2, edges2)))
                 {
+                    /* what touched it and where, for a headset log: a body flying
+                     * after a blast and one behind boxes faded (user, 2026-11-28) */
+                    gevrRagdollDoorFadeLog(body, part, parts[part].f, gevrTruck ? 1 : 0, argProp->pos.f,
+                                           (const f32 *)polygon2->points, edges2, chrBottom, chrTop);
                     gevrRagdollDoorFade(body);
                     break;
                 }

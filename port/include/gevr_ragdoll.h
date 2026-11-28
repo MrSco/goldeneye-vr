@@ -44,6 +44,9 @@ void gevrRagdollBeanCap(const struct Model *model, int matrix, const s16 (*rim)[
 int gevrRagdollBodies(void);
 int gevrRagdollBodyParts(int body, struct coord3d *pos, int max);
 void gevrRagdollDoorFade(int body);
+/* the log's line for it: the part that touched, the door (0) or truck (1), its outline (x, z pairs) and height */
+void gevrRagdollDoorFadeLog(int body, int part, const float at[3], int truck, const float by[3],
+                            const float *outline, int edges, float bottom, float top);
 /* the Blood patch's pools (gevr_blood.c): a body's serial, root and rest */
 unsigned gevrRagdollBodyRest(int body, struct coord3d *root, int *resting);
 #ifdef __cplusplus

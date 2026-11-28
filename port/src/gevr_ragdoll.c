@@ -1143,6 +1143,20 @@ void gevrRagdollDoorFade(int body)
     sysLogPrintf(LOG_NOTE,"ragdoll: body %u is in a moving door's way; it fades",b->serial);
 }
 
+void gevrRagdollDoorFadeLog(int body, int part, const float at[3], int truck, const float by[3],
+                            const float *outline, int edges, float bottom, float top)
+{
+    if (body<0 || body>=RD_BODIES || !s_bodies[body].used || s_bodies[body].doorhit) return;
+    float lo[2]={1e30f,1e30f},hi[2]={-1e30f,-1e30f};
+    for (int e=0;e<edges && outline;e++)for (int k=0;k<2;k++) {
+        lo[k]=fminf(lo[k],outline[e*2+k]); hi[k]=fmaxf(hi[k],outline[e*2+k]);
+    }
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u's part %d at %.0f %.0f %.0f is in the way of a moving %s at %.0f %.0f %.0f: "
+                 "its outline x %.0f..%.0f z %.0f..%.0f (%d edges), y %.0f..%.0f",
+                 s_bodies[body].serial,part,at[0],at[1],at[2],truck ? "truck" : "door",by[0],by[1],by[2],
+                 lo[0],hi[0],lo[1],hi[1],edges,bottom,top);
+}
+
 /* A shot body bleeds where it was hit, as a living guard does
  * (chrHandleBulletHit -> chrCreateBloodStain, chr.c:3876): the hit box of
  * that part nearest the hit, the point pushed half out from its joint and
