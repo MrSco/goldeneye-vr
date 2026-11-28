@@ -1896,6 +1896,13 @@ static int levelPick(struct levelDecals *l, int i, int redo, int *bystrip)
 				}
 				if (!inside)
 					continue;
+				/* DAB 3c176f90 (gebeanstage.c decalPick): two cut-outs overlapping
+				 * along a strip are two see-through sheets meeting, not a picture
+				 * on its base: Cradle's ramp railing runs into the platform's in
+				 * its plane, and as its decal the whole railing was drawn in a
+				 * blended decal mode, a grey sheet where its bars were */
+				if (alphai && alphau)
+					continue;
 				strip = 1;
 			}
 			if (redo && strip && l->decal[o] && l->base[o] != i)

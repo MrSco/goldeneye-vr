@@ -59,7 +59,7 @@
  { "CheadshaunZ", BEAN_HEAD, "new/head/headshaun" },
  { "CheaddwayneZ", BEAN_HEAD, "new/head/headdwayne" },
  { "CheadbZ", BEAN_HEAD, "new/head/headb" },
- { "CheaddaveZ", BEAN_HEAD, "new/head/headneil" },
+ { "CheaddaveZ", BEAN_HEAD, "new/head/headdave" },   /* Doak: the release's headdave, or the Community Edition's Doak face (DAB 063cd038) */
  { "CheadgrantZ", BEAN_HEAD, "new/head/headgrant" },
  { "CheaddesZ", BEAN_HEAD, "new/head/headdes" },
  { "CheadchrisZ", BEAN_HEAD, "new/head/headchris" },

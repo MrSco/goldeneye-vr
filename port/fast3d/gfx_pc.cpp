@@ -5999,9 +5999,17 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_RDPLOADSYNC:
             case G_RDPTILESYNC:
                 break;
-            default:
-                sysFatalError("Unknown GBI opcode 0x%02x at %p.\nw0 %08x\nw1 %08x", opcode, cmd, cmd->words.w0, cmd->words.w1);
-                break;
+            default: {
+                /* DAB e4a2de95 (gfx_pc.cpp gfx_unknown_opcode): a list that runs into
+                 * something that is not GBI is ended there instead of the game stopped
+                 * (a ROM hack's or a pack's bad list); the rest of the frame draws. The
+                 * first few of a session are logged: after that it is the same list. */
+                static int s_unknownOpcodes;
+                if (++s_unknownOpcodes <= 4)
+                    sysLogPrintf(LOG_ERROR, "Unknown GBI opcode 0x%02x at %p (w0 %08x w1 %08x): the list was ended there",
+                                 opcode, (void*)cmd, cmd->words.w0, cmd->words.w1);
+                return;
+            }
         }
         ++cmd;
     }
