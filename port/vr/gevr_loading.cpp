@@ -13,8 +13,15 @@
  * gevrVrLoadingFrameBegin/End, which first close the frame the game's tick had
  * open). At most a picture per 33 ms between the steps; the window's events are
  * pumped as it draws, so no system takes the game for hung.
+ *
+ * A step drawn only between steps stops the bar for as long as it takes, so the
+ * long CPU work (Bean's level, sky and hand) runs on a thread of its own
+ * (gevrLoadingBehind) while this one, the GL and XR thread, draws every frame.
+ * The work's steps then only move the bar; GL work (pictures to the GPU,
+ * shaders) stays on this thread, a picture between its steps as before.
  */
 #include <SDL.h>
+#include <atomic>
 #include <vector>
 
 #if defined(ANDROID) || defined(GEVR_GLES)   // GLES 3: Android (Quest, phones), iOS/tvOS (ANGLE)
@@ -55,8 +62,10 @@ bool s_ready, s_tried, s_active;
 bool s_holding;                    // a flat game: loaded, the screen held over its first frames
 Uint32 s_holdStart, s_holdLast;
 int s_holdFrames, s_holdQuick;
-float s_shown;
+std::atomic<float> s_shown;        // the bar: a step on the work's thread moves it too
+SDL_threadID s_drawThread;         // the GL thread, the only one that draws
 Uint32 s_start, s_last;
+Uint32 s_pictures, s_longestGap;   // the log's: how smoothly this load's screen moved
 
 void makeLogos()
 {
@@ -136,7 +145,7 @@ void paint(float fade, Uint32 now)
     glEnable(GL_SCISSOR_TEST);
     box(bx - 2, by - 2, bw + 4, bh + 4, gold[0] * 0.55f, gold[1] * 0.55f, gold[2] * 0.55f);
     box(bx, by, bw, bh, 0.08f * fade, 0.07f * fade, 0.05f * fade);
-    const int done = (int)(bw * s_shown);
+    const int done = (int)(bw * s_shown.load());
     box(bx, by, done, bh, gold[0], gold[1], gold[2]);
     const int glintW = bw / 10;
     const int glintX = bx + (int)((float)(bw - glintW) * (float)((now - s_start) % 1400) / 1400.0f);
@@ -186,7 +195,15 @@ void frame(float fade)
     if (scissorOn) glEnable(GL_SCISSOR_TEST);
     else glDisable(GL_SCISSOR_TEST);
     glClearColor(clear[0], clear[1], clear[2], clear[3]);
+    if (s_last && now - s_last > s_longestGap) s_longestGap = now - s_last;
+    s_pictures++;
     s_last = now;
+}
+
+void logLoad(const char *what)
+{
+    sysLogPrintf(0, "loading: %s, %u pictures over %u ms, the longest wait between two %u ms", what,
+                 (unsigned)s_pictures, (unsigned)(SDL_GetTicks() - s_start), (unsigned)s_longestGap);
 }
 
 void fadeTo(bool in)
@@ -206,9 +223,24 @@ void fadeTo(bool in)
 void progressHook(float progress)
 {
     if (!s_active) return;
-    if (progress > s_shown) s_shown = progress > 1.0f ? 1.0f : progress;
+    if (progress > s_shown.load()) s_shown.store(progress > 1.0f ? 1.0f : progress);
+    if (SDL_ThreadID() != s_drawThread) return;   // the work's thread: the GL thread draws it
     if (SDL_GetTicks() - s_last < kFrameMs) return;
     frame(1.0f);
+}
+
+struct Behind {
+    void (*work)(void *);
+    void *arg;
+    SDL_sem *done;
+};
+
+int behindThread(void *data)
+{
+    Behind *b = (Behind *)data;
+    b->work(b->arg);
+    SDL_SemPost(b->done);
+    return 0;
 }
 
 struct Register {
@@ -220,10 +252,49 @@ struct Register {
 extern "C" void gevrLoadingBegin(void)
 {
     s_active = true;
-    s_shown = 0.0f;
+    s_shown.store(0.0f);
+    s_drawThread = SDL_ThreadID();
     s_start = SDL_GetTicks();
     s_last = 0;
+    s_pictures = s_longestGap = 0;
     fadeTo(true);
+}
+
+/*
+ * work(arg) on a thread of its own, this one drawing the screen until it is
+ * done: every frame on a headset (its frame wait paces the loop), about 60 a
+ * second in a window. The work must not touch GL or the window; its progress
+ * calls only move the bar. Run here instead when the screen is not up or no
+ * thread can be made.
+ */
+extern "C" void gevrLoadingBehind(void (*work)(void *), void *arg)
+{
+    if (!s_active || !ensure() || SDL_ThreadID() != s_drawThread) {
+        work(arg);
+        return;
+    }
+    Behind b = { work, arg, SDL_CreateSemaphore(0) };
+    // 8 MB: the level's build was written for the game thread's stack
+    SDL_Thread *t = b.done ? SDL_CreateThreadWithStackSize(behindThread, "gevr-loading", 8u << 20, &b) : nullptr;
+    if (!t) {
+        sysLogPrintf(1, "loading: no thread for the work (%s), done between pictures", SDL_GetError());
+        if (b.done) SDL_DestroySemaphore(b.done);
+        work(arg);
+        return;
+    }
+    for (;;) {
+        const Uint32 t0 = SDL_GetTicks();
+        frame(1.0f);
+        const Uint32 spent = SDL_GetTicks() - t0;
+#ifdef GEVR_FLAT
+        const Uint32 wait = spent < 16 ? 16 - spent : 0;
+#else
+        const Uint32 wait = spent < 3 ? kFrameMs : 0;   // no frame wait (the session not running): no spin
+#endif
+        if (SDL_SemWaitTimeout(b.done, wait) == 0) break;
+    }
+    SDL_WaitThread(t, nullptr);
+    SDL_DestroySemaphore(b.done);
 }
 
 /* 0..1: the bar; the picture again if a frame's time has passed (any step may call it) */
@@ -243,8 +314,9 @@ extern "C" void gevrLoadingProgress(float progress)
 extern "C" void gevrLoadingEnd(void)
 {
     if (!s_active) return;
-    s_shown = 1.0f;
+    s_shown.store(1.0f);
     frame(1.0f);
+    logLoad("loaded");
 #ifdef GEVR_FLAT
     s_holding = true;
     s_holdStart = s_holdLast = SDL_GetTicks();
