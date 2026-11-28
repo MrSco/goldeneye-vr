@@ -1581,31 +1581,15 @@ static int s_pressWant;
 static int s_ownNeckBody;   /* the body being laid out is a guard's, not an outfit's */
 static const struct gevrBeanMesh *s_ownNeckMesh;
 static uint8_t *s_ownNeckOff;
-/* Per triangle, 1: the body's own neck below the line its head file's neck
- * takes over, under the jaw and within a throat (beanTriInNeck; higher, the
- * chin and lips stayed on the stump): kept in the skin,
- * collapsed, for a cut body to draw once the head is off (struct beanSkin) */
+/* Per triangle, 1: the body's own head section, kept in the skin collapsed
+ * (struct beanSkin). Once the head is off it goes with the head's piece, still
+ * collapsed, so the seam where it met the coat is the cut's rim and the collar
+ * is capped there (user, 2026-11-28: "a cutoff at the collar and fill").
+ * Drawn on the stump instead, the neck under the jaw (Dab's throat test) kept
+ * a ragged jaw-shaped tongue above the collar. */
 static uint8_t *s_ownNeckStub;
 
-/* DAB gebean.c beanTriInNeck: a triangle of the body's neck is the neck's,
- * not the face of the head the body file carries, when every corner is under
- * the jaw (BEAN_OWNNECK_THROAT_HD, the release's files) and within a throat's
- * reach of the neck joint (BEAN_OWNNECK_REACH), at the rig's scale */
-#define BEAN_OWNNECK_THROAT_HD -10.0f   /* DAB -22: on our guards the stub ended below the collar, open; -10 holds no chin */
-#define BEAN_OWNNECK_REACH 125.0f
-static int beanTriInNeck(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t, float scale)
-{
-	const float *neck = mesh->bind[GEVR_BEAN_SK_NECK];
-	for (int v = 0; v < 3; v++) {
-		const float dx = (t->p[v * 3] - neck[0]) * scale, dz = (t->p[v * 3 + 2] - neck[2]) * scale;
-		if ((t->p[v * 3 + 1] - neck[1]) * scale > BEAN_OWNNECK_THROAT_HD ||
-		    dx * dx + dz * dz > BEAN_OWNNECK_REACH * BEAN_OWNNECK_REACH)
-			return 0;
-	}
-	return 1;
-}
-
-static void beanOwnNeck(const struct gevrBeanMesh *mesh, float scale)
+static void beanOwnNeck(const struct gevrBeanMesh *mesh)
 {
 	int sec = 0;
 	uint8_t *off;
@@ -1615,7 +1599,7 @@ static void beanOwnNeck(const struct gevrBeanMesh *mesh, float scale)
 	s_ownNeckStub = calloc((size_t)mesh->ntris, 1);
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
-		const int stub = s_ownNeckStub && t->headsec && t->sk == GEVR_BEAN_SK_NECK && beanTriInNeck(mesh, t, scale);
+		const int stub = s_ownNeckStub && t->headsec;
 		if (stub)
 			s_ownNeckStub[i] = 1;
 		sec += off[i] = t->headsec && !stub;
@@ -3469,7 +3453,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					grp[i].sk = -1;
 		buildRot(mesh, grp, ng, R, &scale);
 		if (hasHead && s_ownNeckBody && s_ownNeckMesh != mesh)
-			beanOwnNeck(mesh, scale);
+			beanOwnNeck(mesh);
 		for (int s = 0; s < GEVR_BEAN_SK_COUNT; s++) {
 			sharedG[s] = NULL;
 			sharedV[s] = NULL;

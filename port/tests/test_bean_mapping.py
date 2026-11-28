@@ -86,14 +86,16 @@ def check_flash(results):
 
 
 def check_own_neck(results):
-    """A guard's body under a head file leaves its own head section out (gevr_bean.c
-    beanOwnNeck, DAB dropownskin): drawn, it stood out through the head's neck."""
+    """A guard's body under a head file does not draw its own head section (gevr_bean.c
+    beanOwnNeck, DAB dropownskin): drawn, it stood out through the head's neck. It is
+    kept collapsed, the seam a beheading caps the collar along."""
     rx = re.compile(r"OWNNECK (\w+) head section (\d+) left out (\d+)")
     seen = {m.group(1): (int(m.group(2)), int(m.group(3))) for line in results for m in rx.finditer(line)}
     assert seen, "no OWNNECK lines: no guard body was laid out under a head file"
     for name in ("Cgreatguard2Z", "CcommguardZ", "ColiveguardZ"):
-        assert name in seen and 0 < seen[name][1] < seen[name][0], f"{name}: {seen.get(name)}"  # the neck stub stays, collapsed
-    print(f"Own necks: {len(seen)} guard bodies leave their head section out under a head file")
+        # all of it stays in the skin collapsed, nothing drawn, so a cut takes it with the head and caps the collar
+        assert name in seen and seen[name][0] > 0 and seen[name][1] == 0, f"{name}: {seen.get(name)}"
+    print(f"Own necks: {len(seen)} guard bodies keep their head section collapsed under a head file")
 
 
 def check_screens(results):

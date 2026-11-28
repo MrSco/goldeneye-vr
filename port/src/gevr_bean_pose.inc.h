@@ -190,6 +190,34 @@ static int beanParentMatrix(Model *model, int m)
 	return -1;
 }
 
+/* The head's piece once the head is off, -1 while it is on: from the body's
+ * own head section (its corners as they are), the triangle that hangs from
+ * a matrix whose parent is on another piece. All of the section goes with
+ * it, whatever bone a triangle hangs from: those on the back stayed on the
+ * body, and the rim ran between two collapsed parts (every edge of length
+ * 0), the collar left open (2026-11-28). */
+static int beanStubHeadPiece(struct beanSkin *skin, Model *model, const int *stubAt)
+{
+	const int count = model->obj->numMatrices;
+	for (int i = 0; stubAt && i + 2 < skin->nverts; i += 3) {
+		if (stubAt[i] < 0)
+			continue;
+		int neckM = -1, most = -1;
+		for (int c = i; c < i + 3; c++) {
+			const struct beanSkinVert *r = beanSkinReal(skin, c);
+			for (int w = 0; w < 4; w++)
+				if (r->weight[w] > most && r->matrix[w] >= 0 && r->matrix[w] < count) {
+					most = r->weight[w];
+					neckM = r->matrix[w];
+				}
+		}
+		const int backM = neckM >= 0 ? beanParentMatrix(model, neckM) : -1;
+		if (backM >= 0 && backM < count && s_cuts.piece(model, neckM) != s_cuts.piece(model, backM))
+			return s_cuts.piece(model, neckM);
+	}
+	return -1;
+}
+
 static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, unsigned body, int cuts,
                                         int anchorIndex, int backIndex, ModelNode *neck)
 {
@@ -206,35 +234,15 @@ static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, uns
 		goto fail;
 	int *triother = tripiece + skin->nverts / 3 + 1;
 	int owner = anchorIndex;
-	/* the body's own neck stub (struct beanSkin): drawn, as it is, on the
-	 * back's piece once the head is off, closing the collar the head file's
-	 * neck filled; collapsed to nothing while the head is on */
+	/* the body's own head section (struct beanSkin), collapsed to nothing:
+	 * once the head is off it goes with the head's piece, so its seam with the
+	 * coat is a rim of the cut and the collar is capped there */
 	const int *stubAt = beanSkinStubAt(skin);
-	int restore = 0, stubOwner = -1, stubHead = -1;
+	const int stubHead = beanStubHeadPiece(skin, model, stubAt);
 	for (int i = 0; i < skin->nverts; i++) {
-		if (i % 3 == 0) {
-			restore = 0;
-			stubOwner = -1;
-		}
-		if (i % 3 == 0 && stubAt && stubAt[i] >= 0) {
-			int neckM = -1, most = -1;
-			for (int c = i; c < i + 3 && c < skin->nverts; c++) {
-				const struct beanSkinVert *r = beanSkinReal(skin, c);
-				for (int w = 0; w < 4; w++)
-					if (r->weight[w] > most && r->matrix[w] >= 0 && r->matrix[w] < count) {
-						most = r->weight[w];
-						neckM = r->matrix[w];
-					}
-			}
-			const int backM = neckM >= 0 ? beanParentMatrix(model, neckM) : -1;
-			restore = backM >= 0 && backM < count && s_cuts.piece(model, neckM) != s_cuts.piece(model, backM);
-			stubOwner = restore ? backM : -1;
-			stubHead = restore ? s_cuts.piece(model, neckM) : -1;
-		}
-		if (i % 3 == 0 && restore) {
-			owner = stubOwner;
-			tripiece[i / 3] = s_cuts.piece(model, stubOwner);
-			triother[i / 3] = stubHead;   /* straddling the cut: its open top is capped */
+		if (i % 3 == 0 && stubHead >= 0 && stubAt[i] >= 0) {
+			tripiece[i / 3] = stubHead;
+			triother[i / 3] = -1;
 		} else if (i % 3 == 0) {
 			/* as the CPU pose: one piece for the whole triangle */
 			int matrices[12], pieces[12], scores[12] = {0}, n = 0, best = 0;
@@ -266,11 +274,8 @@ static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, uns
 			tripiece[i / 3] = mine;
 			triother[i / 3] = second >= 0 ? pieces[second] : -1;
 		}
-		const struct beanSkinVert *src = restore ? beanSkinReal(skin, i) : &skin->verts[i];
+		const struct beanSkinVert *src = &skin->verts[i];
 		memcpy(v[i].vtx, &skin->vtx[i], sizeof(Vtx));
-		if (restore && stubAt[i] >= 0)
-			for (int c = 0; c < 3; c++)
-				((Vtx *)v[i].vtx)->v.ob[c] = skin->stub[stubAt[i]].ob[c];
 		v[i].tint = src->tint;
 		for (int w = 0; w < 4; w++) {
 			int matrix = src->matrix[w], back = matrix == -3;
@@ -446,29 +451,15 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 	int owner = anchorIndex;
 	int *tripiece = cut ? beanFrameAllocate((size_t)(skin->nverts / 3 + 1) * sizeof(int) * 2) : NULL;
 	int *triother = tripiece ? tripiece + skin->nverts / 3 + 1 : NULL;
-	const int *stubAt = cut ? beanSkinStubAt(skin) : NULL;   /* the neck stub, as beanCutBuild */
+	const int *stubAt = cut ? beanSkinStubAt(skin) : NULL;   /* the own head section, as beanCutBuild */
+	const int stubHead = cut ? beanStubHeadPiece(skin, model, stubAt) : -1;
 	int restore = 0;
 	for (int v = 0; v < skin->nverts; v++) {
-        if (v % 3 == 0)
-            restore = 0;
-        if (stubAt && v % 3 == 0 && stubAt[v] >= 0) {
-            int neckM = -1, most = -1;
-            for (int c = v; c < v + 3 && c < skin->nverts; c++) {
-                const struct beanSkinVert *r = beanSkinReal(skin, c);
-                for (int w = 0; w < 4; w++)
-                    if (r->weight[w] > most && r->matrix[w] >= 0 && r->matrix[w] < model->obj->numMatrices) {
-                        most = r->weight[w];
-                        neckM = r->matrix[w];
-                    }
-            }
-            const int backM = neckM >= 0 ? beanParentMatrix(model, neckM) : -1;
-            restore = backM >= 0 && backM < model->obj->numMatrices && s_cuts.piece(model, neckM) != s_cuts.piece(model, backM);
-            if (restore) {
-                owner = backM;
-                if (tripiece) {
-                    tripiece[v / 3] = s_cuts.piece(model, backM);
-                    triother[v / 3] = s_cuts.piece(model, neckM);   /* straddling the cut: its open top is capped */
-                }
+        if (v % 3 == 0) {
+            restore = stubHead >= 0 && stubAt[v] >= 0;
+            if (restore && tripiece) {
+                tripiece[v / 3] = stubHead;   /* collapsed, with the head: the collar is the rim */
+                triother[v / 3] = -1;
             }
         }
         /* Skin vertices are emitted as independent triangle triples. Choose
@@ -506,7 +497,7 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
                 triother[v / 3] = second >= 0 ? pieces[second] : -1;
             }
         }
-		const struct beanSkinVert *src = restore ? beanSkinReal(skin, v) : &skin->verts[v];
+		const struct beanSkinVert *src = &skin->verts[v];
 		float p[3] = {0}, n[3] = {0}, total = 0;
 		for (int w = 0; w < 4; w++) {
 			int matrix = src->matrix[w];

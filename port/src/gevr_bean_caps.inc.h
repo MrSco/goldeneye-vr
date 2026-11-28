@@ -66,6 +66,31 @@ static const int *beanSkinWeld(struct beanSkin *skin)
 			}
 		}
 	}
+	/* And two corners at one place in the bind pose (the skin's own vertices,
+	 * a neck stub corner's as it is): a seam between two of Bean's meshes,
+	 * each on its own bone - a coat's collar on the back and the guard's own
+	 * neck on the neck share no bone, and the collar's rim stayed open */
+	const int *at = skin->vtx ? beanSkinStubAt(skin) : NULL;
+	for (int i = 0; skin->vtx && i < size; i++)
+		table[i][0] = -1;
+	for (int v = 0; skin->vtx && v < skin->nverts; v++) {
+		const s16 *ob = at && at[v] >= 0 ? skin->stub[at[v]].ob : skin->vtx[v].v.ob;
+		uint32_t h = 2166136261u;
+		for (size_t i = 0; i < 3 * sizeof(s16); i++)
+			h = (h ^ ((const uint8_t *)ob)[i]) * 16777619u;
+		for (int slot = (int)(h & (uint32_t)(size - 1));; slot = (slot + 1) & (size - 1)) {
+			const int other = table[slot][0];
+			if (other < 0) {
+				table[slot][0] = v;
+				break;
+			}
+			const s16 *o = at && at[other] >= 0 ? skin->stub[at[other]].ob : skin->vtx[other].v.ob;
+			if (!memcmp(o, ob, 3 * sizeof(s16))) {
+				weld[beanCapFind(weld, v)] = beanCapFind(weld, other);
+				break;
+			}
+		}
+	}
 	for (int v = 0; v < skin->nverts; v++)
 		weld[v] = beanCapFind(weld, v);
 	free(table);
