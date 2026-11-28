@@ -1056,6 +1056,18 @@ void gevrRagdollTick(int ticks60)
         b->asleep=asleep;
         rdRest(b,dt,asleep);
         rdCrossCheck(b,before,dt);
+        /* A piece cut off that fell out of the level sleeps where it is: one
+         * fell on at 9000 units/s and kept its body awake for good, every
+         * other piece lying still (headset log, 2026-11-28) */
+        for(int c=0;c<b->count && !asleep;c++) {
+            if(!(b->cuts&(1u<<c)))continue;
+            unsigned mask=0; int out=1;
+            for(int p=0;p<b->count;p++)if(rdPiece(b,p)==c+1) {
+                mask|=1u<<p;
+                if(b->joints[p].m[3][1]>=RD_KILLFLOOR_Y)out=0;
+            }
+            if(mask && out)pdphysRagdollSleepParts(b->handle,mask);
+        }
         /* Fell out of the level (CE :1708) */
         if(b->joints[b->root].m[3][1]<RD_KILLFLOOR_Y) {
             sysLogPrintf(LOG_NOTE,"ragdoll: body %u fell out of the level, removing it",b->serial);
