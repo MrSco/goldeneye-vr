@@ -1313,7 +1313,12 @@ int gevrRagdollCutFrom(const Model *model, int piece, int *own)
 void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int nedges,int piece,int other)
 {
     RdBody *b=rdModel(model);
-    if(!b || b->nbean==RD_MAXCAPS || nedges<3 || matrix<0 || matrix>=b->matrices)return;
+    if(b && b->nbean==RD_MAXBEAN) {
+        static int warned;
+        if(!warned++)sysLogPrintf(LOG_WARNING,"ragdoll: body %u has more than %d Bean rims this view; the rest go uncapped",b->serial,RD_MAXBEAN);
+        return;
+    }
+    if(!b || nedges<3 || matrix<0 || matrix>=b->matrices)return;
     /* CE's reach (ragdollBuildCaps, dismember.c): a hole is closed only within
      * 1.6 cut radii of its joint, on this side's frame. Bean's skin has open
      * rims far off on triangles with a trace of the other piece's weight - a

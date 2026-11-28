@@ -103,7 +103,10 @@ static const int *beanSkinWeld(struct beanSkin *skin)
 	return weld;
 }
 
-#define BEAN_CAP_LOOPS 16
+/* A body blown apart again and again has many holes: past 16 the rest had no
+ * rim of their own, the ragdoll's plain disc stood in and the coat stayed
+ * hollow round it (user, 2026-11-28, grenade launcher on the bodies) */
+#define BEAN_CAP_LOOPS 48
 struct beanCapLoop { int piece, other, first, nedges; };
 struct beanCapCache {
 	const struct beanSkin *skin;
@@ -241,6 +244,11 @@ static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, 
 		}
 	}
 #undef SAME
+	if (cache->nloops == BEAN_CAP_LOOPS) {
+		static int warned;
+		if (!warned++)
+			GEVR_BEAN_LOG("bean caps: a skin's cut set has more than %d holes; the rest go uncapped", BEAN_CAP_LOOPS);
+	}
 	free(uf);
 	free(border);
 	return cache;

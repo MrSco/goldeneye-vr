@@ -50,6 +50,7 @@ typedef struct RdMesh {
  * rim edges, each rim vertex drawn with the matrix and coordinates the mesh
  * uses there, so the cap stays on the edge of the hole */
 #define RD_MAXCAPS 24
+#define RD_MAXBEAN 64   /* Bean rims a view: 24 ran out on a body blown apart again and again (2026-11-28) */
 typedef struct RdCapVtx { s16 mtx, v[3]; } RdCapVtx;
 typedef struct RdCap {
     int matrix, numedges;   /* the centre is drawn with this matrix */
@@ -100,7 +101,7 @@ typedef struct RdBody {
     RdCap caps[RD_MAXCAPS];
     int ncaps, ndiscs;
     /* Bean skin rims this view (gevr_bean_caps.inc.h), drawn as fans */
-    struct { int matrix, nedges, piece, other, cut; const s16 (*rim)[2][3]; } bean[RD_MAXCAPS];
+    struct { int matrix, nedges, piece, other, cut; const s16 (*rim)[2][3]; } bean[RD_MAXBEAN];
     int nbean;
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
     /* rdPiece of each matrix's owner, for these cuts (gevrRagdollPiece, Remap) */
