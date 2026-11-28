@@ -825,21 +825,6 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
     assert(notdone == 0);
     #endif
  
-#ifdef GEVR
-    /*
-     * The ragdolls with the solid things, before anything see-through (user,
-     * 2026-11-18, screenshot: "dead bodies showing through explosions"). They
-     * were drawn last of all, after the rooms' second pass, where explosions,
-     * smoke and glass are drawn without writing depth: a body behind a
-     * fireball then passed the depth test and was drawn over it. Here they
-     * are in the depth buffer first, as a standing guard is (chrpropsRenderPass
-     * 0), so what is see-through covers them and is hidden by them as it
-     * should be. Every room of the view is known by now (rdOnScreen).
-     */
-    gSPMatrix(gdl++, osVirtualToPhysical((void*)currentPlayerGetProjectionMatrix()), (G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
-    gdl = fogRenderClearFogMode(gdl);
-    gdl = gevrRagdollRender(gdl);
-#endif
     gdl = bgScissorCurrentPlayerViewDefault(fogRenderClearFogMode(gdl));
     gSPMatrix(gdl++, osVirtualToPhysical((void*)get_BONDdata_field_10E0()), (G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
  
@@ -853,6 +838,29 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
         gdl = explosionRenderScorchBuffer(gdl);
         gdl = explosionCallRenderBulletImpactOnProp(gdl);
     }
+#ifdef GEVR
+    /*
+     * The ragdolls with the solid things, before anything see-through (user,
+     * 2026-11-18, screenshot: "dead bodies showing through explosions"). They
+     * were drawn last of all, after the rooms' second pass, where explosions,
+     * smoke and glass are drawn without writing depth: a body behind a
+     * fireball then passed the depth test and was drawn over it. Here they
+     * are in the depth buffer before that pass, so what is see-through covers
+     * them and is hidden by them as it should be. Every room of the view is
+     * known by now (rdOnScreen).
+     *
+     * After the scorches and bullet holes, though: those draw in a band that
+     * paints a hole over anything within 3 view units of its wall (15 cm on
+     * the Dam), and a body or a cut arm lying on the floor is inside it - the
+     * holes in the ground showed through the arm (user, 2026-11-28). Drawn
+     * after them, the body covers the hole under it.
+     */
+    gSPMatrix(gdl++, osVirtualToPhysical((void*)currentPlayerGetProjectionMatrix()), (G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
+    gdl = fogRenderClearFogMode(gdl);
+    gdl = gevrRagdollRender(gdl);
+    gdl = bgScissorCurrentPlayerViewDefault(fogRenderClearFogMode(gdl));
+    gSPMatrix(gdl++, osVirtualToPhysical((void*)get_BONDdata_field_10E0()), (G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
+#endif
  
     if (g_BgNumberOfRoomsDrawn);
     if (dword_CODE_bss_8007FFA0);
