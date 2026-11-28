@@ -26,7 +26,7 @@ static const int *beanSkinWeld(struct beanSkin *skin)
 	for (int i = 0; i < size; i++)
 		table[i] = -1;
 	for (int v = 0; v < skin->nverts; v++) {
-		const struct beanSkinVert *s = &skin->verts[v];
+		const struct beanSkinVert *s = beanSkinReal(skin, v);   /* a neck stub corner as it is */
 		uint32_t h = 2166136261u;
 		const uint8_t *bytes[3] = { (const uint8_t *)s->p, s->weight, (const uint8_t *)s->matrix };
 		const size_t lens[3] = { sizeof(s->p), sizeof(s->weight), sizeof(s->matrix) };
@@ -41,7 +41,7 @@ static const int *beanSkinWeld(struct beanSkin *skin)
 				table[slot] = v;
 				break;
 			}
-			const struct beanSkinVert *o = &skin->verts[other];
+			const struct beanSkinVert *o = beanSkinReal(skin, other);
 			if (!memcmp(o->p, s->p, sizeof(s->p)) && !memcmp(o->weight, s->weight, sizeof(s->weight)) &&
 			    !memcmp(o->matrix, s->matrix, sizeof(s->matrix))) {
 				weld[v] = other;

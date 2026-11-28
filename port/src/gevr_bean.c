@@ -75,6 +75,10 @@ struct beanSkinVert {
 	int16_t matrix[4];
 	GevrVertexTint tint;
 };
+struct beanStubVert {
+	struct beanSkinVert real;
+	s16 ob[3];
+};
 struct beanSkin {
 	struct beanSkinVert *verts;
 	Vtx *vtx;
@@ -85,10 +89,21 @@ struct beanSkin {
 	int16_t bones[GEVR_SKIN_BONES];
 	int nbones, meshTried;
 	int *weld; /* gevr_bean_caps.inc.h: vertices that are the same vertex */
+	/* A guard's own neck stub under a head file (beanOwnNeck): its corners are
+	 * emitted collapsed, nothing drawn, and kept here as they are, for a cut
+	 * body's draw to restore once the head is off (beanCutBuild) */
+	int nstub;
+	int *stubVert;                 /* the skin vertex of each */
+	struct beanStubVert *stub;
+	int *stubAt;                   /* per skin vertex: its stub, -1 none (made on the first cut) */
 };
 static GevrStaticMesh *s_skinMeshes[MAX_ALLOC];
 static int s_nskinMeshes;
 static const struct beanSkinVert *s_emitSkin;
+/* emitSkinned's neck stub corners, by emitted vertex (beanOwnNeck) */
+static const uint8_t *s_emitStub;
+static const struct beanStubVert *s_emitStubReal;
+static int s_emitStubCount;
 static struct beanSkin *s_emittedSkin;
 
 static ModelFileHeader *s_registrationOwner;
@@ -1047,7 +1062,20 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
                         memcpy(world[vi].rgba,dst->v.cn,4);
                     }
                     if (skin) {
-                        skin->verts[vi] = s_emitSkin[order[batch + t] * 3 + k];
+                        const int from = order[batch + t] * 3 + k;
+                        skin->verts[vi] = s_emitSkin[from];
+                        if (s_emitStub && from < s_emitStubCount && s_emitStub[from]) {
+                            int *at = realloc(skin->stubVert, (size_t)(skin->nstub + 1) * sizeof(*at));
+                            struct beanStubVert *sv = at ? realloc(skin->stub, (size_t)(skin->nstub + 1) * sizeof(*sv)) : NULL;
+                            if (at) skin->stubVert = at;
+                            if (sv) {
+                                skin->stub = sv;
+                                skin->stubVert[skin->nstub] = vi;
+                                skin->stub[skin->nstub] = s_emitStubReal[from];
+                                memcpy(skin->stub[skin->nstub].real.tint.rgba, src->rgba, 4);
+                                skin->nstub++;
+                            }
+                        }
                         memcpy(skin->verts[vi].tint.rgba, src->rgba, 4);
                         skin->verts[vi].tint.unlit = mesh->watchArm && tex == 9;
                     }
@@ -1108,6 +1136,10 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		skin->nverts = vi;
 		skin->ncommands = (int)(g - gdl) + 1;
 		keepAlloc(skin->verts);
+		if (skin->nstub) {
+			keepAlloc(skin->stubVert);
+			keepAlloc(skin->stub);
+		}
 		keepAlloc(skin);
 		s_emittedSkin = skin;
 	}
@@ -1549,6 +1581,11 @@ static int s_pressWant;
 static int s_ownNeckBody;   /* the body being laid out is a guard's, not an outfit's */
 static const struct gevrBeanMesh *s_ownNeckMesh;
 static uint8_t *s_ownNeckOff;
+/* Per triangle, 1: the body's own neck below the line its head file's neck
+ * takes over, below the jaw (DAB BEAN_OWNNECK_THROAT: 15 units under Bean's
+ * neck joint; higher was the chin and lips on the stump): kept in the skin,
+ * collapsed, for a cut body to draw once the head is off (struct beanSkin) */
+static uint8_t *s_ownNeckStub;
 
 static void beanOwnNeck(const struct gevrBeanMesh *mesh)
 {
@@ -1556,8 +1593,16 @@ static void beanOwnNeck(const struct gevrBeanMesh *mesh)
 	uint8_t *off;
 	if (mesh->ntris <= 0 || !(off = calloc((size_t)mesh->ntris, 1)))
 		return;
-	for (int i = 0; i < mesh->ntris; i++)
-		sec += off[i] = mesh->tris[i].headsec;
+	free(s_ownNeckStub);
+	s_ownNeckStub = calloc((size_t)mesh->ntris, 1);
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		const int stub = s_ownNeckStub && t->headsec && t->sk == GEVR_BEAN_SK_NECK &&
+		                 (t->p[1] + t->p[4] + t->p[7]) / 3 <= mesh->bind[GEVR_BEAN_SK_NECK][1] - 15.0f;
+		if (stub)
+			s_ownNeckStub[i] = 1;
+		sec += off[i] = t->headsec && !stub;
+	}
 	GEVR_BEAN_LOG("gevr bean: under a head file: its own head section left out, %d triangles\n", sec);
 	s_ownNeckMesh = mesh;
 	s_ownNeckOff = off;
@@ -2729,7 +2774,9 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
                        const float R[GEVR_BEAN_SK_COUNT][9], float scale, const struct beanGrp *grp, int ng,
                        const ModelFileHeader *header, int cuff, int whole, void **gdl, void **vtx)
 {
-	int n = 0, cap = 0;
+	int n = 0, cap = 0, stubCap = 0, nstub = 0;
+	uint8_t *stubFlag = NULL;
+	struct beanStubVert *stubReal = NULL;
 	struct beanSkinVert *skin = calloc((size_t)mesh->ntris * 3, sizeof(*skin));
 	if (!skin)
 		return 0;
@@ -2802,6 +2849,35 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 			applyR(R[sk], nr, nn);
 			fillEmit(t, t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex], &ev[n + c], p, nn, c);
 		}
+		if (s_ownNeckStub && mesh == s_ownNeckMesh && s_ownNeckStub[t - mesh->tris]) {
+			/* the neck stub: kept as it is, drawn as a point (struct beanSkin) */
+			if (n + 3 > stubCap) {
+				int grown = stubCap ? stubCap : 192;
+				while (grown < n + 3)
+					grown *= 2;
+				uint8_t *f = realloc(stubFlag, (size_t)grown);
+				struct beanStubVert *r = f ? realloc(stubReal, (size_t)grown * sizeof(*r)) : NULL;
+				if (f) stubFlag = f;
+				if (r) stubReal = r;
+				if (f && r) {
+					memset(stubFlag + stubCap, 0, (size_t)(grown - stubCap));
+					stubCap = grown;
+				}
+			}
+			if (n + 3 <= stubCap) {
+				for (int c = 0; c < 3; c++) {
+					stubReal[n + c].real = skin[n + c];
+					for (int k = 0; k < 3; k++)
+						stubReal[n + c].ob[k] = posClamp(ev[n + c].p[k]);
+					stubFlag[n + c] = 1;
+				}
+				for (int c = 1; c < 3; c++) {
+					skin[n + c] = skin[n];
+					memcpy(ev[n + c].p, ev[n].p, sizeof(ev[n].p));
+				}
+				nstub += 3;
+			}
+		}
 		n += 3;
 	}
 	if (n < 3) {
@@ -2810,14 +2886,52 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 		return 0;
 	}
 	{
+		const int emitted = n;
 		n = gevrBeanSoftSpans(mesh, &ev, &skin, n);
 		s_emitSkin = skin;
+		s_emitStub = nstub ? stubFlag : NULL;
+		s_emitStubReal = stubReal;
+		s_emitStubCount = nstub ? (emitted < stubCap ? emitted : stubCap) : 0;
 		int ok = gevrBeanEmitList(mesh, ev, n, 1, 0, 1, 1, gdl, vtx);
 		s_emitSkin = NULL;
+		s_emitStub = NULL;
+		s_emitStubReal = NULL;
+		s_emitStubCount = 0;
+		free(stubFlag);
+		free(stubReal);
 		free(skin);
 		free(ev);
 		return ok;
 	}
+}
+
+/* A skin vertex as it is: a neck stub corner's real data, else its own (struct beanSkin) */
+static const int *beanSkinStubAt(struct beanSkin *skin)
+{
+	if (!skin->nstub || skin->nverts <= 0)
+		return NULL;
+	if (!skin->stubAt) {
+		int *at = malloc((size_t)skin->nverts * sizeof(int));
+		if (!at)
+			return NULL;
+		for (int i = 0; i < skin->nverts; i++)
+			at[i] = -1;
+		for (int i = 0; i < skin->nstub; i++)
+			if (skin->stubVert[i] >= 0 && skin->stubVert[i] < skin->nverts)
+				at[skin->stubVert[i]] = i;
+		if (!keepAlloc(at)) {
+			free(at);
+			return NULL;
+		}
+		skin->stubAt = at;
+	}
+	return skin->stubAt;
+}
+
+static const struct beanSkinVert *beanSkinReal(struct beanSkin *skin, int v)
+{
+	const int *at = beanSkinStubAt(skin);
+	return at && at[v] >= 0 ? &skin->stub[at[v]].real : &skin->verts[v];
 }
 
 #include "gevr_bean_pose.inc.h"
@@ -3926,7 +4040,9 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 			s_ownNeckBody = s_files[i].kind != BEAN_HEADBODY || strcmp(s_files[i].source, source) != 0;
 		applyMesh(header, mesh, kind, fit);
 		free(s_ownNeckOff);
+		free(s_ownNeckStub);
 		s_ownNeckOff = NULL;
+		s_ownNeckStub = NULL;
 		s_ownNeckMesh = NULL;
 		s_ownNeckBody = 0;
 		s_registrationGroup = NULL;

@@ -758,7 +758,8 @@ int main(int argc, char **argv)
 		for (int t = 0; t < mesh->ntris; t++) {
 			sec += mesh->tris[t].headsec;
 			off += s_ownNeckOff[t];
-			assert(!mesh->tris[t].headsec || !triWanted(mesh, &mesh->tris[t], BEAN_CHR, 1));
+			/* the head section is left out, but for the neck stub kept collapsed for a cut body */
+			assert(!mesh->tris[t].headsec || s_ownNeckStub[t] || !triWanted(mesh, &mesh->tris[t], BEAN_CHR, 1));
 		}
 		printf("OWNNECK %s head section %d left out %d\n", argv[2], sec, off);
 	}
@@ -993,9 +994,9 @@ int main(int argc, char **argv)
                     triangles++;
             assert(s_swap[i].skin->nverts == triangles * 3);
         }
-        /* Base, back, neck and all four full limbs; a guard's body under a head
-         * file draws no neck of its own (beanOwnNeck), its neck list blank. */
-        assert(seen == (strcmp(argv[2], "Cgreatguard2Z") ? 0xfff7u : 0xfff3u));
+        /* Base, back, neck and all four full limbs (a guard's neck list holds only
+         * the stub a cut body draws once its head is off, beanOwnNeck) */
+        assert(seen == 0xfff7u);
     }
 	printf("REGISTERED %s %d lists %d skinned %d bones\n", argv[2], lists, skin, mesh->nbones);
 	if (!lists) {
