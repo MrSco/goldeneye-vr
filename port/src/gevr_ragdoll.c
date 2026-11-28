@@ -1278,15 +1278,16 @@ void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int
     /* CE's reach (ragdollBuildCaps, dismember.c): a hole is closed only within
      * 1.6 cut radii of its joint, on this side's frame. Bean's skin has open
      * rims far off on triangles with a trace of the other piece's weight - a
-     * sleeve's cuff at the wrist after a shoulder cut, 2.5 cut radii away. */
+     * sleeve's cuff at the wrist after a shoulder cut, 2.5 cut radii away.
+     * A rim is closed when any of it comes that near, not its middle: a coat's
+     * opening after a thigh cut runs from the hip down to the hem, its middle
+     * out of reach, and stayed open - a hollow coat, the hip's disc floating
+     * inside it (user, 2026-11-28, Quest). */
     const int childside=piece>0 && rdPiece(b,b->parent[piece-1])==other;
     const int cut=childside ? piece-1 : other>0 && rdPiece(b,b->parent[other-1])==piece ? other-1 : -1;
     if(cut>=0 && b->parent[cut]>=0) {
-        float centre[3]={0,0,0},joint[3];
-        for(int e=0;e<nedges;e++)for(int k=0;k<2;k++)for(int j=0;j<3;j++)centre[j]+=rim[e][k][j];
-        for(int j=0;j<3;j++)centre[j]/=nedges*2;
+        float joint[3];
         Mtxf world,inverse; rdMul(&b->offset[matrix],&b->joints[b->owner[matrix]],&world);
-        rdTransform(&world,centre,1);
         /* the parent's side: where the joint was on that piece (its hole) */
         if(childside) memcpy(joint,b->joints[cut].m[3],sizeof(joint));
         else {
@@ -1295,9 +1296,14 @@ void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int
             rdTransform(&inverse,joint,1); rdTransform(&b->joints[b->parent[cut]],joint,1);
         }
         const float reach=g_RdSkelHuman.cutradius[b->skel[cut]]*b->torso*1.6f;
-        float d=0;
-        for(int k=0;k<3;k++){float x=centre[k]-joint[k];d+=x*x;}
-        if(d>reach*reach)return;
+        float nearest=1e30f;
+        for(int e=0;e<nedges;e++)for(int k=0;k<2;k++) {
+            float at[3]={rim[e][k][0],rim[e][k][1],rim[e][k][2]},d=0;
+            rdTransform(&world,at,1);
+            for(int j=0;j<3;j++){float x=at[j]-joint[j];d+=x*x;}
+            nearest=fminf(nearest,d);
+        }
+        if(nearest>reach*reach)return;
     }
     b->bean[b->nbean].matrix=matrix; b->bean[b->nbean].nedges=nedges; b->bean[b->nbean].rim=rim;
     b->bean[b->nbean].cut=cut;
