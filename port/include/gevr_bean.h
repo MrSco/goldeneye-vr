@@ -23,6 +23,9 @@ typedef struct GevrBeanCuts {
      * (through the joint at death, square to the bone) a death-pose point lies;
      * -1 when no single cut divides them (optional) */
     int (*side)(const struct Model *model, int piece, int other, const float p[3]);
+    /* Of a piece cut off: the matrix of the part it was cut from, and *own
+     * that of the part cut; -1 for the body's own piece (optional) */
+    int (*from)(const struct Model *model, int piece, int *own);
 } GevrBeanCuts;
 void gevrBeanSetCuts(const GevrBeanCuts *cuts);
 struct fontchar;

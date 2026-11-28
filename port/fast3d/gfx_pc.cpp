@@ -5163,6 +5163,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         params.num_wounds = skin->numWounds < 0 ? 0 : skin->numWounds > GEVR_SKIN_WOUNDS ? GEVR_SKIN_WOUNDS : skin->numWounds;
         memcpy(params.wounds, skin->wounds, sizeof(params.wounds));
         params.cull = (geometry & G_CULL_BACK) ? 1 : (geometry & G_CULL_FRONT) ? 2 : 0;
+        // a cut body draws both faces (GevrSkinDraw.twoSided)
+        if (skin->twoSided) params.cull = 0;
         // Mirrored controller roles reverse winding just as the CPU path does.
         if (params.cull && gevrCullMirror) params.cull = params.cull == 1 ? 2 : 1;
         // The MP uniform negates y on an inverted target, reversing winding.

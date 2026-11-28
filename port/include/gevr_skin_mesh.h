@@ -35,6 +35,9 @@ typedef struct GevrSkinDraw {
     void *posedVertices;
     void *(*pose)(struct GevrSkinDraw *draw);
     int authoredColor;
+    /* both faces drawn: a cut body, whose open coat would show the ground
+     * through its culled inside (gevr_bean_pose.inc.h beanCutGpuDraw) */
+    int twoSided;
     /* bullet wounds in anchor space: xyz, then 255 less the bruise's alpha
      * (gevr_bean_wounds.inc.h) */
     int numWounds;

@@ -32,6 +32,7 @@ int gevrRagdollModelCut(const struct Model *model);
 unsigned gevrRagdollModelBody(const struct Model *model);
 void gevrRagdollDeathPos(const struct Model *model, int matrix, const float local[3], float out[3]);
 int gevrRagdollCutSide(const struct Model *model, int piece, int other, const float p[3]);
+int gevrRagdollCutFrom(const struct Model *model, int piece, int *own);
 int gevrRagdollPiece(const struct Model *model, int matrix);
 int gevrRagdollRemap(const struct Model *model, int owner, int matrix, float p[3], float n[3]);
 void gevrRagdollBeanCap(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);

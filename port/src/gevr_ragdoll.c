@@ -493,7 +493,7 @@ static int rdStart(void)
     if(s_failed || !VrRagdolls || lvlGetCurrentStageToLoad()==LEVELID_TITLE)return 0;
     if(!pdphysInit(rdLog)) { s_failed=1; return 0; }
     const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap,gevrRagdollBeanCap,gevrRagdollModelBody,
-                             gevrRagdollDeathPos,gevrRagdollCutSide};
+                             gevrRagdollDeathPos,gevrRagdollCutSide,gevrRagdollCutFrom};
     gevrBeanSetCuts(&cuts);
     rdWorldInit();
     return 1;
@@ -1240,6 +1240,21 @@ int gevrRagdollCutSide(const Model *model, int piece, int other, const float p[3
         if(l<1e-6f)return -1;
         for(int k=0;k<3;k++)d+=(p[k]-at[k])*n[k];
         return d>0 ? child : parent;
+    }
+    return -1;
+}
+/* Of a piece cut off, the matrix of the part it was cut from and *own that of
+ * the part cut: the bones either side of the cut, where Bean holds a skin's
+ * weight from across it (gevr_bean_pose.inc.h beanCutFrame); -1 for the
+ * body's own piece */
+int gevrRagdollCutFrom(const Model *model, int piece, int *own)
+{
+    RdBody *b=rdModel(model);
+    if(!b)return -1;
+    for(int j=0;j<b->count;j++) {
+        if(!(b->cuts&(1u<<j)) || b->parent[j]<0 || rdPiece(b,j)!=piece || rdPiece(b,b->parent[j])==piece)continue;
+        if(own)*own=b->primary[j];
+        return b->primary[b->parent[j]];
     }
     return -1;
 }
