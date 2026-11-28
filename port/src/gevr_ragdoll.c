@@ -492,7 +492,8 @@ static int rdStart(void)
     if(pdphysIsReady())return 1;
     if(s_failed || !VrRagdolls || lvlGetCurrentStageToLoad()==LEVELID_TITLE)return 0;
     if(!pdphysInit(rdLog)) { s_failed=1; return 0; }
-    const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap,gevrRagdollBeanCap,gevrRagdollModelBody};
+    const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap,gevrRagdollBeanCap,gevrRagdollModelBody,
+                             gevrRagdollDeathPos,gevrRagdollCutSide};
     gevrBeanSetCuts(&cuts);
     rdWorldInit();
     return 1;
@@ -1165,6 +1166,45 @@ static const u8 *rdPieces(RdBody *b)
 }
 int gevrRagdollModelCut(const Model *model) { RdBody *b=rdModel(model); return b ? (int)b->cuts : 0; }
 unsigned gevrRagdollModelBody(const Model *model) { RdBody *b=rdModel(model); return b ? b->serial : 0; }
+
+/* A point of the body as it was at death (rd->bind: each matrix's world frame then) */
+void gevrRagdollDeathPos(const Model *model, int matrix, const float local[3], float out[3])
+{
+    RdBody *b=rdModel(model);
+    memcpy(out,local,3*sizeof(float));
+    if(b && matrix>=0 && matrix<b->matrices)rdTransform(&b->bind[matrix],out,1);
+}
+
+/*
+ * Bean's skin is split at a cut by triangle, each to the piece that moves it
+ * most; a long coat's skirt or front mixes the two across a wide band, and
+ * the split zigzagged through it, red caps filling the teeth (user,
+ * 2026-11-28: the coats after a leg or the waist was cut). A triangle across
+ * the cut goes instead to the side of the cut's plane its middle is on: the
+ * plane through the joint at death, square to the bone below it (or, at the
+ * end of a limb, the bone above).
+ */
+int gevrRagdollCutSide(const Model *model, int piece, int other, const float p[3])
+{
+    RdBody *b=rdModel(model);
+    if(!b)return -1;
+    for(int j=0;j<b->count;j++) {
+        if(!(b->cuts&(1u<<j)) || b->parent[j]<0)continue;
+        const int child=rdPiece(b,j),parent=rdPiece(b,b->parent[j]);
+        if(!((child==piece && parent==other) || (child==other && parent==piece)))continue;
+        int below=-1;
+        for(int k=0;k<b->count && below<0;k++)if(b->parent[k]==j)below=k;
+        const float *at=b->initial[j].m[3];
+        const float *from=below>=0 ? at : b->initial[b->parent[j]].m[3];
+        const float *to=below>=0 ? b->initial[below].m[3] : at;
+        float n[3],l=0,d=0;
+        for(int k=0;k<3;k++){n[k]=to[k]-from[k];l+=n[k]*n[k];}
+        if(l<1e-6f)return -1;
+        for(int k=0;k<3;k++)d+=(p[k]-at[k])*n[k];
+        return d>0 ? child : parent;
+    }
+    return -1;
+}
 /* Bean's skin found a hole's rim (gevr_bean_caps.inc.h): drawn after the body */
 void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int nedges,int piece,int other)
 {

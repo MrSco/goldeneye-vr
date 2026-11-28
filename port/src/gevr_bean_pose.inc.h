@@ -133,6 +133,43 @@ static int beanCutHead(const struct beanSkin *skin, const Model *model, int anch
 	return own;
 }
 
+/* Of a triangle the cut divides between pieces a and b, the one whose side of
+ * the cut's plane its middle lies on, in the death pose (gevrRagdollCutSide);
+ * -1 when the ragdoll can't tell */
+static int beanCutPlaneSide(const struct beanSkin *skin, Model *model, int first, int anchorIndex, int backIndex,
+                            ModelNode *neck, int a, int b)
+{
+	if (!s_cuts.side || !s_cuts.death || first + 2 >= skin->nverts)
+		return -1;
+	const int count = model->obj->numMatrices;
+	float mid[3] = {0, 0, 0};
+	for (int c = first; c < first + 3; c++) {
+		const struct beanSkinVert *src = &skin->verts[c];
+		float at[3] = {0, 0, 0}, total = 0;
+		for (int w = 0; w < 4; w++) {
+			int matrix = src->matrix[w], back = matrix == -3;
+			if (matrix == -2)
+				matrix = anchorIndex;
+			if (back)
+				matrix = backIndex >= 0 ? backIndex : anchorIndex;
+			if (!src->weight[w] || matrix < 0 || matrix >= count)
+				continue;
+			float local[3], world[3];
+			for (int k = 0; k < 3; k++)
+				local[k] = src->p[w][k] + (back && neck ? neck->Data->Group.Origin.f[k] : 0);
+			s_cuts.death(model, matrix, local, world);
+			for (int k = 0; k < 3; k++)
+				at[k] += src->weight[w] * world[k];
+			total += src->weight[w];
+		}
+		if (total <= 0)
+			return -1;
+		for (int k = 0; k < 3; k++)
+			mid[k] += at[k] / total / 3.0f;
+	}
+	return s_cuts.side(model, a, b, mid);
+}
+
 /* The matrix of the group above the one drawn with matrix m (the back above
  * the neck), -1 none */
 static int beanParentMatrix(Model *model, int m)
@@ -213,6 +250,15 @@ static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, uns
 				if (scores[at] > scores[best]) best = at;
 			}
 			owner = n ? matrices[best] : anchorIndex;
+			if (n >= 2) {   /* across a cut: by the side of its plane (beanCutPlaneSide) */
+				int other = -1;
+				for (int at = 0; at < n; at++)
+					if (at != best && (other < 0 || scores[at] > scores[other])) other = at;
+				if (beanCutPlaneSide(skin, model, i, anchorIndex, backIndex, neck, pieces[best], pieces[other]) == pieces[other]) {
+					best = other;
+					owner = matrices[other];
+				}
+			}
 			const int mine = beanCutHead(skin, model, anchorIndex, pieces, n, &best, &owner);
 			int second = -1;
 			for (int at = 0; at < n; at++)
@@ -442,6 +488,15 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
                 if (scores[at] > scores[best]) best = at;
             }
             owner = count ? matrices[best] : anchorIndex;
+            if (count >= 2) {   /* across a cut: by the side of its plane (beanCutPlaneSide) */
+                int other = -1;
+                for (int at = 0; at < count; at++)
+                    if (at != best && (other < 0 || scores[at] > scores[other])) other = at;
+                if (beanCutPlaneSide(skin, model, v, anchorIndex, backIndex, neck, pieces[best], pieces[other]) == pieces[other]) {
+                    best = other;
+                    owner = matrices[other];
+                }
+            }
             const int mine = beanCutHead(skin, model, anchorIndex, pieces, count, &best, &owner);
             if (tripiece) {
                 int second = -1;

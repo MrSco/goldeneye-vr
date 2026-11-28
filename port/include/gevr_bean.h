@@ -17,6 +17,12 @@ typedef struct GevrBeanCuts {
     void (*cap)(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);
     /* The body's own number, never another's (optional) */
     unsigned (*body)(const struct Model *model);
+    /* A point of a cut body in its death pose, from matrix's space (optional) */
+    void (*death)(const struct Model *model, int matrix, const float local[3], float out[3]);
+    /* Of two pieces one cut apart, the one on whose side of that cut's plane
+     * (through the joint at death, square to the bone) a death-pose point lies;
+     * -1 when no single cut divides them (optional) */
+    int (*side)(const struct Model *model, int piece, int other, const float p[3]);
 } GevrBeanCuts;
 void gevrBeanSetCuts(const GevrBeanCuts *cuts);
 struct fontchar;
