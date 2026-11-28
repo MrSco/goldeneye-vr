@@ -1532,6 +1532,37 @@ static const int8_t *s_pressOf;
 static const struct gevrBeanMesh *s_pressMesh;
 static int s_pressWant;
 
+/*
+ * DAB gebean.c headsecskel and dropownskin, xblamesh.c xblaMeshHeadIsNeckBack()
+ * (pinned adef1dc2): a guard's body under one of the release's head files
+ * leaves out its file's own head section (the 0x17 section of kind 0: his
+ * head and neck, and the skin of his neck down into the collar), which the
+ * release switches off on a body that wears a head file. Kept, the head
+ * file's neck, whose lower ring follows the back, parted from it once the
+ * head turned on the neck further than an animation turns it, a ragdoll's
+ * head thrown back or to the side, and it stood out through the head's cheek
+ * and neck in pale patches (user, 2026-11-27: "another mesh inside the head
+ * clipping through on the cheek and neck"). Not a Bond outfit, whose head is
+ * cut from the same file (s_files' BEAN_HEADBODY). Per triangle, 1 left out;
+ * set while gevrBeanModelApply() lays such a body out.
+ */
+static int s_ownNeckBody;   /* the body being laid out is a guard's, not an outfit's */
+static const struct gevrBeanMesh *s_ownNeckMesh;
+static uint8_t *s_ownNeckOff;
+
+static void beanOwnNeck(const struct gevrBeanMesh *mesh)
+{
+	int sec = 0;
+	uint8_t *off;
+	if (mesh->ntris <= 0 || !(off = calloc((size_t)mesh->ntris, 1)))
+		return;
+	for (int i = 0; i < mesh->ntris; i++)
+		sec += off[i] = mesh->tris[i].headsec;
+	GEVR_BEAN_LOG("gevr bean: under a head file: its own head section left out, %d triangles\n", sec);
+	s_ownNeckMesh = mesh;
+	s_ownNeckOff = off;
+}
+
 static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t, int kind, int hasHead)
 {
 	if (t->flags & GEVR_BEAN_F_FLASH) {
@@ -1559,6 +1590,8 @@ static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 		return (t->flags & GEVR_BEAN_F_NECK) &&
 		       (t->p[1] + t->p[4] + t->p[7]) / 3 >= mesh->bind[GEVR_BEAN_SK_NECK][1] - 30.0f;
 	}
+	if (hasHead && mesh == s_ownNeckMesh && s_ownNeckOff[t - mesh->tris])
+		return 0;
 	if (hasHead && (t->flags & GEVR_BEAN_F_NECK) &&
 	    (t->p[1] + t->p[4] + t->p[7]) / 3 > mesh->bind[GEVR_BEAN_SK_NECK][1] + 30.0f) {
 		return 0;
@@ -3304,6 +3337,8 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				if (grp[i].sk == GEVR_BEAN_SK_NECK)
 					grp[i].sk = -1;
 		buildRot(mesh, grp, ng, R, &scale);
+		if (hasHead && s_ownNeckBody && s_ownNeckMesh != mesh)
+			beanOwnNeck(mesh);
 		for (int s = 0; s < GEVR_BEAN_SK_COUNT; s++) {
 			sharedG[s] = NULL;
 			sharedV[s] = NULL;
@@ -3886,7 +3921,14 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 			s_gunGroups = group;
 		}
 		s_registrationGroup = group;
+		s_ownNeckBody = kind == BEAN_CHR;
+		for (unsigned i = 0; s_ownNeckBody && i < sizeof(s_files) / sizeof(s_files[0]); i++)
+			s_ownNeckBody = s_files[i].kind != BEAN_HEADBODY || strcmp(s_files[i].source, source) != 0;
 		applyMesh(header, mesh, kind, fit);
+		free(s_ownNeckOff);
+		s_ownNeckOff = NULL;
+		s_ownNeckMesh = NULL;
+		s_ownNeckBody = 0;
 		s_registrationGroup = NULL;
 		if (group && !group->references) beanGunRetire(group);
 	}
