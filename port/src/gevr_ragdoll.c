@@ -813,6 +813,7 @@ void gevrRagdollCapture(ChrRecord *chr)
 #define RD_REST_BODY 1.0f     /* s: the body itself, within the same 3 units */
 #define RD_SHAKE_REACH 12.0f  /* units: a piece rocking in place within this... */
 #define RD_SHAKE_TIME 1.0f    /* s: ...this long lies still too (the body: twice) */
+#define RD_SHAKE_LATE 6.0f    /* s: awake this long, a body rocks in place within twice the reach */
 /*
  * CE ragdoll.c rdMpSolidCheck (Perfect-Dark-CE b0180009), Resting Bodies Turn
  * Solid on its default, the Combat Simulator: in a multiplayer match a body
@@ -852,6 +853,14 @@ static void rdRest(RdBody *b, float dt, int asleep)
     /* The body itself too, over RD_REST_BODY: on the PC a guard slumped against
      * the Dam barrier stayed awake for good at zero speed, its parts never let
      * sleep however still (2026-11-28), costing the physics every tick */
+    /* Each piece put to sleep on its own was woken by the next one still
+     * rocking against it: a cut head at 234 units/s, a forearm at 78, for good
+     * (headset log, 2026-11-28, the arms jittering). Once every piece is
+     * resting or rocking in place they sleep together; and a body awake past
+     * RD_SHAKE_LATE rocks in place within twice the reach. */
+    unsigned every=0;
+    int ready=1;
+    const float reach=b->awake>=RD_SHAKE_LATE ? RD_SHAKE_REACH*2 : RD_SHAKE_REACH;
     for(int c=-1;c<b->count && !asleep && !b->solid;c++) {
         if(c>=0 && !(b->cuts&(1u<<c)))continue;
         float *still=c>=0 ? &b->still[c] : &b->stillbody;
@@ -872,8 +881,9 @@ static void rdRest(RdBody *b, float dt, int asleep)
          * once it has kept within RD_SHAKE_REACH for RD_SHAKE_TIME: a cut
          * forearm on the Quest went 10 units/s, now and then 3 units off its
          * anchor, and stayed awake for good (headset log, 2026-11-28) */
+        every|=mask;
         float *shake=&b->shake[c+1];
-        if(*shake<=0 || wide>RD_SHAKE_REACH*RD_SHAKE_REACH) {
+        if(*shake<=0 || wide>reach*reach) {
             for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->shakeanchor[p],b->joints[p].m[3],sizeof(b->shakeanchor[p]));
             *shake=dt>0 ? dt*0.5f : 1e-3f;
         } else if((*shake+=dt)>=(c>=0 ? RD_SHAKE_TIME : RD_SHAKE_TIME*2)) {
@@ -883,11 +893,13 @@ static void rdRest(RdBody *b, float dt, int asleep)
         if(*still<=0 || stray>RD_REST_SPEED*RD_REST_TIME*RD_REST_SPEED*RD_REST_TIME) {
             for(int p=0;p<b->count;p++)if(mask&(1u<<p))memcpy(b->anchor[p],b->joints[p].m[3],sizeof(b->anchor[p]));
             *still=dt>0 ? dt*0.5f : 1e-3f;
+            ready=0;
             continue;
         }
-        if((*still+=dt)<wait)continue;
+        if((*still+=dt)<wait){ready=0;continue;}
         pdphysRagdollSleepParts(b->handle,mask);
     }
+    if(every && ready && !asleep && !b->solid)pdphysRagdollSleepParts(b->handle,every);
     /* Awake long after it fell: why, now and then, for a headset log. Cut
      * pieces jittered for good on the Quest (user, 2026-11-28) and slept within
      * 4 s on the PC, the same throws and floors. Per piece: its top speed this
@@ -903,9 +915,9 @@ static void rdRest(RdBody *b, float dt, int asleep)
                 for(int k=0;k<3;k++){float x=b->joints[p].m[3][k]-b->anchor[p][k];d+=x*x;}
                 stray=fmaxf(stray,d);
             }
-            n+=snprintf(line+n,sizeof(line)-n," %d:%.1f/%.1f/%.2f",c+1,fastest[c+1],sqrtf(stray),c>=0 ? b->still[c] : b->stillbody);
+            n+=snprintf(line+n,sizeof(line)-n," %d:%.1f/%.1f/%.2f/%.2f",c+1,fastest[c+1],sqrtf(stray),c>=0 ? b->still[c] : b->stillbody,b->shake[c+1]);
         }
-        sysLogPrintf(LOG_NOTE,"ragdoll: body %u awake %.0f s, cuts 0x%x, %d prop wakes (last type %d at %d %d %d), pieces speed/stray/still:%s",
+        sysLogPrintf(LOG_NOTE,"ragdoll: body %u awake %.0f s, cuts 0x%x, %d prop wakes (last type %d at %d %d %d), pieces speed/stray/still/rocking:%s",
                      b->serial,b->awake,b->cuts,b->moverwakes,b->mover[0],b->mover[1],b->mover[2],b->mover[3],line);
         b->awakelog=5.0f; b->moverwakes=0;
     }
